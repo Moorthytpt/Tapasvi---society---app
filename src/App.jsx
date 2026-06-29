@@ -1,10 +1,47 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
   ChevronRight, X, Check, Globe, MapPin, BarChart3, FileSpreadsheet,
   AlertCircle, Filter
 } from "lucide-react";
+
+/* ============================================================
+   SUPABASE CONNECTION
+   These are public-facing keys (safe to embed in client code).
+   Project: tapasvi-society
+   ============================================================ */
+const supabase = createClient(
+  "https://srdfsdqitsmpzjfsxkib.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyZGZzZHFpdHNtcHpqZnN4a2liIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjQxMTQsImV4cCI6MjA5ODMwMDExNH0.LlbXgr9R-6ODYCm3rwJ2gv0F6b2lVditY4temE1flXU"
+);
+
+/* Map between the app's camelCase fields and the database's snake_case columns */
+const FIELD_TO_DB = {
+  eduQualification: "edu_qualification", eduLevel: "edu_level", interestedSkill: "interested_skill",
+  houseNo: "house_no", segregateWaste: "segregate_waste", wetWaste: "wet_waste", dryWaste: "dry_waste",
+  plasticWaste: "plastic_waste", sellsRecyclables: "sells_recyclables", interestedRecycling: "interested_recycling",
+  enumeratorName: "enumerator_name", surveyDate: "survey_date", createdAt: "created_at",
+};
+const DB_TO_FIELD = Object.fromEntries(Object.entries(FIELD_TO_DB).map(([a, b]) => [b, a]));
+
+function recordToDbRow(r) {
+  const row = {};
+  for (const [key, val] of Object.entries(r)) {
+    const dbKey = FIELD_TO_DB[key] || key;
+    row[dbKey] = val;
+  }
+  return row;
+}
+function dbRowToRecord(row) {
+  const r = {};
+  for (const [key, val] of Object.entries(row)) {
+    const appKey = DB_TO_FIELD[key] || key;
+    r[appKey] = val;
+  }
+  return r;
+}
 
 /* ============================================================
    TAPASVI SOCIETY — Baseline Survey & Beneficiary Management
@@ -177,16 +214,6 @@ const MANDALS_BY_DISTRICT = {
   "Tirupati": ["Pakala", "Chandragiri", "Vedurukuppam", "Rompicherla"],
   "Chittoor": ["Penumuru", "Puthalapattu"],
 };
-
-/* ---------------- Seed demo data ---------------- */
-const SEED = [
-  { id: "TPS-RY-0001", program: "rydeap", sno: 1, name: "K. Ramesh", age: 22, gender: "Male", aadhaar: "234567890123", phone: "9876543210", eduQualification: "Inter", eduLevel: "Higher Secondary", interestedSkill: "Web Development", houseNo: "12-4", village: "Renigunta", mandal: "Renigunta", district: "Tirupati", state: "Andhra Pradesh", pin: "517520", category: "BC", disability: "No", shg: "No", enumeratorName: "Lakshmi Devi", surveyDate: "2026-06-10", createdAt: "2026-06-10T09:00:00", synced: true },
-  { id: "TPS-TE-0001", program: "tailoring", sno: 2, name: "P. Saraswathi", age: 29, gender: "Female", aadhaar: "345678901234", phone: "9876512345", eduLevel: "Secondary", interestedSkill: "Embroidery - Aari work", houseNo: "5-21", village: "Tiruchanur", mandal: "Tirupati Rural", district: "Tirupati", state: "Andhra Pradesh", pin: "517503", category: "OC", disability: "No", shg: "Yes", enumeratorName: "Lakshmi Devi", surveyDate: "2026-06-11", createdAt: "2026-06-11T10:00:00", synced: true },
-  { id: "TPS-WS-0001", program: "waste", sno: 3, name: "M. Subbarao", age: 41, gender: "Male", aadhaar: "456789012345", phone: "9876523456", houseNo: "3-9", village: "Srikalahasti", mandal: "Srikalahasti", district: "Chittoor", state: "Andhra Pradesh", pin: "517644", category: "BC", disability: "No", segregateWaste: "Yes", wetWaste: "1.5", dryWaste: "0.8", plasticWaste: "2", compost: "No", sellsRecyclables: "Yes", awareness: "Medium", interestedRecycling: "Yes", remarks: "", enumeratorName: "Venkat Rao", surveyDate: "2026-06-12", createdAt: "2026-06-12T11:00:00", synced: true },
-  { id: "TPS-RY-0002", program: "rydeap", sno: 4, name: "S. Divya", age: 20, gender: "Female", aadhaar: "567890123456", phone: "9876534567", eduQualification: "BSc", eduLevel: "Graduate", interestedSkill: "Data Entry & MS Office", houseNo: "8-2", village: "Yerpedu", mandal: "Yerpedu", district: "Tirupati", state: "Andhra Pradesh", pin: "517619", category: "SC", disability: "No", shg: "No", enumeratorName: "Venkat Rao", surveyDate: "2026-06-14", createdAt: "2026-06-14T09:30:00", synced: false },
-  { id: "TPS-TE-0002", program: "tailoring", sno: 5, name: "R. Anitha", age: 34, gender: "Female", aadhaar: "678901234567", phone: "9876545678", eduLevel: "Primary", interestedSkill: "Tailoring - Basic stitching", houseNo: "21", village: "Puttur", mandal: "Puttur", district: "Chittoor", state: "Andhra Pradesh", pin: "517583", category: "BC", disability: "No", shg: "Yes", enumeratorName: "Lakshmi Devi", surveyDate: "2026-06-15", createdAt: "2026-06-15T14:00:00", synced: true },
-  { id: "TPS-WS-0002", program: "waste", sno: 6, name: "T. Lakshmi", age: 38, gender: "Female", aadhaar: "789012345678", phone: "9876556789", houseNo: "14-A", village: "Renigunta", mandal: "Renigunta", district: "Tirupati", state: "Andhra Pradesh", pin: "517520", category: "OC", disability: "No", segregateWaste: "No", wetWaste: "1", dryWaste: "0.5", plasticWaste: "1.5", compost: "No", sellsRecyclables: "No", awareness: "Low", interestedRecycling: "Yes", remarks: "Requested follow-up visit", enumeratorName: "Venkat Rao", surveyDate: "2026-06-16", createdAt: "2026-06-16T16:00:00", synced: false },
-];
 
 /* ---------------- Helpers ---------------- */
 function nextRegId(records, programKey) {
@@ -970,7 +997,9 @@ export default function App() {
   const [lang, setLang] = useState("en");
   const t = STR[lang];
   const [user, setUser] = useState(null);
-  const [records, setRecords] = useState(SEED);
+  const [records, setRecords] = useState([]);
+  const [loadingRecords, setLoadingRecords] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
   const [editingRecord, setEditingRecord] = useState(null);
   const [programKey, setProgramKey] = useState("rydeap");
@@ -979,14 +1008,41 @@ export default function App() {
 
   const isAdmin = user?.role === "admin";
 
-  const handleSave = useCallback((form) => {
+  const loadRecords = useCallback(async () => {
+    setLoadingRecords(true);
+    setLoadError(null);
+    const { data, error } = await supabase
+      .from("beneficiaries")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) {
+      setLoadError(error.message);
+      setLoadingRecords(false);
+      return;
+    }
+    setRecords((data || []).map(dbRowToRecord));
+    setLoadingRecords(false);
+  }, []);
+
+  useEffect(() => {
+    if (user) loadRecords();
+  }, [user, loadRecords]);
+
+  const handleSave = useCallback(async (form) => {
     if (editingRecord) {
+      const { error } = await supabase
+        .from("beneficiaries")
+        .update(recordToDbRow(form))
+        .eq("id", editingRecord.id);
+      if (error) { setToast("Error: " + error.message); return; }
       setRecords(rs => rs.map(r => r.id === editingRecord.id ? { ...r, ...form } : r));
       setToast(t.updatedToast);
     } else {
       const id = nextRegId(records, form.program);
       const sno = records.length + 1;
       const rec = { ...form, id, sno, createdAt: new Date().toISOString(), synced: navigator.onLine !== false };
+      const { error } = await supabase.from("beneficiaries").insert(recordToDbRow(rec));
+      if (error) { setToast("Error: " + error.message); return; }
       setRecords(rs => [...rs, rec]);
       setToast(t.savedToast);
     }
@@ -995,7 +1051,9 @@ export default function App() {
   }, [editingRecord, records, t]);
 
   const handleEdit = (r) => { setEditingRecord(r); setProgramKey(r.program); setView("form"); };
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
+    const { error } = await supabase.from("beneficiaries").delete().eq("id", deleteTarget.id);
+    if (error) { setToast("Error: " + error.message); setDeleteTarget(null); return; }
     setRecords(rs => rs.filter(r => r.id !== deleteTarget.id));
     setToast(t.deletedToast);
     setDeleteTarget(null);
@@ -1007,6 +1065,32 @@ export default function App() {
 
   if (!user) {
     return <LoginScreen t={t} lang={lang} setLang={setLang} onLogin={setUser} />;
+  }
+
+  if (loadingRecords) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF]">
+        <div className="flex flex-col items-center gap-3">
+          <Logo size={40} />
+          <p className="text-[13px] text-[#727870]">Loading records…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF] px-4">
+        <div className="max-w-[360px] text-center">
+          <AlertCircle size={28} className="mx-auto mb-3 text-[#B0581F]" />
+          <p className="text-[14px] text-[#23282B] mb-2">Couldn't load records.</p>
+          <p className="text-[12px] text-[#727870] mb-4">{loadError}</p>
+          <button onClick={loadRecords} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#1B5E3F" }}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const NavItem = ({ icon: Icon, label, active, onClick, restricted }) => (
