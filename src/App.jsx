@@ -342,14 +342,48 @@ function LoginScreen({ t, lang, setLang, onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || password !== LOGIN_PASSWORDS[role]) {
-      setError(t.invalidLogin);
-      return;
+    if (!username.trim() || !password) { setError(t.invalidLogin); return; }
+    setLoading(true);
+    setError("");
+
+    if (role === "admin") {
+      // Admin: authenticate via Supabase Auth (email + password)
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: username.trim(),
+        password,
+      });
+      if (authError || !data.user) {
+        setError(t.invalidLogin);
+        setLoading(false);
+        return;
+      }
+      // Verify the user has admin role in user_roles table
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("id", data.user.id)
+        .single();
+      if (!roleData || roleData.role !== "admin") {
+        await supabase.auth.signOut();
+        setError(t.invalidLogin);
+        setLoading(false);
+        return;
+      }
+      onLogin({ role: "admin", username: data.user.email });
+    } else {
+      // Enumerator: still uses shared password (to be migrated later)
+      if (password !== LOGIN_PASSWORDS["enumerator"]) {
+        setError(t.invalidLogin);
+        setLoading(false);
+        return;
+      }
+      onLogin({ role: "enumerator", username: username.trim() });
     }
-    onLogin({ role, username: username.trim() });
+    setLoading(false);
   };
 
   return (
@@ -389,17 +423,17 @@ function LoginScreen({ t, lang, setLang, onLogin }) {
             ))}
           </div>
 
-          <Field label={t.username} required>
-            <TextInput value={username} onChange={e => setUsername(e.target.value)} placeholder={role === "admin" ? "admin" : "enumerator1"} />
+          <Field label={role === "admin" ? "Email" : t.username} required>
+            <TextInput value={username} onChange={e => setUsername(e.target.value)} placeholder={role === "admin" ? "admin@tapasvi.org" : "enumerator1"} inputMode={role === "admin" ? "email" : "text"} />
           </Field>
           <Field label={t.password} required error={error}>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
           </Field>
 
-          <button type="submit" onClick={submit} className="w-full mt-2 rounded-lg py-3 text-[14px] font-semibold transition active:opacity-90" style={{ background: "#1B5E3F", color: "#FFFFFF" }}>
-            {t.signIn}
+          <button type="submit" onClick={submit} disabled={loading} className="w-full mt-2 rounded-lg py-3 text-[14px] font-semibold transition active:opacity-90" style={{ background: "#1B5E3F", color: "#FFFFFF", opacity: loading ? 0.7 : 1 }}>
+            {loading ? "Signing in…" : t.signIn}
           </button>
-          <p className="mt-3 text-[11.5px] text-[#999] text-center">{t.loginHint}</p>
+          <p className="mt-3 text-[11.5px] text-[#999] text-center">{role === "admin" ? "Admin: use your registered email & password" : "Enumerator password: tapasvi"}</p>
         </form>
       </div>
     </div>
