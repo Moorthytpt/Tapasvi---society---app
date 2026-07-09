@@ -4,332 +4,259 @@ import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
   ChevronRight, X, Check, Globe, MapPin, BarChart3, FileSpreadsheet,
-  AlertCircle, Filter
+  AlertCircle, Filter, BookOpen, Briefcase, Calendar, TrendingUp,
+  CheckCircle, XCircle, Clock, Award, Home, Settings, ChevronDown, RefreshCw
 } from "lucide-react";
 
 /* ============================================================
-   SUPABASE CONNECTION
-   These are public-facing keys (safe to embed in client code).
-   Project: tapasvi-society
+   SUPABASE — TAPASVI MIS
    ============================================================ */
 const supabase = createClient(
   "https://srdfsdqitsmpzjfsxkib.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNyZGZzZHFpdHNtcHpqZnN4a2liIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjQxMTQsImV4cCI6MjA5ODMwMDExNH0.LlbXgr9R-6ODYCm3rwJ2gv0F6b2lVditY4temE1flXU"
 );
 
-/* Map between the app's camelCase fields and the database's snake_case columns */
-const FIELD_TO_DB = {
-  eduQualification: "edu_qualification", eduLevel: "edu_level", interestedSkill: "interested_skill",
-  houseNo: "house_no", segregateWaste: "segregate_waste", wetWaste: "wet_waste", dryWaste: "dry_waste",
-  plasticWaste: "plastic_waste", sellsRecyclables: "sells_recyclables", interestedRecycling: "interested_recycling",
-  enumeratorName: "enumerator_name", surveyDate: "survey_date", createdAt: "created_at",
-};
-const DB_TO_FIELD = Object.fromEntries(Object.entries(FIELD_TO_DB).map(([a, b]) => [b, a]));
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
-function recordToDbRow(r) {
-  const row = {};
-  for (const [key, val] of Object.entries(r)) {
-    const dbKey = FIELD_TO_DB[key] || key;
-    row[dbKey] = val;
-  }
-  return row;
-}
-function dbRowToRecord(row) {
-  const r = {};
-  for (const [key, val] of Object.entries(row)) {
-    const appKey = DB_TO_FIELD[key] || key;
-    r[appKey] = val;
-  }
-  return r;
-}
+const PROGRAMS = [
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#0E5C73", tint: "#E7F1F3", icon: Laptop, idPrefix: "RYDEAP" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#B0581F", tint: "#FBEEE3", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#1B5E3F", tint: "#E7F2EB", icon: Leaf, idPrefix: "WASTE" },
+];
+const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
+
+const EDUCATION_OPTIONS = ["Below 5th", "5th Class", "7th Class", "10th Class / SSC", "Intermediate / 12th", "ITI", "Diploma", "Degree / Graduate", "Post Graduate", "No Formal Education"];
+const STATUS_OPTIONS = ["Registered", "Training", "Completed", "Dropped"];
+const SKILL_OPTIONS = ["Tailoring", "Embroidery", "Computer / Digital Literacy", "Electrical", "Agriculture", "Mobile Repair", "Beauty & Wellness", "Other"];
+const GENDER_OPTIONS = ["Male", "Female", "Other"];
+const CATEGORY_OPTIONS = ["SC", "ST", "BC", "OC", "Minority"];
+const EMPLOYMENT_TYPE_OPTIONS = ["Job / Wage Employment", "Self Employment", "Entrepreneur"];
+const ATTENDANCE_STATUS_OPTIONS = ["Present", "Absent", "Leave"];
+const DISTRICTS_AP = ["Tirupati", "Chittoor", "Ananthapuramu", "YSR Kadapa", "Nellore", "Kurnool", "Guntur", "Krishna", "West Godavari", "East Godavari", "Visakhapatnam", "Other"];
 
 /* ============================================================
-   TAPASVI SOCIETY — Baseline Survey & Beneficiary Management
-   Single-session demo build (in-memory store).
-   For real multi-device sync, connect a backend (e.g. Supabase).
+   HELPERS
    ============================================================ */
-
-/* ---------------- i18n ---------------- */
-const STR = {
-  en: {
-    appName: "TAPASVI Society",
-    appSub: "Rural Development, Social Issues & Health Organization",
-    loginTitle: "Sign in to continue",
-    role: "Role", admin: "Admin", enumerator: "Enumerator",
-    username: "Username", password: "Password", signIn: "Sign in",
-    loginHint: "Demo — any username works. Admin password: admin123. Enumerator password: tapasvi",
-    invalidLogin: "Check your username and password and try again.",
-    dashboard: "Dashboard", register: "New Registration", records: "Records",
-    reports: "Reports", logout: "Sign out",
-    totalBeneficiaries: "Total beneficiaries", thisMonth: "Added this month",
-    villagesCovered: "Villages covered", pendingSync: "Pending sync",
-    programWise: "Program-wise", villageWise: "Village-wise", mandalWise: "Mandal-wise",
-    genderWise: "Gender-wise", recent: "Recent registrations", viewAll: "View all",
-    searchPlaceholder: "Search by name, Aadhaar, phone, village or enumerator",
-    filterProgram: "Program", allPrograms: "All programs",
-    sno: "S.No.", regId: "Registration ID", name: "Name", age: "Age", gender: "Gender",
-    village: "Village", mandal: "Mandal", phone: "Phone", program: "Program",
-    enumeratorName: "Enumerator", surveyDate: "Survey date", actions: "Actions",
-    noRecords: "No records match your search yet.",
-    exportExcel: "Export Excel", exportPdf: "Export PDF", print: "Print",
-    adminOnly: "Admins only",
-    save: "Save registration", cancel: "Cancel", required: "Required",
-    invalidAadhaar: "Aadhaar must be exactly 12 digits.",
-    duplicateAadhaar: "This Aadhaar number is already registered in another program. Multiple program registrations are not allowed.",
-    invalidPhone: "Phone number must be exactly 10 digits.",
-    invalidPin: "PIN code must be 6 digits.",
-    confirmDelete: "Delete this record permanently?",
-    delete: "Delete", edit: "Edit", close: "Close",
-    male: "Male", female: "Female", other: "Other",
-    yes: "Yes", no: "No",
-    low: "Low", medium: "Medium", high: "High",
-    selectOption: "Select",
-    noMandalsAvailable: "No mandals available yet — select Tirupati or Chittoor district",
-    savedToast: "Registration saved.", updatedToast: "Record updated.", deletedToast: "Record deleted.",
-    offlineNote: "Working offline — entries sync when connection returns.",
-    rydeap: "Rural Youth Digital & Employability Advancement Program",
-    tailoring: "Women's Tailoring & Embroidery Skill Development Program",
-    waste: "Waste Segregation, Recycling & Circular Economy Initiative",
-    programInfo: "Program information", personalDetails: "Personal details",
-    educationInfo: "Education", addressInfo: "Address", socialInfo: "Social information",
-    wasteInfo: "Waste management baseline survey",
-    eduQualification: "Education qualification", eduLevel: "Education level",
-    interestedSkill: "Interested skill training",
-    houseNo: "House No.", district: "District", state: "State", pin: "PIN code",
-    category: "Category", disability: "Disability status", shg: "SHG member",
-    segregateWaste: "Segregates waste at home?", wetWaste: "Wet waste generated (kg/day)",
-    dryWaste: "Dry waste generated (kg/day)", plasticWaste: "Plastic waste generated (kg/month)",
-    compost: "Composts organic waste?", sellsRecyclables: "Sells recyclable materials?",
-    awareness: "Awareness of waste segregation", interestedRecycling: "Interested in recycling training?",
-    remarks: "Remarks",
-  },
-  te: {
-    appName: "తపస్వి సొసైటీ",
-    appSub: "గ్రామీణాభివృద్ధి, సామాజిక సమస్యలు & ఆరోగ్య సంస్థ",
-    loginTitle: "కొనసాగించడానికి సైన్ ఇన్ చేయండి",
-    role: "పాత్ర", admin: "అడ్మిన్", enumerator: "ఎన్యూమరేటర్",
-    username: "యూజర్‌నేమ్", password: "పాస్‌వర్డ్", signIn: "సైన్ ఇన్",
-    loginHint: "డెమో — ఏ యూజర్‌నేమ్ అయినా పనిచేస్తుంది. అడ్మిన్ పాస్‌వర్డ్: admin123. ఎన్యూమరేటర్ పాస్‌వర్డ్: tapasvi",
-    invalidLogin: "యూజర్‌నేమ్ మరియు పాస్‌వర్డ్ సరిచూసి మళ్ళీ ప్రయత్నించండి.",
-    dashboard: "డాష్‌బోర్డ్", register: "కొత్త నమోదు", records: "రికార్డులు",
-    reports: "నివేదికలు", logout: "సైన్ అవుట్",
-    totalBeneficiaries: "మొత్తం లబ్ధిదారులు", thisMonth: "ఈ నెలలో చేర్చబడింది",
-    villagesCovered: "కవర్ చేసిన గ్రామాలు", pendingSync: "సింక్ పెండింగ్‌లో",
-    programWise: "కార్యక్రమం వారీగా", villageWise: "గ్రామం వారీగా", mandalWise: "మండలం వారీగా",
-    genderWise: "లింగం వారీగా", recent: "ఇటీవలి నమోదులు", viewAll: "అన్నీ చూడండి",
-    searchPlaceholder: "పేరు, ఆధార్, ఫోన్, గ్రామం లేదా ఎన్యూమరేటర్ ద్వారా శోధించండి",
-    filterProgram: "కార్యక్రమం", allPrograms: "అన్ని కార్యక్రమాలు",
-    sno: "క్ర.సం.", regId: "నమోదు ID", name: "పేరు", age: "వయసు", gender: "లింగం",
-    village: "గ్రామం", mandal: "మండలం", phone: "ఫోన్", program: "కార్యక్రమం",
-    enumeratorName: "ఎన్యూమరేటర్", surveyDate: "సర్వే తేదీ", actions: "చర్యలు",
-    noRecords: "మీ శోధనకు సరిపోలే రికార్డులు లేవు.",
-    exportExcel: "ఎక్సెల్ ఎగుమతి", exportPdf: "PDF ఎగుమతి", print: "ప్రింట్",
-    adminOnly: "అడ్మిన్‌లకు మాత్రమే",
-    save: "నమోదు సేవ్ చేయండి", cancel: "రద్దు చేయండి", required: "అవసరం",
-    invalidAadhaar: "ఆధార్ ఖచ్చితంగా 12 అంకెలు ఉండాలి.",
-    duplicateAadhaar: "ఈ ఆధార్ నంబర్ ఇప్పటికే మరో కార్యక్రమంలో నమోదు చేయబడింది. ఒకటి కంటే ఎక్కువ కార్యక్రమాలలో నమోదు అనుమతించబడదు.",
-    invalidPhone: "ఫోన్ నంబర్ ఖచ్చితంగా 10 అంకెలు ఉండాలి.",
-    invalidPin: "పిన్ కోడ్ 6 అంకెలు ఉండాలి.",
-    confirmDelete: "ఈ రికార్డును శాశ్వతంగా తొలగించాలా?",
-    delete: "తొలగించు", edit: "సవరించు", close: "మూసివేయి",
-    male: "పురుషుడు", female: "స్త్రీ", other: "ఇతర",
-    yes: "అవును", no: "కాదు",
-    low: "తక్కువ", medium: "మధ్యస్థం", high: "ఎక్కువ",
-    selectOption: "ఎంచుకోండి",
-    noMandalsAvailable: "ఇంకా మండలాలు అందుబాటులో లేవు — తిరుపతి లేదా చిత్తూరు జిల్లాను ఎంచుకోండి",
-    savedToast: "నమోదు సేవ్ చేయబడింది.", updatedToast: "రికార్డు అప్‌డేట్ చేయబడింది.", deletedToast: "రికార్డు తొలగించబడింది.",
-    offlineNote: "ఆఫ్‌లైన్‌లో పని చేస్తోంది — కనెక్షన్ వచ్చినప్పుడు సింక్ అవుతుంది.",
-    rydeap: "గ్రామీణ యువత డిజిటల్ & ఉద్యోగ సామర్థ్య కార్యక్రమం",
-    tailoring: "మహిళల టైలరింగ్ & ఎంబ్రాయిడరీ నైపుణ్యాభివృద్ధి కార్యక్రమం",
-    waste: "వ్యర్థాల వేరు, రీసైక్లింగ్ & సర్క్యులర్ ఎకానమీ కార్యక్రమం",
-    programInfo: "కార్యక్రమ సమాచారం", personalDetails: "వ్యక్తిగత వివరాలు",
-    educationInfo: "విద్య", addressInfo: "చిరునామా", socialInfo: "సామాజిక సమాచారం",
-    wasteInfo: "వ్యర్థాల నిర్వహణ సర్వే",
-    eduQualification: "విద్యా అర్హత", eduLevel: "విద్యా స్థాయి",
-    interestedSkill: "ఆసక్తి గల నైపుణ్య శిక్షణ",
-    houseNo: "ఇంటి నెం.", district: "జిల్లా", state: "రాష్ట్రం", pin: "పిన్ కోడ్",
-    category: "వర్గం", disability: "వికలాంగత స్థితి", shg: "SHG సభ్యుడు",
-    segregateWaste: "ఇంట్లో వ్యర్థాలను వేరు చేస్తారా?", wetWaste: "తడి వ్యర్థం (కేజీ/రోజు)",
-    dryWaste: "పొడి వ్యర్థం (కేజీ/రోజు)", plasticWaste: "ప్లాస్టిక్ వ్యర్థం (కేజీ/నెల)",
-    compost: "సేంద్రీయ వ్యర్థాన్ని కంపోస్ట్ చేస్తారా?", sellsRecyclables: "రీసైకిల్ చేయగల వస్తువులను అమ్ముతారా?",
-    awareness: "వ్యర్థాల విభజన అవగాహన", interestedRecycling: "రీసైక్లింగ్ శిక్షణలో ఆసక్తి?",
-    remarks: "వ్యాఖ్యలు",
-  },
-};
-
-/* ============================================================
-   LOGIN PASSWORDS — change these to update sign-in credentials.
-   Demo only: passwords are plain text and visible in this file.
-   For a real deployed app, move authentication to a backend
-   (see note in chat) instead of editing this file each time.
-   ============================================================ */
-const LOGIN_PASSWORDS = {
-  admin: "admin123",
-  enumerator: "tapasvi",
-};
-
-/* ---------------- Program config ---------------- */
-const PROGRAMS = {
-  rydeap: { key: "rydeap", labelKey: "rydeap", short: "RYDEAP", icon: Laptop, color: "#0E5C73", tint: "#E7F1F3", code: "RY" },
-  tailoring: { key: "tailoring", labelKey: "tailoring", short: "Tailoring", icon: Scissors, color: "#B0581F", tint: "#FBEEE3", code: "TE" },
-  waste: { key: "waste", labelKey: "waste", short: "Waste Mgmt", icon: Leaf, color: "#1B5E3F", tint: "#E7F2EB", code: "WS" },
-};
-
-const EDU_LEVELS = ["Illiterate", "Primary", "Upper Primary", "Secondary", "Higher Secondary", "Graduate", "Post Graduate"];
-const EDU_QUALIFICATIONS = [
-  "Below 5th Class", "5th Class", "7th Class", "10th Class / SSC", "Intermediate / 12th",
-  "ITI", "Diploma", "Graduate (BA/BSc/BCom/BTech etc.)", "Post Graduate (MA/MSc/MCom/MTech etc.)",
-  "Professional Degree (B.Ed/LLB/MBBS etc.)", "No Formal Education",
-];
-const CATEGORIES_FULL = ["SC", "ST", "BC", "OC", "Minority"];
-const CATEGORIES_TAILORING = ["SC", "ST", "BC", "OC"];
-
-const SKILLS_RYDEAP = [
-  "Digital Literacy Training",
-  "Employability Skills Development",
-  "Advanced Digital Skills",
-  "Career Guidance & Counseling",
-  "Entrepreneurship Development",
-];
-const SKILLS_TAILORING = [
-  "Skill Training",
-  "Entrepreneurship Development",
-];
-
-// Full current list of Andhra Pradesh districts (28, post Dec 2025 reorganisation)
-const DISTRICTS_AP_FULL = [
-  "Alluri Sitharama Raju", "Anakapalli", "Ananthapuramu", "Annamayya", "Bapatla",
-  "Chittoor", "East Godavari", "Eluru", "Guntur", "Kakinada",
-  "Dr. B. R. Ambedkar Konaseema", "Krishna", "Kurnool", "Markapuram", "NTR",
-  "Nandyal", "Palnadu", "Parvathipuram Manyam", "Polavaram", "Prakasam",
-  "Sri Sathya Sai", "Sri Potti Sriramulu Nellore", "Srikakulam", "Tirupati",
-  "Visakhapatnam", "Vizianagaram", "West Godavari", "YSR Kadapa",
-];
-
-// Focused district list for the Waste Management program (Tirupati/Chittoor area focus)
-const DISTRICTS_WASTE = ["Tirupati", "Chittoor", "Ananthapuramu", "YSR Kadapa", "Sri Potti Sriramulu Nellore", "Kurnool", "Other"];
-
-// Mandals available per district (only populated for Tirupati and Chittoor for now)
-const MANDALS_BY_DISTRICT = {
-  "Tirupati": ["Pakala", "Chandragiri", "Vedurukuppam", "Rompicherla"],
-  "Chittoor": ["Penumuru", "Puthalapattu"],
-};
-
-/* ---------------- Helpers ---------------- */
-function nextRegId(records, programKey) {
-  const code = PROGRAMS[programKey].code;
-  const nums = records.filter(r => r.program === programKey).map(r => {
-    const m = r.id.match(/(\d+)$/);
+function nextId(records, prefix) {
+  const nums = records.filter(r => r.beneficiary_id?.startsWith(prefix + "-")).map(r => {
+    const m = r.beneficiary_id?.match(/(\d+)$/);
     return m ? parseInt(m[1], 10) : 0;
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
-  return `TPS-${code}-${String(next).padStart(4, "0")}`;
-}
-
-function csvEscape(val) {
-  const s = String(val ?? "");
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+  return `${prefix}-${String(next).padStart(4, "0")}`;
 }
 
 function downloadCSV(rows, filename) {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
-  const lines = [headers.join(","), ...rows.map(r => headers.map(h => csvEscape(r[h])).join(","))];
+  const lines = [headers.join(","), ...rows.map(r => headers.map(h => {
+    const s = String(r[h] ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(","))];
   const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename;
+  const a = document.createElement("a"); a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
-function printRows(rows, title) {
+function printTable(rows, title, cols) {
   const w = window.open("", "_blank");
   if (!w) return;
-  const headers = rows.length ? Object.keys(rows[0]) : [];
-  const style = `
-    body{font-family:Arial,sans-serif;padding:24px;color:#23282B}
-    h1{color:#1B5E3F;font-size:18px;margin-bottom:4px}
-    p{color:#666;font-size:12px;margin-top:0}
-    table{width:100%;border-collapse:collapse;margin-top:16px}
-    th,td{border:1px solid #ccc;padding:6px 8px;font-size:11px;text-align:left}
-    th{background:#1B5E3F;color:#fff}
-    tr:nth-child(even){background:#F7F5EF}
-  `;
-  const tableHtml = `
-    <table><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map(r => `<tr>${headers.map(h => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  w.document.write(`<html><head><title>${title}</title><style>${style}</style></head>
-    <body><h1>TAPASVI Society — ${title}</h1><p>Generated ${new Date().toLocaleString()}</p>${tableHtml}</body></html>`);
+  const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
+  w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Society — ${title}</title><style>
+    @page { size: A4 landscape; margin: 10mm 12mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
+
+    /* HEADER / LETTERHEAD */
+    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1B5E3F; margin-bottom: 6px; }
+    .logo-circle { width: 48px; height: 48px; background: #1B5E3F; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .logo-circle svg { width: 36px; height: 36px; }
+    .org-name { font-size: 15px; font-weight: 900; color: #1B5E3F; letter-spacing: 1px; }
+    .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
+    .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
+    .header-right { margin-left: auto; text-align: right; }
+    .report-title { font-size: 12px; font-weight: 700; color: #1B5E3F; }
+    .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
+
+    /* SUMMARY BAR */
+    .summary { display: flex; gap: 16px; background: #F0F7F2; border: 1px solid #C8E0D0; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1B5E3F; font-weight: 600; }
+
+    /* TABLE */
+    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    thead tr { background: #1B5E3F; }
+    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
+    tbody tr:nth-child(even) { background: #F5FAF7; }
+    tbody tr:nth-child(odd) { background: #FFFFFF; }
+    tbody tr:hover { background: #E8F4ED; }
+    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #D5E8DC; vertical-align: middle; }
+    tbody td:first-child { font-weight: 700; color: #1B5E3F; font-family: monospace; }
+
+    /* STATUS BADGES */
+    .status-registered { color: #0E5C73; font-weight: 700; }
+    .status-training { color: #9A6B00; font-weight: 700; }
+    .status-completed { color: #1B5E3F; font-weight: 700; }
+    .status-dropped { color: #B0581F; font-weight: 700; }
+
+    /* FOOTER */
+    .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #D5E8DC; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
+
+    /* PAGE BREAK */
+    @media print {
+      thead { display: table-header-group; }
+      tbody tr { page-break-inside: avoid; }
+    }
+  </style></head><body>
+
+    <!-- LETTERHEAD -->
+    <div class="header">
+      <div class="logo-circle">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 6C24 6 12 14 12 25C12 33 17 38 24 38C31 38 36 33 36 25C36 14 24 6 24 6Z" fill="#F7F5EF" opacity="0.9"/>
+          <path d="M24 12C24 12 18 17 18 24C18 29 21 32 24 32" stroke="#D4A843" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <circle cx="24" cy="25" r="3" fill="#D4A843"/>
+        </svg>
+      </div>
+      <div>
+        <div class="org-name">TAPASVI SOCIETY</div>
+        <div class="org-sub">For Rural Development, Social Issues and Health Organization</div>
+        <div class="org-address">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
+      </div>
+      <div class="header-right">
+        <div class="report-title">${title}</div>
+        <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
+        <div class="report-meta">Total Records: ${rows.length}</div>
+      </div>
+    </div>
+
+    <!-- SUMMARY -->
+    <div class="summary">
+      <span>📋 Total: ${rows.length}</span>
+      ${rows.some(r => r["Status"]) ? `
+        <span>✅ Completed: ${rows.filter(r => r["Status"] === "Completed").length}</span>
+        <span>📚 Training: ${rows.filter(r => r["Status"] === "Training").length}</span>
+        <span>🆕 Registered: ${rows.filter(r => r["Status"] === "Registered").length}</span>
+        <span>❌ Dropped: ${rows.filter(r => r["Status"] === "Dropped").length}</span>
+      ` : ""}
+      ${rows.some(r => r["Gender"]) ? `
+        <span>👩 Women: ${rows.filter(r => r["Gender"] === "Female").length}</span>
+        <span>👨 Men: ${rows.filter(r => r["Gender"] === "Male").length}</span>
+      ` : ""}
+    </div>
+
+    <!-- TABLE -->
+    <table>
+      <thead>
+        <tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.map((r, i) => `
+          <tr>
+            ${headers.map(h => {
+              const val = r[h] ?? "";
+              let cls = "";
+              if (h === "Status") {
+                cls = `status-${String(val).toLowerCase()}`;
+              }
+              return `<td class="${cls}">${val}</td>`;
+            }).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <span>TAPASVI Society — Confidential &nbsp;|&nbsp; For Official Use Only</span>
+      <span>Page 1 &nbsp;|&nbsp; Printed: ${new Date().toLocaleDateString("en-IN")}</span>
+    </div>
+
+  </body></html>`);
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 300);
+  setTimeout(() => w.print(), 500);
 }
 
-function flattenForExport(r, t) {
-  const p = PROGRAMS[r.program];
-  const base = {
-    [t.regId]: r.id, [t.program]: t[p.labelKey] || p.short, [t.name]: r.name, [t.age]: r.age, [t.gender]: r.gender,
-    "Aadhaar": r.aadhaar, [t.phone]: r.phone, [t.houseNo]: r.houseNo, [t.village]: r.village,
-    [t.mandal]: r.mandal, [t.district]: r.district, [t.state]: r.state, [t.pin]: r.pin,
-    [t.category]: r.category, [t.disability]: r.disability,
-    [t.enumeratorName]: r.enumeratorName, [t.surveyDate]: r.surveyDate,
-  };
-  if (r.program === "rydeap") {
-    base[t.eduQualification] = r.eduQualification; base[t.eduLevel] = r.eduLevel;
-    base[t.interestedSkill] = r.interestedSkill; base["SHG"] = r.shg;
-  } else if (r.program === "tailoring") {
-    base[t.eduLevel] = r.eduLevel; base[t.interestedSkill] = r.interestedSkill; base["SHG"] = r.shg;
-  } else if (r.program === "waste") {
-    base[t.segregateWaste] = r.segregateWaste; base[t.wetWaste] = r.wetWaste; base[t.dryWaste] = r.dryWaste;
-    base[t.plasticWaste] = r.plasticWaste; base[t.compost] = r.compost; base[t.sellsRecyclables] = r.sellsRecyclables;
-    base[t.awareness] = r.awareness; base[t.interestedRecycling] = r.interestedRecycling; base[t.remarks] = r.remarks;
-  }
-  return base;
-}
-
-/* ---------------- Small UI atoms ---------------- */
+/* ============================================================
+   UI ATOMS
+   ============================================================ */
 function Logo({ size = 40 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
       <circle cx="24" cy="24" r="23" fill="#1B5E3F" />
-      <path d="M24 8 C24 8 14 16 14 26 C14 33.7 18.7 38 24 38 C29.3 38 34 33.7 34 26 C34 16 24 8 24 8 Z" fill="#F7F5EF" opacity="0.95" />
-      <path d="M24 14 C24 14 19 19 19 25.5 C19 30 21.5 33 24 33" stroke="#0E5C73" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+      <path d="M24 8C24 8 14 16 14 26C14 33.7 18.7 38 24 38C29.3 38 34 33.7 34 26C34 16 24 8 24 8Z" fill="#F7F5EF" opacity="0.95" />
+      <path d="M24 14C24 14 19 19 19 25.5C19 30 21.5 33 24 33" stroke="#0E5C73" strokeWidth="1.6" fill="none" strokeLinecap="round" />
       <circle cx="24" cy="26" r="3.2" fill="#D98E04" />
     </svg>
   );
 }
 
-function Field({ label, required, error, children }) {
+const inputCls = "w-full rounded-lg border border-[#D9D4C7] bg-white px-3.5 py-2.5 text-[13px] text-[#23282B] outline-none transition focus:border-[#1B5E3F] focus:ring-2 focus:ring-[#1B5E3F]/15 placeholder:text-[#A8A299]";
+const selectCls = inputCls + " appearance-none cursor-pointer";
+
+function Field({ label, required, error, hint, children }) {
   return (
     <label className="block mb-4">
-      <span className="block text-[13px] font-medium text-[#23282B] mb-1.5">
-        {label}{required && <span className="text-[#B0581F]"> *</span>}
+      <span className="block text-[12.5px] font-semibold text-[#23282B] mb-1.5 uppercase tracking-wide">
+        {label}{required && <span className="text-red-500 ml-1">*</span>}
       </span>
+      {hint && <span className="block text-[11px] text-[#888] mb-1.5">{hint}</span>}
       {children}
-      {error && <span className="block text-[12px] text-[#B0581F] mt-1">{error}</span>}
+      {error && <span className="block text-[11.5px] text-red-600 mt-1">⚠ {error}</span>}
     </label>
   );
 }
 
-const inputCls = "w-full rounded-lg border border-[#D9D4C7] bg-white px-3.5 py-2.5 text-[14px] text-[#23282B] outline-none transition focus:border-[#1B5E3F] focus:ring-2 focus:ring-[#1B5E3F]/15 placeholder:text-[#A8A299]";
-const selectCls = inputCls + " appearance-none";
-
-function TextInput({ className, ...props }) { return <input {...props} className={className || inputCls} />; }
-function Select({ options, ...props }) {
+function Input(props) { return <input {...props} className={inputCls} />; }
+function Select({ options, placeholder, ...props }) {
   return (
     <select {...props} className={selectCls}>
-      {options.map(o => (typeof o === "string" ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>))}
+      {placeholder && <option value="">{placeholder}</option>}
+      {options.map(o => typeof o === "string"
+        ? <option key={o} value={o}>{o}</option>
+        : <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
 }
 
-function Toast({ message, onDone }) {
-  React.useEffect(() => { const id = setTimeout(onDone, 2600); return () => clearTimeout(id); }, [onDone]);
+function Badge({ label, color, tint }) {
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: tint, color }}>{label}</span>;
+}
+
+function StatCard({ icon: Icon, label, value, color, tint, sub }) {
   return (
-    <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-lg animate-[fadein_.2s_ease]" style={{ background: "#23282B", color: "#FFFFFF" }}>
-      <Check size={16} className="text-[#7FD99A]" /> {message}
+    <div className="rounded-xl bg-white border border-[#E5E1D5] p-4 flex items-center gap-3.5">
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint }}>
+        <Icon size={20} style={{ color }} />
+      </div>
+      <div>
+        <p className="text-[22px] font-bold text-[#23282B] leading-none">{value}</p>
+        <p className="text-[12px] text-[#727870] mt-1">{label}</p>
+        {sub && <p className="text-[11px] text-[#999] mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, type = "success", onDone }) {
+  useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
+  return (
+    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#1B5E3F", color: "#fff" }}>
+      {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
+    </div>
+  );
+}
+
+function SectionHeader({ title, color = "#1B5E3F" }) {
+  return (
+    <div className="flex items-center gap-2 mt-6 mb-3">
+      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+      <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color }}>{title}</span>
+      <div className="flex-1 h-px bg-[#EFEBDE]" />
     </div>
   );
 }
@@ -337,7 +264,7 @@ function Toast({ message, onDone }) {
 /* ============================================================
    LOGIN
    ============================================================ */
-function LoginScreen({ t, lang, setLang, onLogin }) {
+function LoginScreen({ onLogin }) {
   const [role, setRole] = useState("admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -346,435 +273,414 @@ function LoginScreen({ t, lang, setLang, onLogin }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !password) { setError(t.invalidLogin); return; }
-    setLoading(true);
-    setError("");
-
+    if (!username.trim() || !password) { setError("Please enter username and password."); return; }
+    setLoading(true); setError("");
     if (role === "admin") {
-      // Admin: authenticate via Supabase Auth (email + password)
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: username.trim(),
-        password,
-      });
-      if (authError || !data.user) {
-        setError(t.invalidLogin);
-        setLoading(false);
-        return;
-      }
-      // Verify the user has admin role in user_roles table
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
-      if (!roleData || roleData.role !== "admin") {
-        await supabase.auth.signOut();
-        setError(t.invalidLogin);
-        setLoading(false);
-        return;
-      }
-      onLogin({ role: "admin", username: data.user.email });
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
+      if (authError || !data.user) { setError("Invalid email or password."); setLoading(false); return; }
+      const { data: roleData } = await supabase.from("user_roles").select("role").eq("id", data.user.id).single();
+      if (!roleData || roleData.role !== "admin") { await supabase.auth.signOut(); setError("Access denied. Admin only."); setLoading(false); return; }
+      onLogin({ role: "admin", username: data.user.email, supabaseUser: data.user });
     } else {
-      // Enumerator: still uses shared password (to be migrated later)
-      if (password !== LOGIN_PASSWORDS["enumerator"]) {
-        setError(t.invalidLogin);
-        setLoading(false);
-        return;
-      }
-      onLogin({ role: "enumerator", username: username.trim() });
+      if (password !== LOGIN_PASSWORDS.fieldworker) { setError("Incorrect password."); setLoading(false); return; }
+      onLogin({ role: "fieldworker", username: username.trim() });
     }
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, sans-serif" }}>
-      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[#1B5E3F] via-[#0E5C73] to-[#1B5E3F]" />
-      <button
-        onClick={() => setLang(lang === "en" ? "te" : "en")}
-        className="absolute top-5 right-5 flex items-center gap-1.5 rounded-full border border-[#D9D4C7] bg-white px-3 py-1.5 text-[12px] font-medium text-[#23282B] hover:border-[#1B5E3F] transition"
-      >
-        <Globe size={14} /> {lang === "en" ? "తెలుగు" : "English"}
-      </button>
-
-      <div className="w-full max-w-[420px]">
-        <div className="flex flex-col items-center mb-7">
-          <Logo size={56} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#1B5E3F] text-center" style={{ fontFamily: "Archivo, sans-serif" }}>{t.appName}</h1>
-          <p className="mt-1 text-[12.5px] text-[#666] text-center max-w-[300px] leading-snug">{t.appSub}</p>
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Arial, sans-serif" }}>
+      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1B5E3F] via-[#D4A843] to-[#1B5E3F]" />
+      <div className="w-full max-w-[400px]">
+        <div className="flex flex-col items-center mb-6">
+          <Logo size={60} />
+          <h1 className="mt-3 text-[22px] font-bold text-[#1B5E3F] text-center">TAPASVI Society</h1>
+          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">MIS — Rural Development, Social Issues & Health</p>
         </div>
-
-        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] shadow-sm p-6">
-          <h2 className="text-[15px] font-semibold text-[#23282B] mb-5">{t.loginTitle}</h2>
-
-          <span className="block text-[13px] font-medium text-[#23282B] mb-2">{t.role}</span>
+        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#D9D4C7] shadow-md p-6">
+          <p className="text-[13px] font-semibold text-[#23282B] mb-4">Sign in to continue</p>
           <div className="grid grid-cols-2 gap-2 mb-4">
-            {["admin", "enumerator"].map(r => (
-              <button
-                type="button" key={r}
-                onClick={() => setRole(r)}
-                className={`flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition ${
-                  role === r ? "" : "border-[#D9D4C7] text-[#23282B] hover:border-[#1B5E3F]"
-                }`}
-                style={role === r ? { borderColor: "#1B5E3F", background: "#1B5E3F", color: "#FFFFFF" } : undefined}
-              >
-                {r === "admin" ? <Lock size={14} /> : <User size={14} />}
-                {r === "admin" ? t.admin : t.enumerator}
+            {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
+              <button key={r} type="button" onClick={() => setRole(r)}
+                className="flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition"
+                style={role === r ? { background: "#1B5E3F", color: "#fff", borderColor: "#1B5E3F" } : { borderColor: "#D9D4C7", color: "#23282B" }}>
+                <Icon size={14} /> {label}
               </button>
             ))}
           </div>
-
-          <Field label={role === "admin" ? "Email" : t.username} required>
-            <TextInput value={username} onChange={e => setUsername(e.target.value)} placeholder={role === "admin" ? "admin@tapasvi.org" : "enumerator1"} inputMode={role === "admin" ? "email" : "text"} />
+          <Field label={role === "admin" ? "Email" : "Username"} required>
+            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder={role === "admin" ? "admin@tapasvi.org" : "fieldworker1"} inputMode={role === "admin" ? "email" : "text"} />
           </Field>
-          <Field label={t.password} required error={error}>
+          <Field label="Password" required error={error}>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
           </Field>
-
-          <button type="submit" onClick={submit} disabled={loading} className="w-full mt-2 rounded-lg py-3 text-[14px] font-semibold transition active:opacity-90" style={{ background: "#1B5E3F", color: "#FFFFFF", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "Signing in…" : t.signIn}
+          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#1B5E3F", color: "#fff" }}>
+            {loading ? "Signing in…" : "Sign In"}
           </button>
-          <p className="mt-3 text-[11.5px] text-[#999] text-center">{role === "admin" ? "Admin: use your registered email & password" : "Enumerator password: tapasvi"}</p>
+          <p className="text-[10.5px] text-[#AAA] text-center mt-3">
+            {role === "admin" ? "Admin: registered email & password" : "Field Worker password: tapasvi"}
+          </p>
         </form>
+        <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI MIS v2.0 • Secure Access Only</p>
       </div>
     </div>
   );
 }
 
 /* ============================================================
-   FIELD CARD — signature element for records list
+   BENEFICIARY FORM
    ============================================================ */
-function FieldCard({ r, t, onEdit, onDelete, isAdmin }) {
-  const p = PROGRAMS[r.program];
-  const Icon = p.icon;
-  return (
-    <div className="relative rounded-xl bg-white border border-[#E5E1D5] shadow-sm hover:shadow-md transition overflow-hidden">
-      <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: p.color }} />
-      <div className="pl-5 pr-4 py-3.5 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
-          <Icon size={18} style={{ color: p.color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-[14px] text-[#23282B]">{r.name}</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: p.tint, color: p.color }}>{p.short}</span>
-            {!r.synced && (
-              <span className="flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full bg-[#FBEFD6] text-[#9A6B00]">
-                <AlertCircle size={10} /> {t.pendingSync}
-              </span>
-            )}
-          </div>
-          <div className="mt-1 flex items-center gap-3 text-[12px] text-[#727870] flex-wrap">
-            <span>{r.id}</span>
-            <span>•</span>
-            <span>{r.age}{r.gender ? `, ${r.gender}` : ""}</span>
-            <span>•</span>
-            <span className="flex items-center gap-1"><MapPin size={11} />{r.village}, {r.mandal}</span>
-            <span>•</span>
-            <span>{r.enumeratorName}</span>
-          </div>
-        </div>
-        {isAdmin && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => onEdit(r)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3] transition" title={t.edit}><Edit2 size={15} /></button>
-            <button onClick={() => onDelete(r)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3] transition" title={t.delete}><Trash2 size={15} /></button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   REGISTRATION FORM
-   ============================================================ */
-function RegistrationForm({ t, lang, programKey, setProgramKey, records, editing, onSave, onCancel, currentUser }) {
+function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, beneficiaries }) {
+  const prog = editing?.program || "rydeap";
   const blank = {
-    program: programKey, name: "", age: "", gender: "Male", aadhaar: "", phone: "",
-    eduQualification: "", eduLevel: "", interestedSkill: "",
-    houseNo: "", village: "", mandal: "", district: programKey === "waste" ? "Tirupati" : "", state: "Andhra Pradesh", pin: "",
+    program: prog, name: "", age: "", gender: "Female", phone: "",
+    aadhaar_verified: "No", ekyc_status: "No",
+    education: "", skill_interest: "", status: "Registered",
+    house_no: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", pin: "",
     category: "BC", disability: "No", shg: "No",
-    segregateWaste: "No", wetWaste: "", dryWaste: "", plasticWaste: "", compost: "No", sellsRecyclables: "No",
-    awareness: "Medium", interestedRecycling: "No", remarks: "",
-    enumeratorName: currentUser.role === "enumerator" ? currentUser.username : "",
-    surveyDate: new Date().toISOString().slice(0, 10),
+    field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
+    survey_date: new Date().toISOString().slice(0, 10),
+    notes: "",
   };
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
+  const [activeProgram, setActiveProgram] = useState(prog);
 
-  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const villagesForDistrict = useMemo(() =>
+    villages.filter(v => !form.district || v.district === form.district).map(v => v.village_name),
+    [villages, form.district]);
 
   const validate = () => {
     const e = {};
-    if (!form.name.trim()) e.name = t.required;
-    if (!form.age) e.age = t.required;
-    if (!/^\d{12}$/.test(form.aadhaar)) {
-      e.aadhaar = t.invalidAadhaar;
-    } else if (form.program === "rydeap" || form.program === "tailoring") {
-      const dup = records.find(r =>
-        r.aadhaar === form.aadhaar &&
-        r.id !== (editing && editing.id) &&
-        (r.program === "rydeap" || r.program === "tailoring")
-      );
-      if (dup) e.aadhaar = t.duplicateAadhaar;
+    if (!form.name.trim()) e.name = "Required";
+    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
+    if (!form.phone.trim()) e.phone = "Required";
+    else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    else {
+      const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
+      if (dup) e.phone = `Phone already registered to ${dup.name} (${dup.beneficiary_id})`;
     }
-    if (!/^\d{10}$/.test(form.phone)) e.phone = t.invalidPhone;
-    if (form.pin && !/^\d{6}$/.test(form.pin)) e.pin = t.invalidPin;
-    if (!form.village.trim()) e.village = t.required;
-    if (!MANDALS_BY_DISTRICT[form.district]) {
-      e.district = t.noMandalsAvailable;
-    } else if (!form.mandal.trim()) {
-      e.mandal = t.required;
-    }
-    if (!form.enumeratorName.trim()) e.enumeratorName = t.required;
+    if (!form.village) e.village = "Required";
+    if (!form.mandal.trim()) e.mandal = "Required";
+    if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
+    if (form.pin && !/^\d{6}$/.test(form.pin)) e.pin = "6 digits only";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const submit = (e) => {
+  const submit = e => {
     e.preventDefault();
     if (!validate()) return;
-    onSave(form);
+    onSave({ ...form, program: activeProgram });
   };
 
-  const p = PROGRAMS[form.program];
+  const p = PROGRAM_MAP[activeProgram];
 
   return (
     <div className="max-w-[820px] mx-auto">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-[19px] font-bold text-[#23282B]" style={{ fontFamily: "Archivo, sans-serif" }}>
-            {editing ? t.edit : t.register}
-          </h2>
-          <p className="text-[13px] text-[#727870] mt-0.5">{t[p.labelKey]}</p>
+          <h2 className="text-[18px] font-bold text-[#23282B]">{editing ? "Edit Beneficiary" : "New Beneficiary Registration"}</h2>
+          <p className="text-[12px] text-[#727870] mt-0.5">Fill all required fields carefully</p>
         </div>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870] transition"><X size={18} /></button>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
       </div>
 
       {!editing && (
-        <div className="mb-6">
-          <span className="block text-[13px] font-medium text-[#23282B] mb-2">{t.program}</span>
-          <div className="grid grid-cols-3 gap-2">
-            {Object.values(PROGRAMS).map(pr => {
-              const Icon = pr.icon;
-              const active = form.program === pr.key;
-              return (
-                <button
-                  key={pr.key} type="button"
-                  onClick={() => { setForm(f => ({ ...blank, program: pr.key, name: f.name, surveyDate: f.surveyDate, enumeratorName: f.enumeratorName, district: pr.key === "waste" ? "Tirupati" : "" })); setProgramKey(pr.key); }}
-                  className={`flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 transition ${active ? "border-current shadow-sm" : "border-[#E5E1D5] text-[#727870] hover:border-[#C9C3B4]"}`}
-                  style={active ? { color: pr.color, background: pr.tint, borderColor: pr.color } : {}}
-                >
-                  <Icon size={18} />
-                  <span className="text-[11.5px] font-medium text-center leading-tight">{pr.short}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="grid grid-cols-3 gap-2 mb-5">
+          {PROGRAMS.map(pr => {
+            const Icon = pr.icon;
+            return (
+              <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
+                className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
+                style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E1D5", color: "#727870" }}>
+                <Icon size={18} />{pr.short}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-6">
-        {/* Program info */}
-        <SectionLabel text={t.programInfo} color={p.color} />
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+        <SectionHeader title="Program Information" color={p.color} />
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label={t.enumeratorName} required error={errors.enumeratorName}>
-            <TextInput
-              value={form.enumeratorName}
-              onChange={currentUser.role === "enumerator" ? undefined : set("enumeratorName")}
-              readOnly={currentUser.role === "enumerator"}
-              placeholder="Enumerator name"
-              className={currentUser.role === "enumerator" ? inputCls + " bg-[#F7F5EF] text-[#727870] cursor-not-allowed" : inputCls}
-            />
+          <Field label="Field Worker Name" required error={errors.field_worker_name}>
+            <Input value={form.field_worker_name} onChange={set("field_worker_name")} readOnly={currentUser.role === "fieldworker"} className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F7F5EF] text-[#888]" : inputCls} />
           </Field>
-          <Field label={t.surveyDate} required>
-            <input type="date" value={form.surveyDate} onChange={set("surveyDate")} className={inputCls} />
+          <Field label="Survey Date" required>
+            <input type="date" value={form.survey_date} onChange={set("survey_date")} className={inputCls} />
+          </Field>
+          <Field label="Status">
+            <Select value={form.status} onChange={set("status")} options={STATUS_OPTIONS} />
           </Field>
         </div>
 
-        {/* Personal */}
-        <SectionLabel text={t.personalDetails} color={p.color} />
+        <SectionHeader title="Personal Details" color={p.color} />
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label={t.name} required error={errors.name}>
-            <TextInput value={form.name} onChange={set("name")} placeholder="Full name" />
+          <Field label="Full Name" required error={errors.name}>
+            <Input value={form.name} onChange={set("name")} placeholder="As per Aadhaar" />
           </Field>
-          <Field label={t.age} required error={errors.age}>
-            <TextInput type="number" min="0" max="120" value={form.age} onChange={set("age")} placeholder="Age" />
+          <Field label="Age" required error={errors.age}>
+            <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} />
           </Field>
-          <Field label={t.gender}>
-            <Select value={form.gender} onChange={set("gender")} options={
-              form.program === "tailoring" ? [{ value: "Female", label: t.female }]
-                : [{ value: "Male", label: t.male }, { value: "Female", label: t.female }, { value: "Other", label: t.other }]
-            } disabled={form.program === "tailoring"} />
+          <Field label="Gender" required>
+            <Select value={form.gender} onChange={set("gender")} options={GENDER_OPTIONS} />
           </Field>
-          <Field label="Aadhaar" required error={errors.aadhaar}>
-            <TextInput
-              value={form.aadhaar}
-              onChange={e => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 12);
-                setForm(f => ({ ...f, aadhaar: digits }));
-                if (digits.length === 12 && (form.program === "rydeap" || form.program === "tailoring")) {
-                  const dup = records.find(r =>
-                    r.aadhaar === digits &&
-                    r.id !== (editing && editing.id) &&
-                    (r.program === "rydeap" || r.program === "tailoring")
-                  );
-                  setErrors(prev => ({ ...prev, aadhaar: dup ? t.duplicateAadhaar : undefined }));
-                } else {
-                  setErrors(prev => ({ ...prev, aadhaar: undefined }));
-                }
-              }}
-              placeholder="12-digit Aadhaar" inputMode="numeric"
-            />
+          <Field label="Phone Number" required error={errors.phone} hint="Must be unique across all registrations">
+            <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="10-digit mobile" inputMode="numeric" />
           </Field>
-          <Field label={t.phone} required error={errors.phone}>
-            <TextInput value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="10-digit phone" inputMode="numeric" />
+          <Field label="Aadhaar Verified" hint="Do NOT enter full Aadhaar number">
+            <Select value={form.aadhaar_verified} onChange={set("aadhaar_verified")} options={["Yes", "No"]} />
+          </Field>
+          <Field label="eKYC Status">
+            <Select value={form.ekyc_status} onChange={set("ekyc_status")} options={["Yes", "No", "Pending"]} />
           </Field>
         </div>
 
-        {/* Education (rydeap + tailoring) */}
-        {form.program !== "waste" && (
-          <>
-            <SectionLabel text={t.educationInfo} color={p.color} />
-            <div className="grid grid-cols-2 gap-x-4">
-              {form.program === "rydeap" && (
-                <Field label={t.eduQualification}>
-                  <Select value={form.eduQualification} onChange={set("eduQualification")} options={[{ value: "", label: t.selectOption }, ...EDU_QUALIFICATIONS]} />
-                </Field>
-              )}
-              <Field label={t.eduLevel}>
-                <Select value={form.eduLevel} onChange={set("eduLevel")} options={[{ value: "", label: t.selectOption }, ...EDU_LEVELS]} />
-              </Field>
-              <Field label={t.interestedSkill}>
-                <Select
-                  value={form.interestedSkill}
-                  onChange={set("interestedSkill")}
-                  options={[{ value: "", label: t.selectOption }, ...(form.program === "tailoring" ? SKILLS_TAILORING : SKILLS_RYDEAP)]}
-                />
-              </Field>
-            </div>
-          </>
-        )}
-
-        {/* Address */}
-        <SectionLabel text={t.addressInfo} color={p.color} />
+        <SectionHeader title="Education & Skills" color={p.color} />
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label={t.houseNo}>
-            <TextInput value={form.houseNo} onChange={set("houseNo")} />
+          <Field label="Education Qualification">
+            <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education" />
           </Field>
-          <Field label={t.village} required error={errors.village}>
-            <TextInput value={form.village} onChange={set("village")} />
+          <Field label="Skill Interest">
+            <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select skill" />
           </Field>
-          <Field label={t.district} required error={errors.district}>
-            {form.program === "waste" ? (
-              <Select
-                value={form.district}
-                onChange={e => setForm(f => ({ ...f, district: e.target.value, mandal: "" }))}
-                options={DISTRICTS_WASTE}
-              />
+        </div>
+
+        <SectionHeader title="Address" color={p.color} />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="House No.">
+            <Input value={form.house_no} onChange={set("house_no")} />
+          </Field>
+          <Field label="District" required>
+            <Select value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value, village: "", mandal: "" }))} options={DISTRICTS_AP} />
+          </Field>
+          <Field label="Village" required error={errors.village}>
+            {villagesForDistrict.length > 0 ? (
+              <Select value={form.village} onChange={e => {
+                const v = villages.find(x => x.village_name === e.target.value);
+                setForm(f => ({ ...f, village: e.target.value, mandal: v?.mandal || f.mandal }));
+              }} options={villagesForDistrict} placeholder="Select village" />
             ) : (
-              <Select
-                value={form.district}
-                onChange={e => setForm(f => ({ ...f, district: e.target.value, mandal: "" }))}
-                options={[{ value: "", label: t.selectOption }, ...DISTRICTS_AP_FULL]}
-              />
+              <Input value={form.village} onChange={set("village")} placeholder="Type village name" />
             )}
           </Field>
-          <Field label={t.mandal} required error={errors.mandal}>
-            {MANDALS_BY_DISTRICT[form.district] ? (
-              <Select
-                value={form.mandal}
-                onChange={set("mandal")}
-                options={[
-                  { value: "", label: t.selectOption },
-                  ...(form.mandal && !MANDALS_BY_DISTRICT[form.district].includes(form.mandal) ? [form.mandal] : []),
-                  ...MANDALS_BY_DISTRICT[form.district],
-                ]}
-              />
-            ) : (
-              <select disabled className={selectCls + " bg-[#F7F5EF] text-[#A8A299] cursor-not-allowed"}>
-                <option>{form.mandal || t.noMandalsAvailable}</option>
-              </select>
-            )}
+          <Field label="Mandal" required error={errors.mandal}>
+            <Input value={form.mandal} onChange={set("mandal")} />
           </Field>
-          <Field label={t.state}>
-            <TextInput value={form.state} disabled className={inputCls + " bg-[#F7F5EF] text-[#888]"} />
+          <Field label="State">
+            <Input value={form.state} readOnly className={inputCls + " bg-[#F7F5EF] text-[#888]"} />
           </Field>
-          <Field label={t.pin} error={errors.pin}>
-            <TextInput value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" />
+          <Field label="PIN Code" error={errors.pin}>
+            <Input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" />
           </Field>
         </div>
 
-        {/* Social */}
-        <SectionLabel text={t.socialInfo} color={p.color} />
+        <SectionHeader title="Social Information" color={p.color} />
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label={t.category}>
-            <Select value={form.category} onChange={set("category")} options={form.program === "tailoring" ? CATEGORIES_TAILORING : CATEGORIES_FULL} />
+          <Field label="Category">
+            <Select value={form.category} onChange={set("category")} options={CATEGORY_OPTIONS} />
           </Field>
-          <Field label={t.disability}>
-            <Select value={form.disability} onChange={set("disability")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
+          <Field label="Disability">
+            <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
           </Field>
-          {form.program !== "waste" && (
-            <Field label={t.shg}>
-              <Select value={form.shg} onChange={set("shg")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
-            </Field>
-          )}
+          <Field label="SHG Member">
+            <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
+          </Field>
         </div>
 
-        {/* Waste-specific */}
-        {form.program === "waste" && (
-          <>
-            <SectionLabel text={t.wasteInfo} color={p.color} />
-            <div className="grid grid-cols-2 gap-x-4">
-              <Field label={t.segregateWaste}>
-                <Select value={form.segregateWaste} onChange={set("segregateWaste")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
-              </Field>
-              <Field label={t.wetWaste}>
-                <TextInput type="number" step="0.1" value={form.wetWaste} onChange={set("wetWaste")} />
-              </Field>
-              <Field label={t.dryWaste}>
-                <TextInput type="number" step="0.1" value={form.dryWaste} onChange={set("dryWaste")} />
-              </Field>
-              <Field label={t.plasticWaste}>
-                <TextInput type="number" step="0.1" value={form.plasticWaste} onChange={set("plasticWaste")} />
-              </Field>
-              <Field label={t.compost}>
-                <Select value={form.compost} onChange={set("compost")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
-              </Field>
-              <Field label={t.sellsRecyclables}>
-                <Select value={form.sellsRecyclables} onChange={set("sellsRecyclables")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
-              </Field>
-              <Field label={t.awareness}>
-                <Select value={form.awareness} onChange={set("awareness")} options={[{ value: "Low", label: t.low }, { value: "Medium", label: t.medium }, { value: "High", label: t.high }]} />
-              </Field>
-              <Field label={t.interestedRecycling}>
-                <Select value={form.interestedRecycling} onChange={set("interestedRecycling")} options={[{ value: "No", label: t.no }, { value: "Yes", label: t.yes }]} />
-              </Field>
-            </div>
-            <Field label={t.remarks}>
-              <textarea value={form.remarks} onChange={set("remarks")} rows={3} className={inputCls} />
-            </Field>
-          </>
-        )}
+        <Field label="Notes / Remarks">
+          <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} placeholder="Any additional observations..." />
+        </Field>
 
-        <div className="flex items-center gap-3 mt-2 pt-4 border-t border-[#EFEBDE]">
-          <button type="submit" onClick={submit} className="rounded-lg px-5 py-2.5 text-[14px] font-semibold transition active:opacity-90" style={{ background: p.color, color: "#FFFFFF" }}>
-            {t.save}
+        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13.5px] font-bold" style={{ background: p.color, color: "#fff" }}>
+            {editing ? "Update Record" : "Save Registration"}
           </button>
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-5 py-2.5 text-[14px] font-medium text-[#23282B] hover:bg-[#F7F5EF] transition">
-            {t.cancel}
-          </button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13.5px] font-medium text-[#23282B]">Cancel</button>
         </div>
       </form>
     </div>
   );
 }
 
-function SectionLabel({ text, color }) {
+/* ============================================================
+   TRAINING FORM
+   ============================================================ */
+function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
+  const blank = {
+    beneficiary_id: "", course_name: "", trainer_name: "", center: "",
+    start_date: "", end_date: "", attendance_pct: "", certificate_issued: "No", notes: "",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.beneficiary_id) e.beneficiary_id = "Required";
+    if (!form.course_name.trim()) e.course_name = "Required";
+    if (!form.trainer_name.trim()) e.trainer_name = "Required";
+    if (!form.center.trim()) e.center = "Required";
+    if (!form.start_date) e.start_date = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
+
   return (
-    <div className="flex items-center gap-2 mt-6 mb-3 first:mt-0">
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-      <span className="text-[12px] font-semibold uppercase tracking-wide" style={{ color }}>{text}</span>
-      <div className="flex-1 h-px bg-[#EFEBDE]" />
+    <div className="max-w-[680px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Training Record" : "Add Training Record"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+      </div>
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Beneficiary" required error={errors.beneficiary_id}>
+            <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
+              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: `${b.beneficiary_id} — ${b.name}` }))}
+              placeholder="Select beneficiary" />
+          </Field>
+          <Field label="Course Name" required error={errors.course_name}>
+            <Input value={form.course_name} onChange={set("course_name")} placeholder="e.g. Digital Literacy" />
+          </Field>
+          <Field label="Trainer Name" required error={errors.trainer_name}>
+            <Input value={form.trainer_name} onChange={set("trainer_name")} />
+          </Field>
+          <Field label="Training Center" required error={errors.center}>
+            <Input value={form.center} onChange={set("center")} />
+          </Field>
+          <Field label="Start Date" required error={errors.start_date}>
+            <input type="date" value={form.start_date} onChange={set("start_date")} className={inputCls} />
+          </Field>
+          <Field label="End Date">
+            <input type="date" value={form.end_date} onChange={set("end_date")} className={inputCls} />
+          </Field>
+          <Field label="Attendance %" hint="0–100">
+            <Input type="number" min="0" max="100" value={form.attendance_pct} onChange={set("attendance_pct")} placeholder="e.g. 85" />
+          </Field>
+          <Field label="Certificate Issued">
+            <Select value={form.certificate_issued} onChange={set("certificate_issued")} options={["No", "Yes"]} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+        </Field>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#0E5C73", color: "#fff" }}>Save</button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ============================================================
+   EMPLOYMENT FORM
+   ============================================================ */
+function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
+  const blank = { beneficiary_id: "", employment_type: "Job / Wage Employment", job_role: "", monthly_income: "", employer: "", status: "Active", notes: "" };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.beneficiary_id) e.beneficiary_id = "Required";
+    if (!form.job_role.trim()) e.job_role = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
+
+  return (
+    <div className="max-w-[620px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Employment Record" : "Add Employment Record"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+      </div>
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Beneficiary" required error={errors.beneficiary_id}>
+            <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
+              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: `${b.beneficiary_id} — ${b.name}` }))}
+              placeholder="Select beneficiary" />
+          </Field>
+          <Field label="Employment Type">
+            <Select value={form.employment_type} onChange={set("employment_type")} options={EMPLOYMENT_TYPE_OPTIONS} />
+          </Field>
+          <Field label="Job Role / Designation" required error={errors.job_role}>
+            <Input value={form.job_role} onChange={set("job_role")} placeholder="e.g. Tailor, Data Entry Operator" />
+          </Field>
+          <Field label="Employer / Business Name">
+            <Input value={form.employer} onChange={set("employer")} />
+          </Field>
+          <Field label="Monthly Income (₹)">
+            <Input type="number" value={form.monthly_income} onChange={set("monthly_income")} placeholder="0" />
+          </Field>
+          <Field label="Status">
+            <Select value={form.status} onChange={set("status")} options={["Active", "Inactive", "Changed Job"]} />
+          </Field>
+        </div>
+        <Field label="Notes">
+          <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+        </Field>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>Save</button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ============================================================
+   VILLAGE MASTER FORM
+   ============================================================ */
+function VillageForm({ editing, onSave, onCancel }) {
+  const blank = { village_name: "", mandal: "", district: "Tirupati", population: "", total_beneficiaries: 0 };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.village_name.trim()) e.village_name = "Required";
+    if (!form.mandal.trim()) e.mandal = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  return (
+    <div className="max-w-[500px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Village" : "Add Village to Master"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Village Name" required error={errors.village_name}>
+            <Input value={form.village_name} onChange={set("village_name")} />
+          </Field>
+          <Field label="Mandal" required error={errors.mandal}>
+            <Input value={form.mandal} onChange={set("mandal")} />
+          </Field>
+          <Field label="District">
+            <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
+          </Field>
+          <Field label="Population (approx.)">
+            <Input type="number" value={form.population} onChange={set("population")} />
+          </Field>
+        </div>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
+          <button onClick={() => { if (validate()) onSave(form); }} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>Save Village</button>
+          <button onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -782,242 +688,295 @@ function SectionLabel({ text, color }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
-function StatCard({ icon: Icon, label, value, color, tint }) {
-  return (
-    <div className="rounded-xl bg-white border border-[#E5E1D5] p-4 flex items-center gap-3.5">
-      <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: tint }}>
-        <Icon size={18} style={{ color }} />
-      </div>
-      <div>
-        <p className="text-[20px] font-bold text-[#23282B] leading-none" style={{ fontFamily: "Archivo, sans-serif" }}>{value}</p>
-        <p className="text-[12px] text-[#727870] mt-1">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function BarRow({ label, count, max, color }) {
-  const pct = max ? Math.round((count / max) * 100) : 0;
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <span className="text-[12.5px] text-[#23282B] w-28 shrink-0 truncate">{label}</span>
-      <div className="flex-1 h-2 rounded-full bg-[#EFEBDE] overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="text-[12.5px] font-semibold text-[#23282B] w-8 text-right shrink-0">{count}</span>
-    </div>
-  );
-}
-
-function Dashboard({ t, records, isAdmin, onGoRecords }) {
-  const total = records.length;
-  const thisMonthCount = useMemo(() => {
-    const now = new Date();
-    return records.filter(r => {
-      const d = new Date(r.createdAt);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }).length;
-  }, [records]);
-  const villages = useMemo(() => new Set(records.map(r => r.village)).size, [records]);
-  const pendingSync = records.filter(r => !r.synced).length;
+function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
+  const total = beneficiaries.length;
+  const women = beneficiaries.filter(b => b.gender === "Female").length;
+  const youth = beneficiaries.filter(b => b.gender !== "Female").length;
+  const trained = training.length;
+  const certIssued = training.filter(t => t.certificate_issued === "Yes").length;
+  const employed = employment.filter(e => e.status === "Active").length;
+  const completionRate = total > 0 ? Math.round((beneficiaries.filter(b => b.status === "Completed").length / total) * 100) : 0;
+  const employmentRate = total > 0 ? Math.round((employed / total) * 100) : 0;
 
   const byProgram = useMemo(() => {
     const m = {};
-    Object.keys(PROGRAMS).forEach(k => m[k] = 0);
-    records.forEach(r => m[r.program] = (m[r.program] || 0) + 1);
+    PROGRAMS.forEach(p => m[p.key] = 0);
+    beneficiaries.forEach(b => m[b.program] = (m[b.program] || 0) + 1);
     return m;
-  }, [records]);
+  }, [beneficiaries]);
 
   const byVillage = useMemo(() => {
     const m = {};
-    records.forEach(r => m[r.village] = (m[r.village] || 0) + 1);
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [records]);
+    beneficiaries.forEach(b => { if (b.village) m[b.village] = (m[b.village] || 0) + 1; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [beneficiaries]);
 
-  const byMandal = useMemo(() => {
+  const byStatus = useMemo(() => {
     const m = {};
-    records.forEach(r => m[r.mandal] = (m[r.mandal] || 0) + 1);
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [records]);
-
-  const byGender = useMemo(() => {
-    const m = {};
-    records.forEach(r => { if (r.gender) m[r.gender] = (m[r.gender] || 0) + 1; });
+    STATUS_OPTIONS.forEach(s => m[s] = 0);
+    beneficiaries.forEach(b => { if (b.status) m[b.status] = (m[b.status] || 0) + 1; });
     return m;
-  }, [records]);
+  }, [beneficiaries]);
 
-  const recent = useMemo(() => [...records].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5), [records]);
+  const statusColors = { Registered: "#0E5C73", Training: "#D4A843", Completed: "#1B5E3F", Dropped: "#B0581F" };
   const maxVillage = Math.max(1, ...byVillage.map(v => v[1]));
-  const maxMandal = Math.max(1, ...byMandal.map(v => v[1]));
 
   return (
     <div>
-      <h2 className="text-[19px] font-bold text-[#23282B] mb-5" style={{ fontFamily: "Archivo, sans-serif" }}>{t.dashboard}</h2>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <StatCard icon={Users} label={t.totalBeneficiaries} value={total} color="#1B5E3F" tint="#E7F2EB" />
-        <StatCard icon={ClipboardList} label={t.thisMonth} value={thisMonthCount} color="#0E5C73" tint="#E7F1F3" />
-        <StatCard icon={MapPin} label={t.villagesCovered} value={villages} color="#B0581F" tint="#FBEEE3" />
-        <StatCard icon={AlertCircle} label={t.pendingSync} value={pendingSync} color="#9A6B00" tint="#FBEFD6" />
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#23282B]">MIS Dashboard</h2>
+          <p className="text-[12px] text-[#727870]">TAPASVI Society — Program Overview</p>
+        </div>
       </div>
 
-      {isAdmin && (
-        <div className="grid md:grid-cols-2 gap-4 mb-6">
-          <div className="rounded-xl bg-white border border-[#E5E1D5] p-5">
-            <h3 className="text-[13px] font-semibold text-[#23282B] mb-4 flex items-center gap-2"><BarChart3 size={15} className="text-[#1B5E3F]" />{t.programWise}</h3>
-            <div className="space-y-3">
-              {Object.values(PROGRAMS).map(p => (
-                <div key={p.key} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
-                    <p.icon size={14} style={{ color: p.color }} />
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#1B5E3F" tint="#E7F2EB" />
+        <StatCard icon={Award} label="Trained" value={trained} color="#0E5C73" tint="#E7F1F3" sub={`${certIssued} certificates issued`} />
+        <StatCard icon={Briefcase} label="Employed" value={employed} color="#D4A843" tint="#FBF4E3" sub={`${employmentRate}% rate`} />
+        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#B0581F" tint="#FBEEE3" />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4 mb-5">
+        {/* Women vs Youth */}
+        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Gender Split</h3>
+          <div className="flex items-end gap-4 h-28">
+            {[["Women", women, "#B0581F"], ["Youth (M)", youth, "#0E5C73"]].map(([label, count, color]) => (
+              <div key={label} className="flex flex-col items-center gap-2 flex-1">
+                <span className="text-[16px] font-bold text-[#23282B]">{count}</span>
+                <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
+                <span className="text-[11px] text-[#727870]">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Program wise */}
+        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Program-wise Beneficiaries</h3>
+          <div className="space-y-3">
+            {PROGRAMS.map(p => (
+              <div key={p.key} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
+                  <p.icon size={14} style={{ color: p.color }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[12px] font-medium text-[#23282B]">{p.short}</span>
+                    <span className="text-[12px] font-bold" style={{ color: p.color }}>{byProgram[p.key] || 0}</span>
                   </div>
-                  <span className="text-[12.5px] text-[#23282B] flex-1 truncate">{p.short}</span>
-                  <span className="text-[14px] font-bold text-[#23282B]">{byProgram[p.key] || 0}</span>
+                  <div className="h-1.5 rounded-full bg-[#EFEBDE] overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${total ? ((byProgram[p.key] || 0) / total) * 100 : 0}%`, background: p.color }} />
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
+        </div>
 
-          <div className="rounded-xl bg-white border border-[#E5E1D5] p-5">
-            <h3 className="text-[13px] font-semibold text-[#23282B] mb-4 flex items-center gap-2"><Users size={15} className="text-[#0E5C73]" />{t.genderWise}</h3>
-            <div className="flex items-end gap-6 h-24 px-2">
-              {Object.entries(byGender).map(([g, c]) => (
-                <div key={g} className="flex flex-col items-center gap-2 flex-1">
-                  <span className="text-[14px] font-bold text-[#23282B]">{c}</span>
-                  <div className="w-full rounded-t-md" style={{ height: `${Math.max(8, (c / Math.max(...Object.values(byGender))) * 60)}px`, opacity: 0.85, background: "#0E5C73" }} />
-                  <span className="text-[11.5px] text-[#727870]">{t[g.toLowerCase()] || g}</span>
+        {/* Status breakdown */}
+        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Training Status</h3>
+          <div className="grid grid-cols-2 gap-3">
+            {STATUS_OPTIONS.map(s => (
+              <div key={s} className="rounded-lg p-3 flex items-center justify-between" style={{ background: statusColors[s] + "18" }}>
+                <span className="text-[12px] font-medium" style={{ color: statusColors[s] }}>{s}</span>
+                <span className="text-[18px] font-bold" style={{ color: statusColors[s] }}>{byStatus[s] || 0}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Village wise */}
+        {isAdmin && (
+          <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
+            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Village-wise Performance</h3>
+            {byVillage.length === 0 ? <p className="text-[12px] text-[#AAA]">No data yet.</p> : byVillage.map(([v, c]) => (
+              <div key={v} className="flex items-center gap-3 py-1.5">
+                <span className="text-[12px] text-[#23282B] w-28 shrink-0 truncate">{v}</span>
+                <div className="flex-1 h-2 rounded-full bg-[#EFEBDE] overflow-hidden">
+                  <div className="h-full rounded-full bg-[#1B5E3F]" style={{ width: `${(c / maxVillage) * 100}%` }} />
                 </div>
-              ))}
-            </div>
+                <span className="text-[12px] font-bold text-[#23282B] w-6 text-right">{c}</span>
+              </div>
+            ))}
           </div>
-
-          <div className="rounded-xl bg-white border border-[#E5E1D5] p-5">
-            <h3 className="text-[13px] font-semibold text-[#23282B] mb-4 flex items-center gap-2"><MapPin size={15} className="text-[#B0581F]" />{t.villageWise}</h3>
-            {byVillage.map(([v, c]) => <BarRow key={v} label={v} count={c} max={maxVillage} color="#B0581F" />)}
-          </div>
-
-          <div className="rounded-xl bg-white border border-[#E5E1D5] p-5">
-            <h3 className="text-[13px] font-semibold text-[#23282B] mb-4 flex items-center gap-2"><MapPin size={15} className="text-[#1B5E3F]" />{t.mandalWise}</h3>
-            {byMandal.map(([v, c]) => <BarRow key={v} label={v} count={c} max={maxMandal} color="#1B5E3F" />)}
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-xl bg-white border border-[#E5E1D5] p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[13px] font-semibold text-[#23282B]">{t.recent}</h3>
-          <button onClick={onGoRecords} className="text-[12px] font-medium text-[#1B5E3F] hover:underline flex items-center gap-1">{t.viewAll}<ChevronRight size={13} /></button>
-        </div>
-        <div className="space-y-2.5">
-          {recent.map(r => <FieldCard key={r.id} r={r} t={t} isAdmin={false} />)}
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 /* ============================================================
-   RECORDS LIST
+   BENEFICIARY LIST
    ============================================================ */
-function RecordsView({ t, records, isAdmin, onEdit, onDelete, onExportExcel, onExportPdf, onPrint }) {
+function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const filtered = useMemo(() => {
-    let r = records;
-    if (programFilter !== "all") r = r.filter(x => x.program === programFilter);
+    let r = beneficiaries;
+    if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
+    if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      r = r.filter(x =>
-        x.name?.toLowerCase().includes(q) ||
-        x.aadhaar?.includes(q) ||
-        x.phone?.includes(q) ||
-        x.village?.toLowerCase().includes(q) ||
-        x.enumeratorName?.toLowerCase().includes(q)
-      );
+      const q = query.toLowerCase();
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
     }
-    return [...r].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [records, query, programFilter]);
-
-  const activeLabel = programFilter === "all" ? t.allPrograms : (t[PROGRAMS[programFilter].labelKey] || PROGRAMS[programFilter].short);
+    return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [beneficiaries, query, programFilter, statusFilter]);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <h2 className="text-[19px] font-bold text-[#23282B]" style={{ fontFamily: "Archivo, sans-serif" }}>{t.records}</h2>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#23282B]">Beneficiary Records</h2>
+          <p className="text-[12px] text-[#727870]">{filtered.length} records shown</p>
+        </div>
         {isAdmin && (
-          <div className="flex items-center gap-2">
-            <button onClick={() => onExportExcel(filtered, activeLabel)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12.5px] font-medium text-[#23282B] hover:bg-white transition">
-              <FileSpreadsheet size={14} /> {t.exportExcel}
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] font-medium text-[#23282B] hover:bg-white">
+              <FileSpreadsheet size={13} /> Export CSV
             </button>
-            <button onClick={() => onExportPdf(filtered, activeLabel)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12.5px] font-medium text-[#23282B] hover:bg-white transition">
-              <Download size={14} /> {t.exportPdf}
-            </button>
-            <button onClick={() => onPrint(filtered, activeLabel)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12.5px] font-medium text-[#23282B] hover:bg-white transition">
-              <Printer size={14} /> {t.print}
+            <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] font-medium text-[#23282B] hover:bg-white">
+              <Printer size={13} /> Print
             </button>
           </div>
         )}
       </div>
 
-      {isAdmin && (
-        <div className="rounded-xl bg-white border border-[#E5E1D5] p-4 mb-5">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-[#727870] mb-3">{t.program}-wise export</p>
-          <div className="grid sm:grid-cols-3 gap-2.5">
-            {Object.values(PROGRAMS).map(p => {
-              const rows = records.filter(r => r.program === p.key);
-              const Icon = p.icon;
-              return (
-                <div key={p.key} className="rounded-lg border border-[#EFEBDE] p-3 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
-                      <Icon size={14} style={{ color: p.color }} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] font-semibold text-[#23282B] truncate">{p.short}</p>
-                      <p className="text-[11px] text-[#999]">{rows.length} records</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button title={t.exportExcel} onClick={() => onExportExcel(rows, t[p.labelKey] || p.short)} className="p-1.5 rounded-md text-[#23282B] hover:bg-[#F7F5EF] transition disabled:opacity-30" disabled={!rows.length}>
-                      <FileSpreadsheet size={15} />
-                    </button>
-                    <button title={t.exportPdf} onClick={() => onExportPdf(rows, t[p.labelKey] || p.short)} className="p-1.5 rounded-md text-[#23282B] hover:bg-[#F7F5EF] transition disabled:opacity-30" disabled={!rows.length}>
-                      <Download size={15} />
-                    </button>
-                    <button title={t.print} onClick={() => onPrint(rows, t[p.labelKey] || p.short)} className="p-1.5 rounded-md text-[#23282B] hover:bg-[#F7F5EF] transition disabled:opacity-30" disabled={!rows.length}>
-                      <Printer size={15} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A299]" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
-      )}
-
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A299]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t.searchPlaceholder} className={inputCls + " pl-9"} />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter size={14} className="text-[#727870]" />
-          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto min-w-[160px]"}>
-            <option value="all">{t.allPrograms}</option>
-            {Object.values(PROGRAMS).map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
-          </select>
-        </div>
+        <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Programs</option>
+          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-[#A8A299]">
-          <ClipboardList size={32} className="mx-auto mb-3 opacity-50" />
-          <p className="text-[13.5px]">{t.noRecords}</p>
+          <ClipboardList size={30} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No records match your search.</p>
         </div>
       ) : (
         <div className="space-y-2.5">
-          {filtered.map(r => <FieldCard key={r.id} r={r} t={t} onEdit={onEdit} onDelete={onDelete} isAdmin={isAdmin} />)}
+          {filtered.map(b => {
+            const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
+            const Icon = p.icon;
+            return (
+              <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E1D5] shadow-sm hover:shadow-md transition overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
+                    <Icon size={16} style={{ color: p.color }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-[13.5px] text-[#23282B]">{b.name}</span>
+                      <Badge label={p.short} color={p.color} tint={p.tint} />
+                      <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1B5E3F"} tint={(statusColors[b.status] || "#1B5E3F") + "18"} />
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                      <span className="font-mono">{b.beneficiary_id}</span>
+                      <span>•</span>
+                      <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
+                      <span>•</span>
+                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
+                      <span>•</span>
+                      <span>📞 {b.phone}</span>
+                      {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <div className="flex gap-1 shrink-0">
+                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const statusColors = { Registered: "#0E5C73", Training: "#D4A843", Completed: "#1B5E3F", Dropped: "#B0581F" };
+
+/* ============================================================
+   TRAINING LIST
+   ============================================================ */
+function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelete, onExport, onPrint }) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    if (!query.trim()) return training;
+    const q = query.toLowerCase();
+    return training.filter(t => t.beneficiary_id?.toLowerCase().includes(q) || t.course_name?.toLowerCase().includes(q) || t.trainer_name?.toLowerCase().includes(q) || t.center?.toLowerCase().includes(q));
+  }, [training, query]);
+
+  const getBeneficiaryName = id => beneficiaries.find(b => b.beneficiary_id === id)?.name || "—";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#23282B]">Training Records</h2>
+          <p className="text-[12px] text-[#727870]">{filtered.length} records</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#0E5C73", color: "#fff" }}>
+            <Plus size={14} /> Add Training
+          </button>
+          {isAdmin && (
+            <>
+              <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><FileSpreadsheet size={13} /> CSV</button>
+              <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><Printer size={13} /> Print</button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="relative mb-4">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A299]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by beneficiary, course, trainer..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-[#A8A299]"><BookOpen size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No training records yet.</p></div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(t => (
+            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E1D5] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #0E5C73" }}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-[13px] text-[#23282B]">{getBeneficiaryName(t.beneficiary_id)}</span>
+                  <Badge label={t.course_name} color="#0E5C73" tint="#E7F1F3" />
+                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#1B5E3F" tint="#E7F2EB" />}
+                </div>
+                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                  <span className="font-mono">{t.beneficiary_id}</span>
+                  <span>•</span><span>Trainer: {t.trainer_name}</span>
+                  <span>•</span><span>Center: {t.center}</span>
+                  {t.attendance_pct && <><span>•</span><span>Attendance: {t.attendance_pct}%</span></>}
+                  {t.start_date && <><span>•</span><span>{t.start_date}{t.end_date ? ` → ${t.end_date}` : ""}</span></>}
+                </div>
+              </div>
+              {isAdmin && (
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1025,149 +984,359 @@ function RecordsView({ t, records, isAdmin, onEdit, onDelete, onExportExcel, onE
 }
 
 /* ============================================================
-   APP SHELL
+   EMPLOYMENT LIST
+   ============================================================ */
+function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onDelete, onExport, onPrint }) {
+  const getBeneficiaryName = id => beneficiaries.find(b => b.beneficiary_id === id)?.name || "—";
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#23282B]">Employment Records</h2>
+          <p className="text-[12px] text-[#727870]">{employment.length} records</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>
+            <Plus size={14} /> Add Employment
+          </button>
+          {isAdmin && (
+            <>
+              <button onClick={() => onExport(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><FileSpreadsheet size={13} /> CSV</button>
+              <button onClick={() => onPrint(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><Printer size={13} /> Print</button>
+            </>
+          )}
+        </div>
+      </div>
+      {employment.length === 0 ? (
+        <div className="text-center py-12 text-[#A8A299]"><Briefcase size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No employment records yet.</p></div>
+      ) : (
+        <div className="space-y-2.5">
+          {employment.map(e => (
+            <div key={e.job_id} className="bg-white rounded-xl border border-[#E5E1D5] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #D4A843" }}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-[13px] text-[#23282B]">{getBeneficiaryName(e.beneficiary_id)}</span>
+                  <Badge label={e.employment_type} color="#D4A843" tint="#FBF4E3" />
+                  <Badge label={e.status} color={e.status === "Active" ? "#1B5E3F" : "#888"} tint={e.status === "Active" ? "#E7F2EB" : "#F5F5F5"} />
+                </div>
+                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                  <span className="font-mono">{e.beneficiary_id}</span>
+                  <span>•</span><span>{e.job_role}</span>
+                  {e.employer && <><span>•</span><span>{e.employer}</span></>}
+                  {e.monthly_income && <><span>•</span><span>₹{e.monthly_income}/mo</span></>}
+                </div>
+              </div>
+              {isAdmin && (
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => onEdit(e)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(e)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   VILLAGE MASTER LIST
+   ============================================================ */
+function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#23282B]">Village Master</h2>
+          <p className="text-[12px] text-[#727870]">{villages.length} villages configured</p>
+        </div>
+        {isAdmin && (
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>
+            <Plus size={14} /> Add Village
+          </button>
+        )}
+      </div>
+      {villages.length === 0 ? (
+        <div className="text-center py-12 text-[#A8A299]">
+          <MapPin size={28} className="mx-auto mb-2 opacity-40" />
+          <p className="text-[13px]">No villages added yet.</p>
+          <p className="text-[11px] mt-1">Add villages here so they appear as dropdowns in registration forms.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-[#E5E1D5] overflow-hidden">
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="bg-[#1B5E3F] text-white">
+                <th className="text-left px-4 py-3 font-semibold">Village</th>
+                <th className="text-left px-4 py-3 font-semibold">Mandal</th>
+                <th className="text-left px-4 py-3 font-semibold">District</th>
+                <th className="text-left px-4 py-3 font-semibold">Population</th>
+                {isAdmin && <th className="px-4 py-3"></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {villages.map((v, i) => (
+                <tr key={v.village_id || v.village_name} className={i % 2 === 0 ? "bg-white" : "bg-[#F9F8F5]"}>
+                  <td className="px-4 py-3 font-medium">{v.village_name}</td>
+                  <td className="px-4 py-3 text-[#727870]">{v.mandal}</td>
+                  <td className="px-4 py-3 text-[#727870]">{v.district}</td>
+                  <td className="px-4 py-3 text-[#727870]">{v.population || "—"}</td>
+                  {isAdmin && (
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => onEdit(v)} className="p-1.5 rounded text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={13} /></button>
+                        <button onClick={() => onDelete(v)} className="p-1.5 rounded text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={13} /></button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   MAIN APP
    ============================================================ */
 export default function App() {
-  const [lang, setLang] = useState("en");
-  const t = STR[lang];
   const [user, setUser] = useState(null);
-  const [records, setRecords] = useState([]);
-  const [loadingRecords, setLoadingRecords] = useState(true);
-  const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [editingRecord, setEditingRecord] = useState(null);
-  const [programKey, setProgramKey] = useState("rydeap");
+  const [subView, setSubView] = useState(null); // "beneficiary-form" | "training-form" | "employment-form" | "village-form"
+  const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  // Data state
+  const [beneficiaries, setBeneficiaries] = useState([]);
+  const [training, setTraining] = useState([]);
+  const [employment, setEmployment] = useState([]);
+  const [villages, setVillages] = useState([]);
 
   const isAdmin = user?.role === "admin";
 
-  const loadRecords = useCallback(async () => {
-    setLoadingRecords(true);
-    setLoadError(null);
-    const { data, error } = await supabase
-      .from("beneficiaries")
-      .select("*")
-      .order("created_at", { ascending: true });
-    if (error) {
-      setLoadError(error.message);
-      setLoadingRecords(false);
-      return;
+  const showToast = (message, type = "success") => setToast({ message, type });
+
+  const loadAll = useCallback(async () => {
+    setLoading(true); setLoadError(null);
+    try {
+      const [b, t, e, v] = await Promise.all([
+        supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
+        supabase.from("training").select("*").order("created_at", { ascending: false }),
+        supabase.from("employment").select("*").order("created_at", { ascending: false }),
+        supabase.from("village_master").select("*").order("village_name"),
+      ]);
+      if (b.error || t.error || e.error || v.error) throw new Error((b.error || t.error || e.error || v.error).message);
+      setBeneficiaries(b.data || []);
+      setTraining(t.data || []);
+      setEmployment(e.data || []);
+      setVillages(v.data || []);
+    } catch (err) {
+      setLoadError(err.message);
     }
-    setRecords((data || []).map(dbRowToRecord));
-    setLoadingRecords(false);
+    setLoading(false);
   }, []);
 
-  useEffect(() => {
-    if (user) loadRecords();
-  }, [user, loadRecords]);
+  useEffect(() => { if (user) loadAll(); }, [user, loadAll]);
 
-  const handleSave = useCallback(async (form) => {
-    if (editingRecord) {
-      const { error } = await supabase
-        .from("beneficiaries")
-        .update(recordToDbRow(form))
-        .eq("id", editingRecord.id);
-      if (error) { setToast("Error: " + error.message); return; }
-      setRecords(rs => rs.map(r => r.id === editingRecord.id ? { ...r, ...form } : r));
-      setToast(t.updatedToast);
+  // ---- BENEFICIARY CRUD ----
+  const saveBeneficiary = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", editing.beneficiary_id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setBeneficiaries(bs => bs.map(b => b.beneficiary_id === editing.beneficiary_id ? { ...b, ...form } : b));
+      showToast("Beneficiary updated.");
     } else {
-      const id = nextRegId(records, form.program);
-      const sno = records.length + 1;
-      const rec = { ...form, id, sno, createdAt: new Date().toISOString(), synced: navigator.onLine !== false };
-      const { error } = await supabase.from("beneficiaries").insert(recordToDbRow(rec));
-      if (error) { setToast("Error: " + error.message); return; }
-      setRecords(rs => [...rs, rec]);
-      setToast(t.savedToast);
+      const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
+      const beneficiary_id = nextId(beneficiaries, prefix);
+      const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
+      const { error } = await supabase.from("beneficiaries_v2").insert(rec);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setBeneficiaries(bs => [rec, ...bs]);
+      showToast(`Registered: ${beneficiary_id}`);
     }
-    setEditingRecord(null);
-    setView("records");
-  }, [editingRecord, records, t]);
-
-  const handleEdit = (r) => { setEditingRecord(r); setProgramKey(r.program); setView("form"); };
-  const handleDeleteConfirm = async () => {
-    const { error } = await supabase.from("beneficiaries").delete().eq("id", deleteTarget.id);
-    if (error) { setToast("Error: " + error.message); setDeleteTarget(null); return; }
-    setRecords(rs => rs.filter(r => r.id !== deleteTarget.id));
-    setToast(t.deletedToast);
-    setDeleteTarget(null);
+    setEditing(null); setSubView(null); setView("beneficiaries");
   };
 
-  const exportExcel = (rows, label) => downloadCSV(rows.map(r => flattenForExport(r, t)), `TAPASVI_${label.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`);
-  const exportPdf = (rows, label) => printRows(rows.map(r => flattenForExport(r, t)), `${t.records} — ${label}`);
-  const printOut = (rows, label) => printRows(rows.map(r => flattenForExport(r, t)), `${t.records} — ${label}`);
+  const deleteBeneficiary = async (b) => {
+    const { error } = await supabase.from("beneficiaries_v2").delete().eq("beneficiary_id", b.beneficiary_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setBeneficiaries(bs => bs.filter(x => x.beneficiary_id !== b.beneficiary_id));
+    showToast("Deleted."); setDeleteTarget(null);
+  };
 
-  if (!user) {
-    return <LoginScreen t={t} lang={lang} setLang={setLang} onLogin={setUser} />;
-  }
+  // ---- TRAINING CRUD ----
+  const saveTraining = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("training").update(form).eq("training_id", editing.training_id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setTraining(ts => ts.map(t => t.training_id === editing.training_id ? { ...t, ...form } : t));
+    } else {
+      const rec = { ...form, created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("training").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setTraining(ts => [data, ...ts]);
+    }
+    showToast("Training record saved."); setEditing(null); setSubView(null);
+  };
 
-  if (loadingRecords) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF]">
-        <div className="flex flex-col items-center gap-3">
-          <Logo size={40} />
-          <p className="text-[13px] text-[#727870]">Loading records…</p>
-        </div>
+  const deleteTraining = async (t) => {
+    const { error } = await supabase.from("training").delete().eq("training_id", t.training_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setTraining(ts => ts.filter(x => x.training_id !== t.training_id));
+    showToast("Deleted."); setDeleteTarget(null);
+  };
+
+  // ---- EMPLOYMENT CRUD ----
+  const saveEmployment = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("employment").update(form).eq("job_id", editing.job_id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setEmployment(es => es.map(e => e.job_id === editing.job_id ? { ...e, ...form } : e));
+    } else {
+      const rec = { ...form, created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("employment").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setEmployment(es => [data, ...es]);
+    }
+    showToast("Employment record saved."); setEditing(null); setSubView(null);
+  };
+
+  const deleteEmployment = async (e) => {
+    const { error } = await supabase.from("employment").delete().eq("job_id", e.job_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setEmployment(es => es.filter(x => x.job_id !== e.job_id));
+    showToast("Deleted."); setDeleteTarget(null);
+  };
+
+  // ---- VILLAGE CRUD ----
+  const saveVillage = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("village_master").update(form).eq("village_id", editing.village_id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setVillages(vs => vs.map(v => v.village_id === editing.village_id ? { ...v, ...form } : v));
+    } else {
+      const { data, error } = await supabase.from("village_master").insert(form).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setVillages(vs => [...vs, data].sort((a, b) => a.village_name.localeCompare(b.village_name)));
+    }
+    showToast("Village saved."); setEditing(null); setSubView(null);
+  };
+
+  const deleteVillage = async (v) => {
+    const { error } = await supabase.from("village_master").delete().eq("village_id", v.village_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setVillages(vs => vs.filter(x => x.village_id !== v.village_id));
+    showToast("Deleted."); setDeleteTarget(null);
+  };
+
+  // ---- EXPORTS ----
+  const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
+    "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
+    Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
+    Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
+    Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
+    "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
+  })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
+
+  const printBeneficiaries = (rows) => printTable(rows.map(b => ({
+    "ID": b.beneficiary_id,
+    "Name": b.name,
+    "Program": PROGRAM_MAP[b.program]?.short || b.program,
+    "Age": b.age,
+    "Gender": b.gender,
+    "Phone": b.phone,
+    "Education": b.education || "—",
+    "Skill": b.skill_interest || "—",
+    "Status": b.status || "Registered",
+    "Village": b.village || "—",
+    "Mandal": b.mandal || "—",
+    "District": b.district || "—",
+    "Category": b.category || "—",
+    "Aadhaar ✓": b.aadhaar_verified || "No",
+    "eKYC": b.ekyc_status || "No",
+    "Field Worker": b.field_worker_name || "—",
+    "Survey Date": b.survey_date || "—",
+  })), "Beneficiary Report — All Programs");
+
+  const exportTraining = (rows) => downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`);
+  const printTraining = (rows) => printTable(rows.map(t => ({
+    "Training ID": t.training_id, "Beneficiary ID": t.beneficiary_id, "Course": t.course_name,
+    "Trainer": t.trainer_name, "Center": t.center, "Start": t.start_date, "End": t.end_date,
+    "Attendance %": t.attendance_pct, "Certificate": t.certificate_issued,
+  })), "Training Report");
+
+  const exportEmployment = (rows) => downloadCSV(rows, `TAPASVI_Employment_${new Date().toISOString().slice(0, 10)}.csv`);
+  const printEmployment = (rows) => printTable(rows.map(e => ({
+    "Job ID": e.job_id, "Beneficiary ID": e.beneficiary_id, "Type": e.employment_type,
+    "Role": e.job_role, "Employer": e.employer, "Income": e.monthly_income, "Status": e.status,
+  })), "Employment Report");
+
+  if (!user) return <LoginScreen onLogin={setUser} />;
+
+  if (loading) return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0]">
+      <div className="flex flex-col items-center gap-3">
+        <Logo size={40} /><p className="text-[13px] text-[#727870]">Loading MIS data…</p>
       </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF] px-4">
-        <div className="max-w-[360px] text-center">
-          <AlertCircle size={28} className="mx-auto mb-3 text-[#B0581F]" />
-          <p className="text-[14px] text-[#23282B] mb-2">Couldn't load records.</p>
-          <p className="text-[12px] text-[#727870] mb-4">{loadError}</p>
-          <button onClick={loadRecords} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#1B5E3F" }}>
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const NavItem = ({ icon: Icon, label, active, onClick, restricted }) => (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[13.5px] font-medium transition ${
-        active ? "" : "text-[#3A4038] hover:bg-[#EFEBDE]"
-      }`}
-      style={active ? { background: "#1B5E3F", color: "#FFFFFF" } : undefined}
-    >
-      <Icon size={17} />
-      <span className="flex-1 text-left">{label}</span>
-      {restricted && !isAdmin && <Lock size={11} className="opacity-50" />}
-    </button>
+    </div>
   );
 
-  return (
-    <div className="min-h-screen bg-[#F7F5EF] flex" style={{ fontFamily: "Inter, sans-serif" }}>
-      <style>{`
-        @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
-        * { box-sizing: border-box; }
-      `}</style>
+  if (loadError) return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0] px-4">
+      <div className="max-w-[360px] text-center">
+        <AlertCircle size={28} className="mx-auto mb-3 text-red-600" />
+        <p className="text-[13px] text-[#23282B] mb-2 font-medium">Failed to load data</p>
+        <p className="text-[11.5px] text-[#727870] mb-4">{loadError}</p>
+        <button onClick={loadAll} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#1B5E3F" }}>Retry</button>
+      </div>
+    </div>
+  );
 
-      {/* Sidebar */}
-      <aside className="w-[230px] bg-white border-r border-[#E5E1D5] flex flex-col shrink-0 hidden md:flex">
-        <div className="flex items-center gap-2.5 px-5 py-5 border-b border-[#EFEBDE]">
-          <Logo size={32} />
+  const NAVITEMS = [
+    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "beneficiaries", label: "Beneficiaries", icon: Users },
+    { key: "training", label: "Training", icon: BookOpen },
+    { key: "employment", label: "Employment", icon: Briefcase },
+    ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
+  ];
+
+  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); };
+
+  return (
+    <div className="min-h-screen bg-[#F0F4F0] flex" style={{ fontFamily: "Arial, sans-serif" }}>
+      <style>{`* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
+
+      {/* Sidebar (desktop) */}
+      <aside className="w-[220px] bg-white border-r border-[#E5E1D5] hidden md:flex flex-col shrink-0">
+        <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#EFEBDE]">
+          <Logo size={30} />
           <div>
-            <p className="text-[13.5px] font-bold text-[#1B5E3F] leading-tight" style={{ fontFamily: "Archivo, sans-serif" }}>{t.appName}</p>
-            <p className="text-[10.5px] text-[#999]">{isAdmin ? t.admin : t.enumerator}</p>
+            <p className="text-[13px] font-bold text-[#1B5E3F]">TAPASVI MIS</p>
+            <p className="text-[10px] text-[#999]">{isAdmin ? "Admin" : "Field Worker"}</p>
           </div>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavItem icon={LayoutDashboard} label={t.dashboard} active={view === "dashboard"} onClick={() => setView("dashboard")} />
-          <NavItem icon={Plus} label={t.register} active={view === "form" && !editingRecord} onClick={() => { setEditingRecord(null); setView("form"); }} />
-          <NavItem icon={ClipboardList} label={t.records} active={view === "records"} onClick={() => setView("records")} />
+        <nav className="flex-1 px-3 py-3 space-y-0.5">
+          {NAVITEMS.map(item => (
+            <button key={item.key} onClick={() => goTo(item.key)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition"
+              style={view === item.key ? { background: "#1B5E3F", color: "#fff" } : { color: "#3A4038" }}>
+              <item.icon size={16} />{item.label}
+            </button>
+          ))}
         </nav>
-        <div className="px-3 pb-3">
-          <button onClick={() => setLang(lang === "en" ? "te" : "en")} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[13px] font-medium text-[#3A4038] hover:bg-[#EFEBDE] transition mb-1">
-            <Globe size={16} /> {lang === "en" ? "తెలుగు" : "English"}
+        <div className="px-3 pb-3 space-y-0.5">
+          <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#3A4038] hover:bg-[#EFEBDE] transition">
+            <RefreshCw size={15} /> Refresh Data
           </button>
-          <button onClick={() => setUser(null)} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-[13px] font-medium text-[#B0581F] hover:bg-[#FBEEE3] transition">
-            <LogOut size={16} /> {t.logout}
+          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#B0581F] hover:bg-[#FBEEE3] transition">
+            <LogOut size={15} /> Sign Out
           </button>
         </div>
       </aside>
@@ -1175,62 +1344,105 @@ export default function App() {
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E1D5] flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <Logo size={26} />
-          <span className="text-[13px] font-bold text-[#1B5E3F]" style={{ fontFamily: "Archivo, sans-serif" }}>{t.appName}</span>
+          <Logo size={24} />
+          <span className="text-[13px] font-bold text-[#1B5E3F]">TAPASVI MIS</span>
         </div>
-        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={17} className="text-[#B0581F]" /></button>
+        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#B0581F]" /></button>
       </div>
 
-      {/* Main */}
-      <main className="flex-1 min-w-0 pt-[60px] md:pt-0 pb-20 md:pb-0">
-        <div className="max-w-[1100px] mx-auto px-4 md:px-8 py-6">
-          {view === "dashboard" && <Dashboard t={t} records={records} isAdmin={isAdmin} onGoRecords={() => setView("records")} />}
-          {view === "form" && (
-            <RegistrationForm
-              t={t} lang={lang} programKey={programKey} setProgramKey={setProgramKey}
-              records={records} editing={editingRecord} onCancel={() => { setEditingRecord(null); setView(editingRecord ? "records" : "dashboard"); }}
-              onSave={handleSave} currentUser={user}
-            />
+      {/* Main content */}
+      <main className="flex-1 min-w-0 pt-[56px] md:pt-0 pb-20 md:pb-0">
+        <div className="max-w-[1100px] mx-auto px-4 md:px-7 py-5">
+
+          {/* FAB for new registration */}
+          {(view === "beneficiaries" || view === "dashboard") && !subView && (
+            <button onClick={() => { setEditing(null); setSubView("beneficiary-form"); setView("beneficiaries"); }}
+              className="fixed bottom-24 md:bottom-6 right-5 z-20 w-13 h-13 rounded-full shadow-lg flex items-center justify-center" style={{ background: "#1B5E3F", width: 52, height: 52 }}>
+              <Plus size={22} color="white" />
+            </button>
           )}
-          {view === "records" && (
-            <RecordsView
-              t={t} records={records} isAdmin={isAdmin}
-              onEdit={handleEdit} onDelete={setDeleteTarget}
-              onExportExcel={exportExcel} onExportPdf={exportPdf} onPrint={printOut}
-            />
+
+          {/* FORMS */}
+          {subView === "beneficiary-form" && (
+            <BeneficiaryForm editing={editing} onSave={saveBeneficiary} onCancel={() => { setSubView(null); setEditing(null); }}
+              currentUser={user} villages={villages} beneficiaries={beneficiaries} />
+          )}
+          {subView === "training-form" && (
+            <TrainingForm editing={editing} onSave={saveTraining} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
+          )}
+          {subView === "employment-form" && (
+            <EmploymentForm editing={editing} onSave={saveEmployment} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
+          )}
+          {subView === "village-form" && (
+            <VillageForm editing={editing} onSave={saveVillage} onCancel={() => { setSubView(null); setEditing(null); }} />
+          )}
+
+          {/* VIEWS */}
+          {!subView && view === "dashboard" && (
+            <Dashboard beneficiaries={beneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
+          )}
+          {!subView && view === "beneficiaries" && (
+            <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin}
+              onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
+              onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
+              onExport={exportBeneficiaries} onPrint={printBeneficiaries} />
+          )}
+          {!subView && view === "training" && (
+            <TrainingList training={training} beneficiaries={beneficiaries} isAdmin={isAdmin}
+              onAdd={() => { setEditing(null); setSubView("training-form"); }}
+              onEdit={t => { setEditing(t); setSubView("training-form"); }}
+              onDelete={t => setDeleteTarget({ type: "training", record: t })}
+              onExport={exportTraining} onPrint={printTraining} />
+          )}
+          {!subView && view === "employment" && (
+            <EmploymentList employment={employment} beneficiaries={beneficiaries} isAdmin={isAdmin}
+              onAdd={() => { setEditing(null); setSubView("employment-form"); }}
+              onEdit={e => { setEditing(e); setSubView("employment-form"); }}
+              onDelete={e => setDeleteTarget({ type: "employment", record: e })}
+              onExport={exportEmployment} onPrint={printEmployment} />
+          )}
+          {!subView && view === "villages" && isAdmin && (
+            <VillageMasterList villages={villages} isAdmin={isAdmin}
+              onAdd={() => { setEditing(null); setSubView("village-form"); }}
+              onEdit={v => { setEditing(v); setSubView("village-form"); }}
+              onDelete={v => setDeleteTarget({ type: "village", record: v })} />
           )}
         </div>
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E1D5] flex items-center justify-around py-2">
-        {[
-          { icon: LayoutDashboard, label: t.dashboard, key: "dashboard" },
-          { icon: Plus, label: t.register, key: "form" },
-          { icon: ClipboardList, label: t.records, key: "records" },
-        ].map(item => (
-          <button key={item.key} onClick={() => { if (item.key === "form") setEditingRecord(null); setView(item.key); }} className="flex flex-col items-center gap-1 px-4 py-1">
-            <item.icon size={19} className={view === item.key ? "text-[#1B5E3F]" : "text-[#A8A299]"} />
-            <span className={`text-[10px] font-medium ${view === item.key ? "text-[#1B5E3F]" : "text-[#A8A299]"}`}>{item.label}</span>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E1D5] flex items-center justify-around py-1.5 px-2">
+        {NAVITEMS.slice(0, 5).map(item => (
+          <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
+            <item.icon size={18} style={{ color: view === item.key ? "#1B5E3F" : "#A8A299" }} />
+            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#1B5E3F" : "#A8A299" }}>{item.label}</span>
           </button>
         ))}
       </nav>
 
-      {/* Delete confirm modal */}
+      {/* Delete confirm */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
-          <div className="bg-white rounded-xl p-5 max-w-[340px] w-full" onClick={e => e.stopPropagation()}>
-            <p className="text-[14px] text-[#23282B] mb-4">{t.confirmDelete}</p>
-            <p className="text-[12.5px] text-[#727870] mb-4">{deleteTarget.name} — {deleteTarget.id}</p>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <p className="text-[14px] font-semibold text-[#23282B] mb-2">Delete this record?</p>
+            <p className="text-[12px] text-[#727870] mb-4">
+              {deleteTarget.record?.name || deleteTarget.record?.beneficiary_id || deleteTarget.record?.village_name || "This record"} will be permanently removed.
+            </p>
             <div className="flex gap-2">
-              <button onClick={handleDeleteConfirm} className="flex-1 rounded-lg py-2 text-[13px] font-medium" style={{ background: "#B0581F", color: "#FFFFFF" }}>{t.delete}</button>
-              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#D9D4C7] py-2 text-[13px] font-medium text-[#23282B]">{t.cancel}</button>
+              <button onClick={() => {
+                const { type, record } = deleteTarget;
+                if (type === "beneficiary") deleteBeneficiary(record);
+                else if (type === "training") deleteTraining(record);
+                else if (type === "employment") deleteEmployment(record);
+                else if (type === "village") deleteVillage(record);
+              }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#B0581F", color: "#fff" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#D9D4C7] py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   );
 }
