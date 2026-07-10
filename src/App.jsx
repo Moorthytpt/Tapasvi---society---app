@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 /* ============================================================
-   SUPABASE — TAPASVI MIS
+   SUPABASE — TAPASVI DMS
    ============================================================ */
 const supabase = createClient(
   "https://srdfsdqitsmpzjfsxkib.supabase.co",
@@ -22,9 +22,9 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#0E5C73", tint: "#E7F1F3", icon: Laptop, idPrefix: "RYDEAP" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#B0581F", tint: "#FBEEE3", icon: Scissors, idPrefix: "WOMENS" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#1B5E3F", tint: "#E7F2EB", icon: Leaf, idPrefix: "WASTE" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#0D47A1", tint: "#E3F2FD", icon: Laptop, idPrefix: "RYDEAP" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F57C00", tint: "#FFF3E0", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#2E7D32", tint: "#E8F5E9", icon: Leaf, idPrefix: "WASTE" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
@@ -67,43 +67,43 @@ function printTable(rows, title, cols) {
   const w = window.open("", "_blank");
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Society — ${title}</title><style>
+  w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Database Management System — ${title}</title><style>
     @page { size: A4 landscape; margin: 10mm 12mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
+    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
 
     /* HEADER / LETTERHEAD */
-    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1B5E3F; margin-bottom: 6px; }
-    .logo-circle { width: 48px; height: 48px; background: #1B5E3F; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #0D47A1; margin-bottom: 6px; }
+    .logo-circle { width: 48px; height: 48px; background: #F57C00; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .logo-circle svg { width: 36px; height: 36px; }
-    .org-name { font-size: 15px; font-weight: 900; color: #1B5E3F; letter-spacing: 1px; }
+    .org-name { font-size: 15px; font-weight: 900; color: #0D47A1; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; }
     .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
     .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
     .header-right { margin-left: auto; text-align: right; }
-    .report-title { font-size: 12px; font-weight: 700; color: #1B5E3F; }
+    .report-title { font-size: 12px; font-weight: 700; color: #0D47A1; }
     .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
 
     /* SUMMARY BAR */
-    .summary { display: flex; gap: 16px; background: #F0F7F2; border: 1px solid #C8E0D0; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1B5E3F; font-weight: 600; }
+    .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #0D47A1; font-weight: 600; }
 
     /* TABLE */
     table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    thead tr { background: #1B5E3F; }
+    thead tr { background: #0D47A1; }
     thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
-    tbody tr:nth-child(even) { background: #F5FAF7; }
+    tbody tr:nth-child(even) { background: #F8FAFF; }
     tbody tr:nth-child(odd) { background: #FFFFFF; }
     tbody tr:hover { background: #E8F4ED; }
-    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #D5E8DC; vertical-align: middle; }
-    tbody td:first-child { font-weight: 700; color: #1B5E3F; font-family: monospace; }
+    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
+    tbody td:first-child { font-weight: 700; color: #0D47A1; font-family: monospace; }
 
     /* STATUS BADGES */
-    .status-registered { color: #0E5C73; font-weight: 700; }
+    .status-registered { color: #0D47A1; font-weight: 700; }
     .status-training { color: #9A6B00; font-weight: 700; }
-    .status-completed { color: #1B5E3F; font-weight: 700; }
-    .status-dropped { color: #B0581F; font-weight: 700; }
+    .status-completed { color: #2E7D32; font-weight: 700; }
+    .status-dropped { color: #F57C00; font-weight: 700; }
 
     /* FOOTER */
-    .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #D5E8DC; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
+    .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
 
     /* PAGE BREAK */
     @media print {
@@ -116,9 +116,9 @@ function printTable(rows, title, cols) {
     <div class="header">
       <div class="logo-circle">
         <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M24 6C24 6 12 14 12 25C12 33 17 38 24 38C31 38 36 33 36 25C36 14 24 6 24 6Z" fill="#F7F5EF" opacity="0.9"/>
-          <path d="M24 12C24 12 18 17 18 24C18 29 21 32 24 32" stroke="#D4A843" stroke-width="2" fill="none" stroke-linecap="round"/>
-          <circle cx="24" cy="25" r="3" fill="#D4A843"/>
+          <path d="M24 6C24 6 12 14 12 25C12 33 17 38 24 38C31 38 36 33 36 25C36 14 24 6 24 6Z" fill="#F8FAFC" opacity="0.9"/>
+          <path d="M24 12C24 12 18 17 18 24C18 29 21 32 24 32" stroke="#F57C00" stroke-width="2" fill="none" stroke-linecap="round"/>
+          <circle cx="24" cy="25" r="3" fill="#F57C00"/>
         </svg>
       </div>
       <div>
@@ -171,7 +171,7 @@ function printTable(rows, title, cols) {
 
     <!-- FOOTER -->
     <div class="footer">
-      <span>TAPASVI Society — Confidential &nbsp;|&nbsp; For Official Use Only</span>
+      <span>TAPASVI Database Management System — Confidential &nbsp;|&nbsp; For Official Use Only</span>
       <span>Page 1 &nbsp;|&nbsp; Printed: ${new Date().toLocaleDateString("en-IN")}</span>
     </div>
 
@@ -186,22 +186,27 @@ function printTable(rows, title, cols) {
    ============================================================ */
 function Logo({ size = 40 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
-      <circle cx="24" cy="24" r="23" fill="#1B5E3F" />
-      <path d="M24 8C24 8 14 16 14 26C14 33.7 18.7 38 24 38C29.3 38 34 33.7 34 26C34 16 24 8 24 8Z" fill="#F7F5EF" opacity="0.95" />
-      <path d="M24 14C24 14 19 19 19 25.5C19 30 21.5 33 24 33" stroke="#0E5C73" strokeWidth="1.6" fill="none" strokeLinecap="round" />
-      <circle cx="24" cy="26" r="3.2" fill="#D98E04" />
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="22" cy="23" r="20" fill="#F57C00"/>
+      <circle cx="22" cy="12" r="4.5" fill="white"/>
+      <path d="M13 28 C13 21 17 18 22 18 C27 18 31 21 31 28 L31 30 L13 30 Z" fill="white"/>
+      <path d="M6 34 Q13 30 20 34 Q27 38 34 34 Q39 31 43 34 L43 44 L6 44 Z" fill="#2E7D32"/>
+      <path d="M6 37 Q13 33 20 37 Q27 41 34 37 Q39 34 43 37" stroke="#4CAF50" strokeWidth="1.2" fill="none"/>
+      <path d="M6 40 Q13 36 20 40 Q27 44 34 40 Q39 37 43 40" stroke="#66BB6A" strokeWidth="0.9" fill="none" opacity="0.6"/>
+      <path d="M17 34 C17 34 17 30 20 28" stroke="#81C784" strokeWidth="1.3" fill="none" strokeLinecap="round"/>
+      <path d="M20 28 C20 28 22 26 24 28" stroke="#81C784" strokeWidth="1.3" fill="none" strokeLinecap="round"/>
+      <path d="M24 33 C24 33 24 29 27 27" stroke="#81C784" strokeWidth="1.1" fill="none" strokeLinecap="round"/>
     </svg>
   );
 }
 
-const inputCls = "w-full rounded-lg border border-[#D9D4C7] bg-white px-3.5 py-2.5 text-[13px] text-[#23282B] outline-none transition focus:border-[#1B5E3F] focus:ring-2 focus:ring-[#1B5E3F]/15 placeholder:text-[#A8A299]";
+const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#0D47A1] focus:ring-2 focus:ring-[#0D47A1]/15 placeholder:text-[#9CA3AF]";
 const selectCls = inputCls + " appearance-none cursor-pointer";
 
 function Field({ label, required, error, hint, children }) {
   return (
     <label className="block mb-4">
-      <span className="block text-[12.5px] font-semibold text-[#23282B] mb-1.5 uppercase tracking-wide">
+      <span className="block text-[12.5px] font-semibold text-[#111827] mb-1.5 uppercase tracking-wide">
         {label}{required && <span className="text-red-500 ml-1">*</span>}
       </span>
       {hint && <span className="block text-[11px] text-[#888] mb-1.5">{hint}</span>}
@@ -229,13 +234,13 @@ function Badge({ label, color, tint }) {
 
 function StatCard({ icon: Icon, label, value, color, tint, sub }) {
   return (
-    <div className="rounded-xl bg-white border border-[#E5E1D5] p-4 flex items-center gap-3.5">
+    <div className="rounded-xl bg-white border border-[#E5E7EB] p-4 flex items-center gap-3.5">
       <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint }}>
         <Icon size={20} style={{ color }} />
       </div>
       <div>
-        <p className="text-[22px] font-bold text-[#23282B] leading-none">{value}</p>
-        <p className="text-[12px] text-[#727870] mt-1">{label}</p>
+        <p className="text-[22px] font-bold text-[#111827] leading-none">{value}</p>
+        <p className="text-[12px] text-[#6B7280] mt-1">{label}</p>
         {sub && <p className="text-[11px] text-[#999] mt-0.5">{sub}</p>}
       </div>
     </div>
@@ -245,18 +250,18 @@ function StatCard({ icon: Icon, label, value, color, tint, sub }) {
 function Toast({ message, type = "success", onDone }) {
   useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
   return (
-    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#1B5E3F", color: "#fff" }}>
+    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#2E7D32", color: "#fff" }}>
       {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
     </div>
   );
 }
 
-function SectionHeader({ title, color = "#1B5E3F" }) {
+function SectionHeader({ title, color = "#2E7D32" }) {
   return (
     <div className="flex items-center gap-2 mt-6 mb-3">
       <span className="w-2 h-2 rounded-full" style={{ background: color }} />
       <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color }}>{title}</span>
-      <div className="flex-1 h-px bg-[#EFEBDE]" />
+      <div className="flex-1 h-px bg-[#F3F4F6]" />
     </div>
   );
 }
@@ -289,21 +294,21 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Arial, sans-serif" }}>
-      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1B5E3F] via-[#D4A843] to-[#1B5E3F]" />
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
+      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#0D47A1] via-[#F57C00] to-[#2E7D32]" />
       <div className="w-full max-w-[400px]">
         <div className="flex flex-col items-center mb-6">
           <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#1B5E3F] text-center">TAPASVI Society</h1>
-          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">MIS — Rural Development, Social Issues & Health</p>
+          <h1 className="mt-3 text-[22px] font-bold text-[#2E7D32] text-center">TAPASVI</h1>
+          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
         </div>
-        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#D9D4C7] shadow-md p-6">
-          <p className="text-[13px] font-semibold text-[#23282B] mb-4">Sign in to continue</p>
+        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
+          <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
           <div className="grid grid-cols-2 gap-2 mb-4">
             {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
               <button key={r} type="button" onClick={() => setRole(r)}
                 className="flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition"
-                style={role === r ? { background: "#1B5E3F", color: "#fff", borderColor: "#1B5E3F" } : { borderColor: "#D9D4C7", color: "#23282B" }}>
+                style={role === r ? { background: "#2E7D32", color: "#fff", borderColor: "#2E7D32" } : { borderColor: "#E5E7EB", color: "#111827" }}>
                 <Icon size={14} /> {label}
               </button>
             ))}
@@ -314,14 +319,14 @@ function LoginScreen({ onLogin }) {
           <Field label="Password" required error={error}>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
           </Field>
-          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#1B5E3F", color: "#fff" }}>
+          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#0D47A1", color: "#fff" }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
           <p className="text-[10.5px] text-[#AAA] text-center mt-3">
             {role === "admin" ? "Admin: registered email & password" : "Field Worker password: tapasvi"}
           </p>
         </form>
-        <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI MIS v2.0 • Secure Access Only</p>
+        <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI DMS v2.0 • Secure Access Only</p>
       </div>
     </div>
   );
@@ -382,10 +387,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
     <div className="max-w-[820px] mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">{editing ? "Edit Beneficiary" : "New Beneficiary Registration"}</h2>
-          <p className="text-[12px] text-[#727870] mt-0.5">Fill all required fields carefully</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "New Beneficiary Registration"}</h2>
+          <p className="text-[12px] text-[#6B7280] mt-0.5">Fill all required fields carefully</p>
         </div>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
       </div>
 
       {!editing && (
@@ -395,7 +400,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
             return (
               <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
                 className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
-                style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E1D5", color: "#727870" }}>
+                style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280" }}>
                 <Icon size={18} />{pr.short}
               </button>
             );
@@ -403,11 +408,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
         </div>
       )}
 
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
         <SectionHeader title="Program Information" color={p.color} />
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Field Worker Name" required error={errors.field_worker_name}>
-            <Input value={form.field_worker_name} onChange={set("field_worker_name")} readOnly={currentUser.role === "fieldworker"} className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F7F5EF] text-[#888]" : inputCls} />
+            <Input value={form.field_worker_name} onChange={set("field_worker_name")} readOnly={currentUser.role === "fieldworker"} className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F8FAFC] text-[#888]" : inputCls} />
           </Field>
           <Field label="Survey Date" required>
             <input type="date" value={form.survey_date} onChange={set("survey_date")} className={inputCls} />
@@ -471,7 +476,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
             <Input value={form.mandal} onChange={set("mandal")} />
           </Field>
           <Field label="State">
-            <Input value={form.state} readOnly className={inputCls + " bg-[#F7F5EF] text-[#888]"} />
+            <Input value={form.state} readOnly className={inputCls + " bg-[#F8FAFC] text-[#888]"} />
           </Field>
           <Field label="PIN Code" error={errors.pin}>
             <Input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" />
@@ -495,11 +500,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
           <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} placeholder="Any additional observations..." />
         </Field>
 
-        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
+        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
           <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13.5px] font-bold" style={{ background: p.color, color: "#fff" }}>
             {editing ? "Update Record" : "Save Registration"}
           </button>
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13.5px] font-medium text-[#23282B]">Cancel</button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#111827]">Cancel</button>
         </div>
       </form>
     </div>
@@ -534,10 +539,10 @@ function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
   return (
     <div className="max-w-[680px] mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Training Record" : "Add Training Record"}</h2>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Training Record" : "Add Training Record"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
       </div>
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Beneficiary" required error={errors.beneficiary_id}>
             <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
@@ -569,9 +574,9 @@ function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
         <Field label="Notes">
           <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
         </Field>
-        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
-          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#0E5C73", color: "#fff" }}>Save</button>
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#0D47A1", color: "#fff" }}>Save</button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </form>
     </div>
@@ -600,10 +605,10 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
   return (
     <div className="max-w-[620px] mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Employment Record" : "Add Employment Record"}</h2>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Employment Record" : "Add Employment Record"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
       </div>
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Beneficiary" required error={errors.beneficiary_id}>
             <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
@@ -629,9 +634,9 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
         <Field label="Notes">
           <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
         </Field>
-        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
-          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>Save</button>
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>Save</button>
+          <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </form>
     </div>
@@ -658,10 +663,10 @@ function VillageForm({ editing, onSave, onCancel }) {
   return (
     <div className="max-w-[500px] mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[17px] font-bold text-[#23282B]">{editing ? "Edit Village" : "Add Village to Master"}</h2>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#EDEAE0] text-[#727870]"><X size={18} /></button>
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Village" : "Add Village to Master"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
       </div>
-      <div className="bg-white rounded-2xl border border-[#E5E1D5] p-5">
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Village Name" required error={errors.village_name}>
             <Input value={form.village_name} onChange={set("village_name")} />
@@ -676,9 +681,9 @@ function VillageForm({ editing, onSave, onCancel }) {
             <Input type="number" value={form.population} onChange={set("population")} />
           </Field>
         </div>
-        <div className="flex gap-3 mt-4 pt-4 border-t border-[#EFEBDE]">
-          <button onClick={() => { if (validate()) onSave(form); }} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>Save Village</button>
-          <button onClick={onCancel} className="rounded-lg border border-[#D9D4C7] px-6 py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={() => { if (validate()) onSave(form); }} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>Save Village</button>
+          <button onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </div>
     </div>
@@ -718,44 +723,44 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
     return m;
   }, [beneficiaries]);
 
-  const statusColors = { Registered: "#0E5C73", Training: "#D4A843", Completed: "#1B5E3F", Dropped: "#B0581F" };
+  const statusColors = { Registered: "#0D47A1", Training: "#F57C00", Completed: "#2E7D32", Dropped: "#D32F2F" };
   const maxVillage = Math.max(1, ...byVillage.map(v => v[1]));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">MIS Dashboard</h2>
-          <p className="text-[12px] text-[#727870]">TAPASVI Society — Program Overview</p>
+          <h2 className="text-[18px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif"}}>Dashboard</h2>
+          <p className="text-[12px] text-[#6B7280]">TAPASVI — Program Overview</p>
         </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#1B5E3F" tint="#E7F2EB" />
-        <StatCard icon={Award} label="Trained" value={trained} color="#0E5C73" tint="#E7F1F3" sub={`${certIssued} certificates issued`} />
-        <StatCard icon={Briefcase} label="Employed" value={employed} color="#D4A843" tint="#FBF4E3" sub={`${employmentRate}% rate`} />
-        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#B0581F" tint="#FBEEE3" />
+        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#2E7D32" tint="#E8F5E9" />
+        <StatCard icon={Award} label="Trained" value={trained} color="#0D47A1" tint="#E3F2FD" sub={`${certIssued} certificates issued`} />
+        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F57C00" tint="#FFF3E0" sub={`${employmentRate}% rate`} />
+        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F57C00" tint="#FFF3E0" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
         {/* Women vs Youth */}
-        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Gender Split</h3>
+        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Gender Split</h3>
           <div className="flex items-end gap-4 h-28">
-            {[["Women", women, "#B0581F"], ["Youth (M)", youth, "#0E5C73"]].map(([label, count, color]) => (
+            {[["Women", women, "#F57C00"], ["Youth (M)", youth, "#0D47A1"]].map(([label, count, color]) => (
               <div key={label} className="flex flex-col items-center gap-2 flex-1">
-                <span className="text-[16px] font-bold text-[#23282B]">{count}</span>
+                <span className="text-[16px] font-bold text-[#111827]">{count}</span>
                 <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
-                <span className="text-[11px] text-[#727870]">{label}</span>
+                <span className="text-[11px] text-[#6B7280]">{label}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Program wise */}
-        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Program-wise Beneficiaries</h3>
+        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Program-wise Beneficiaries</h3>
           <div className="space-y-3">
             {PROGRAMS.map(p => (
               <div key={p.key} className="flex items-center gap-3">
@@ -764,10 +769,10 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-medium text-[#23282B]">{p.short}</span>
+                    <span className="text-[12px] font-medium text-[#111827]">{p.short}</span>
                     <span className="text-[12px] font-bold" style={{ color: p.color }}>{byProgram[p.key] || 0}</span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-[#EFEBDE] overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${total ? ((byProgram[p.key] || 0) / total) * 100 : 0}%`, background: p.color }} />
                   </div>
                 </div>
@@ -777,8 +782,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
         </div>
 
         {/* Status breakdown */}
-        <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Training Status</h3>
+        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Training Status</h3>
           <div className="grid grid-cols-2 gap-3">
             {STATUS_OPTIONS.map(s => (
               <div key={s} className="rounded-lg p-3 flex items-center justify-between" style={{ background: statusColors[s] + "18" }}>
@@ -791,15 +796,15 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 
         {/* Village wise */}
         {isAdmin && (
-          <div className="bg-white rounded-xl border border-[#E5E1D5] p-4">
-            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#727870] mb-4">Village-wise Performance</h3>
+          <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
+            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Village-wise Performance</h3>
             {byVillage.length === 0 ? <p className="text-[12px] text-[#AAA]">No data yet.</p> : byVillage.map(([v, c]) => (
               <div key={v} className="flex items-center gap-3 py-1.5">
-                <span className="text-[12px] text-[#23282B] w-28 shrink-0 truncate">{v}</span>
-                <div className="flex-1 h-2 rounded-full bg-[#EFEBDE] overflow-hidden">
-                  <div className="h-full rounded-full bg-[#1B5E3F]" style={{ width: `${(c / maxVillage) * 100}%` }} />
+                <span className="text-[12px] text-[#111827] w-28 shrink-0 truncate">{v}</span>
+                <div className="flex-1 h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
+                  <div className="h-full rounded-full bg-[#2E7D32]" style={{ width: `${(c / maxVillage) * 100}%` }} />
                 </div>
-                <span className="text-[12px] font-bold text-[#23282B] w-6 text-right">{c}</span>
+                <span className="text-[12px] font-bold text-[#111827] w-6 text-right">{c}</span>
               </div>
             ))}
           </div>
@@ -832,15 +837,15 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">Beneficiary Records</h2>
-          <p className="text-[12px] text-[#727870]">{filtered.length} records shown</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Beneficiary Records</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} records shown</p>
         </div>
         {isAdmin && (
           <div className="flex gap-2 flex-wrap">
-            <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] font-medium text-[#23282B] hover:bg-white">
+            <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
               <FileSpreadsheet size={13} /> Export CSV
             </button>
-            <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] font-medium text-[#23282B] hover:bg-white">
+            <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
               <Printer size={13} /> Print
             </button>
           </div>
@@ -849,7 +854,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
 
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A299]" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
@@ -863,7 +868,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-16 text-[#A8A299]">
+        <div className="text-center py-16 text-[#9CA3AF]">
           <ClipboardList size={30} className="mx-auto mb-3 opacity-40" />
           <p className="text-[13px]">No records match your search.</p>
         </div>
@@ -873,18 +878,18 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
             const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
             const Icon = p.icon;
             return (
-              <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E1D5] shadow-sm hover:shadow-md transition overflow-hidden">
+              <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
                     <Icon size={16} style={{ color: p.color }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-[13.5px] text-[#23282B]">{b.name}</span>
+                      <span className="font-bold text-[13.5px] text-[#111827]">{b.name}</span>
                       <Badge label={p.short} color={p.color} tint={p.tint} />
-                      <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1B5E3F"} tint={(statusColors[b.status] || "#1B5E3F") + "18"} />
+                      <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#2E7D32"} tint={(statusColors[b.status] || "#2E7D32") + "18"} />
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                    <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                       <span className="font-mono">{b.beneficiary_id}</span>
                       <span>•</span>
                       <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
@@ -897,8 +902,8 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                   </div>
                   {isAdmin && (
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
-                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
                     </div>
                   )}
                 </div>
@@ -911,7 +916,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
   );
 }
 
-const statusColors = { Registered: "#0E5C73", Training: "#D4A843", Completed: "#1B5E3F", Dropped: "#B0581F" };
+const statusColors = { Registered: "#0D47A1", Training: "#F57C00", Completed: "#2E7D32", Dropped: "#D32F2F" };
 
 /* ============================================================
    TRAINING LIST
@@ -930,38 +935,38 @@ function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelet
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">Training Records</h2>
-          <p className="text-[12px] text-[#727870]">{filtered.length} records</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Training Records</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} records</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#0E5C73", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#0D47A1", color: "#fff" }}>
             <Plus size={14} /> Add Training
           </button>
           {isAdmin && (
             <>
-              <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><FileSpreadsheet size={13} /> CSV</button>
-              <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><Printer size={13} /> Print</button>
+              <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+              <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
             </>
           )}
         </div>
       </div>
       <div className="relative mb-4">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A299]" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by beneficiary, course, trainer..." className={inputCls + " pl-9 text-[12.5px]"} />
       </div>
       {filtered.length === 0 ? (
-        <div className="text-center py-12 text-[#A8A299]"><BookOpen size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No training records yet.</p></div>
+        <div className="text-center py-12 text-[#9CA3AF]"><BookOpen size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No training records yet.</p></div>
       ) : (
         <div className="space-y-2.5">
           {filtered.map(t => (
-            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E1D5] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #0E5C73" }}>
+            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #0D47A1" }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-[13px] text-[#23282B]">{getBeneficiaryName(t.beneficiary_id)}</span>
-                  <Badge label={t.course_name} color="#0E5C73" tint="#E7F1F3" />
-                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#1B5E3F" tint="#E7F2EB" />}
+                  <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(t.beneficiary_id)}</span>
+                  <Badge label={t.course_name} color="#0D47A1" tint="#E3F2FD" />
+                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#2E7D32" tint="#E8F5E9" />}
                 </div>
-                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                   <span className="font-mono">{t.beneficiary_id}</span>
                   <span>•</span><span>Trainer: {t.trainer_name}</span>
                   <span>•</span><span>Center: {t.center}</span>
@@ -971,8 +976,8 @@ function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelet
               </div>
               {isAdmin && (
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -992,34 +997,34 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">Employment Records</h2>
-          <p className="text-[12px] text-[#727870]">{employment.length} records</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Employment Records</h2>
+          <p className="text-[12px] text-[#6B7280]">{employment.length} records</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>
             <Plus size={14} /> Add Employment
           </button>
           {isAdmin && (
             <>
-              <button onClick={() => onExport(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><FileSpreadsheet size={13} /> CSV</button>
-              <button onClick={() => onPrint(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#D9D4C7] px-3 py-2 text-[12px] text-[#23282B]"><Printer size={13} /> Print</button>
+              <button onClick={() => onExport(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+              <button onClick={() => onPrint(employment)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
             </>
           )}
         </div>
       </div>
       {employment.length === 0 ? (
-        <div className="text-center py-12 text-[#A8A299]"><Briefcase size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No employment records yet.</p></div>
+        <div className="text-center py-12 text-[#9CA3AF]"><Briefcase size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No employment records yet.</p></div>
       ) : (
         <div className="space-y-2.5">
           {employment.map(e => (
-            <div key={e.job_id} className="bg-white rounded-xl border border-[#E5E1D5] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #D4A843" }}>
+            <div key={e.job_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #F57C00" }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-[13px] text-[#23282B]">{getBeneficiaryName(e.beneficiary_id)}</span>
-                  <Badge label={e.employment_type} color="#D4A843" tint="#FBF4E3" />
-                  <Badge label={e.status} color={e.status === "Active" ? "#1B5E3F" : "#888"} tint={e.status === "Active" ? "#E7F2EB" : "#F5F5F5"} />
+                  <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(e.beneficiary_id)}</span>
+                  <Badge label={e.employment_type} color="#F57C00" tint="#FFF3E0" />
+                  <Badge label={e.status} color={e.status === "Active" ? "#2E7D32" : "#888"} tint={e.status === "Active" ? "#E8F5E9" : "#F5F5F5"} />
                 </div>
-                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#727870] flex-wrap">
+                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                   <span className="font-mono">{e.beneficiary_id}</span>
                   <span>•</span><span>{e.job_role}</span>
                   {e.employer && <><span>•</span><span>{e.employer}</span></>}
@@ -1028,8 +1033,8 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
               </div>
               {isAdmin && (
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={() => onEdit(e)} className="p-2 rounded-lg text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(e)} className="p-2 rounded-lg text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={14} /></button>
+                  <button onClick={() => onEdit(e)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(e)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -1048,26 +1053,26 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#23282B]">Village Master</h2>
-          <p className="text-[12px] text-[#727870]">{villages.length} villages configured</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Village Master</h2>
+          <p className="text-[12px] text-[#6B7280]">{villages.length} villages configured</p>
         </div>
         {isAdmin && (
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1B5E3F", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>
             <Plus size={14} /> Add Village
           </button>
         )}
       </div>
       {villages.length === 0 ? (
-        <div className="text-center py-12 text-[#A8A299]">
+        <div className="text-center py-12 text-[#9CA3AF]">
           <MapPin size={28} className="mx-auto mb-2 opacity-40" />
           <p className="text-[13px]">No villages added yet.</p>
           <p className="text-[11px] mt-1">Add villages here so they appear as dropdowns in registration forms.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-[#E5E1D5] overflow-hidden">
+        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
           <table className="w-full text-[12.5px]">
             <thead>
-              <tr className="bg-[#1B5E3F] text-white">
+              <tr className="bg-[#0D47A1] text-white">
                 <th className="text-left px-4 py-3 font-semibold">Village</th>
                 <th className="text-left px-4 py-3 font-semibold">Mandal</th>
                 <th className="text-left px-4 py-3 font-semibold">District</th>
@@ -1079,14 +1084,14 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
               {villages.map((v, i) => (
                 <tr key={v.village_id || v.village_name} className={i % 2 === 0 ? "bg-white" : "bg-[#F9F8F5]"}>
                   <td className="px-4 py-3 font-medium">{v.village_name}</td>
-                  <td className="px-4 py-3 text-[#727870]">{v.mandal}</td>
-                  <td className="px-4 py-3 text-[#727870]">{v.district}</td>
-                  <td className="px-4 py-3 text-[#727870]">{v.population || "—"}</td>
+                  <td className="px-4 py-3 text-[#6B7280]">{v.mandal}</td>
+                  <td className="px-4 py-3 text-[#6B7280]">{v.district}</td>
+                  <td className="px-4 py-3 text-[#6B7280]">{v.population || "—"}</td>
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => onEdit(v)} className="p-1.5 rounded text-[#0E5C73] hover:bg-[#E7F1F3]"><Edit2 size={13} /></button>
-                        <button onClick={() => onDelete(v)} className="p-1.5 rounded text-[#B0581F] hover:bg-[#FBEEE3]"><Trash2 size={13} /></button>
+                        <button onClick={() => onEdit(v)} className="p-1.5 rounded text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={13} /></button>
+                        <button onClick={() => onDelete(v)} className="p-1.5 rounded text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={13} /></button>
                       </div>
                     </td>
                   )}
@@ -1281,20 +1286,20 @@ export default function App() {
   if (!user) return <LoginScreen onLogin={setUser} />;
 
   if (loading) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0]">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC]">
       <div className="flex flex-col items-center gap-3">
-        <Logo size={40} /><p className="text-[13px] text-[#727870]">Loading MIS data…</p>
+        <Logo size={40} /><p className="text-[13px] text-[#6B7280]">Loading MIS data…</p>
       </div>
     </div>
   );
 
   if (loadError) return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F0F4F0] px-4">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4">
       <div className="max-w-[360px] text-center">
         <AlertCircle size={28} className="mx-auto mb-3 text-red-600" />
-        <p className="text-[13px] text-[#23282B] mb-2 font-medium">Failed to load data</p>
-        <p className="text-[11.5px] text-[#727870] mb-4">{loadError}</p>
-        <button onClick={loadAll} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#1B5E3F" }}>Retry</button>
+        <p className="text-[13px] text-[#111827] mb-2 font-medium">Failed to load data</p>
+        <p className="text-[11.5px] text-[#6B7280] mb-4">{loadError}</p>
+        <button onClick={loadAll} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#2E7D32" }}>Retry</button>
       </div>
     </div>
   );
@@ -1310,15 +1315,15 @@ export default function App() {
   const goTo = (v) => { setView(v); setSubView(null); setEditing(null); };
 
   return (
-    <div className="min-h-screen bg-[#F0F4F0] flex" style={{ fontFamily: "Arial, sans-serif" }}>
+    <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <style>{`* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
 
       {/* Sidebar (desktop) */}
-      <aside className="w-[220px] bg-white border-r border-[#E5E1D5] hidden md:flex flex-col shrink-0">
-        <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#EFEBDE]">
+      <aside className="w-[220px] bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0">
+        <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#F3F4F6]">
           <Logo size={30} />
           <div>
-            <p className="text-[13px] font-bold text-[#1B5E3F]">TAPASVI MIS</p>
+            <p className="text-[13px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
             <p className="text-[10px] text-[#999]">{isAdmin ? "Admin" : "Field Worker"}</p>
           </div>
         </div>
@@ -1326,28 +1331,28 @@ export default function App() {
           {NAVITEMS.map(item => (
             <button key={item.key} onClick={() => goTo(item.key)}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition"
-              style={view === item.key ? { background: "#1B5E3F", color: "#fff" } : { color: "#3A4038" }}>
+              style={view === item.key ? { background: "#2E7D32", color: "#fff" } : { color: "#374151" }}>
               <item.icon size={16} />{item.label}
             </button>
           ))}
         </nav>
         <div className="px-3 pb-3 space-y-0.5">
-          <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#3A4038] hover:bg-[#EFEBDE] transition">
+          <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
             <RefreshCw size={15} /> Refresh Data
           </button>
-          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#B0581F] hover:bg-[#FBEEE3] transition">
+          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F57C00] hover:bg-[#FFF3E0] transition">
             <LogOut size={15} /> Sign Out
           </button>
         </div>
       </aside>
 
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E1D5] flex items-center justify-between px-4 py-3">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E7EB] flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <Logo size={24} />
-          <span className="text-[13px] font-bold text-[#1B5E3F]">TAPASVI MIS</span>
+          <span className="text-[13px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
         </div>
-        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#B0581F]" /></button>
+        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#F57C00]" /></button>
       </div>
 
       {/* Main content */}
@@ -1357,7 +1362,7 @@ export default function App() {
           {/* FAB for new registration */}
           {(view === "beneficiaries" || view === "dashboard") && !subView && (
             <button onClick={() => { setEditing(null); setSubView("beneficiary-form"); setView("beneficiaries"); }}
-              className="fixed bottom-24 md:bottom-6 right-5 z-20 w-13 h-13 rounded-full shadow-lg flex items-center justify-center" style={{ background: "#1B5E3F", width: 52, height: 52 }}>
+              className="fixed bottom-24 md:bottom-6 right-5 z-20 w-13 h-13 rounded-full shadow-lg flex items-center justify-center" style={{ background: "#0D47A1", width: 52, height: 52, boxShadow: "0 4px 16px rgba(13,71,161,0.4)" }}>
               <Plus size={22} color="white" />
             </button>
           )}
@@ -1411,11 +1416,11 @@ export default function App() {
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E1D5] flex items-center justify-around py-1.5 px-2">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-2">
         {NAVITEMS.slice(0, 5).map(item => (
           <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-            <item.icon size={18} style={{ color: view === item.key ? "#1B5E3F" : "#A8A299" }} />
-            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#1B5E3F" : "#A8A299" }}>{item.label}</span>
+            <item.icon size={18} style={{ color: view === item.key ? "#2E7D32" : "#9CA3AF" }} />
+            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#2E7D32" : "#9CA3AF" }}>{item.label}</span>
           </button>
         ))}
       </nav>
@@ -1424,8 +1429,8 @@ export default function App() {
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
           <div className="bg-white rounded-xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
-            <p className="text-[14px] font-semibold text-[#23282B] mb-2">Delete this record?</p>
-            <p className="text-[12px] text-[#727870] mb-4">
+            <p className="text-[14px] font-semibold text-[#111827] mb-2">Delete this record?</p>
+            <p className="text-[12px] text-[#6B7280] mb-4">
               {deleteTarget.record?.name || deleteTarget.record?.beneficiary_id || deleteTarget.record?.village_name || "This record"} will be permanently removed.
             </p>
             <div className="flex gap-2">
@@ -1435,8 +1440,8 @@ export default function App() {
                 else if (type === "training") deleteTraining(record);
                 else if (type === "employment") deleteEmployment(record);
                 else if (type === "village") deleteVillage(record);
-              }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#B0581F", color: "#fff" }}>Delete</button>
-              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#D9D4C7] py-2.5 text-[13px] font-medium text-[#23282B]">Cancel</button>
+              }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#F57C00", color: "#fff" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
             </div>
           </div>
         </div>
