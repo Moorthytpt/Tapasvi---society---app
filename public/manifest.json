@@ -1,1 +1,22 @@
-{"name":"TAPASVI Society","short_name":"TAPASVI","description":"Baseline Survey & Beneficiary Management","start_url":"/","display":"standalone","background_color":"#1B5E3F","theme_color":"#1B5E3F","icons":[{"src":"/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"},{"src":"/icon.svg","sizes":"any","type":"image/svg+xml"}]}
+{
+  "name": "TAPASVI Database Management System",
+  "short_name": "TAPASVI",
+  "description": "TAPASVI Society — Rural Development, Social Issues & Health",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0D47A1",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
