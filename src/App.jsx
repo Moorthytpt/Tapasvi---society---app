@@ -22,9 +22,9 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#0D47A1", tint: "#E3F2FD", icon: Laptop, idPrefix: "RYDEAP" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F57C00", tint: "#FFF3E0", icon: Scissors, idPrefix: "WOMENS" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#2E7D32", tint: "#E8F5E9", icon: Leaf, idPrefix: "WASTE" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYDEAP" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WASTE" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
@@ -73,34 +73,34 @@ function printTable(rows, title, cols) {
     body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
 
     /* HEADER / LETTERHEAD */
-    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #0D47A1; margin-bottom: 6px; }
-    .logo-circle { width: 48px; height: 48px; background: #F57C00; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }
+    .logo-circle { width: 48px; height: 48px; background: transparent; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .logo-circle svg { width: 36px; height: 36px; }
-    .org-name { font-size: 15px; font-weight: 900; color: #0D47A1; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; }
+    .org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; letter-spacing: 1px; }
     .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
     .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
     .header-right { margin-left: auto; text-align: right; }
-    .report-title { font-size: 12px; font-weight: 700; color: #0D47A1; }
+    .report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }
     .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
 
     /* SUMMARY BAR */
-    .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #0D47A1; font-weight: 600; }
+    .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
 
     /* TABLE */
     table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    thead tr { background: #0D47A1; }
+    thead tr { background: #1E3A8A; }
     thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
     tbody tr:nth-child(even) { background: #F8FAFF; }
     tbody tr:nth-child(odd) { background: #FFFFFF; }
-    tbody tr:hover { background: #E8F4ED; }
+    tbody tr:hover { background: #DCFCE7; }
     tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
-    tbody td:first-child { font-weight: 700; color: #0D47A1; font-family: monospace; }
+    tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
 
     /* STATUS BADGES */
-    .status-registered { color: #0D47A1; font-weight: 700; }
+    .status-registered { color: #1E3A8A; font-weight: 700; }
     .status-training { color: #9A6B00; font-weight: 700; }
-    .status-completed { color: #2E7D32; font-weight: 700; }
-    .status-dropped { color: #F57C00; font-weight: 700; }
+    .status-completed { color: #16A34A; font-weight: 700; }
+    .status-dropped { color: #F97316; font-weight: 700; }
 
     /* FOOTER */
     .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
@@ -115,10 +115,15 @@ function printTable(rows, title, cols) {
     <!-- LETTERHEAD -->
     <div class="header">
       <div class="logo-circle">
-        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M24 6C24 6 12 14 12 25C12 33 17 38 24 38C31 38 36 33 36 25C36 14 24 6 24 6Z" fill="#F8FAFC" opacity="0.9"/>
-          <path d="M24 12C24 12 18 17 18 24C18 29 21 32 24 32" stroke="#F57C00" stroke-width="2" fill="none" stroke-linecap="round"/>
-          <circle cx="24" cy="25" r="3" fill="#F57C00"/>
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="38" cy="50" r="36" fill="#F97316"/>
+          <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
+          <circle cx="33" cy="24" r="6" fill="white"/>
+          <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
+          <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
+          <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
         </svg>
       </div>
       <div>
@@ -184,23 +189,38 @@ function printTable(rows, title, cols) {
 /* ============================================================
    UI ATOMS
    ============================================================ */
+/* ── OFFICIAL TAPASVI LOGO ── same SVG used everywhere in the app and in print */
+const TAPASVI_LOGO_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="38" cy="50" r="36" fill="#F97316"/>
+  <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
+  <circle cx="33" cy="24" r="6" fill="white"/>
+  <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
+  <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
+  <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M14 67 Q27 61 40 65 Q53 69 65 63" stroke="#4ADE80" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M42 51 C42 51 42 45 46 42" stroke="#4ADE80" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.8"/>
+</svg>`;
+
 function Logo({ size = 40 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="22" cy="23" r="20" fill="#F57C00"/>
-      <circle cx="22" cy="12" r="4.5" fill="white"/>
-      <path d="M13 28 C13 21 17 18 22 18 C27 18 31 21 31 28 L31 30 L13 30 Z" fill="white"/>
-      <path d="M6 34 Q13 30 20 34 Q27 38 34 34 Q39 31 43 34 L43 44 L6 44 Z" fill="#2E7D32"/>
-      <path d="M6 37 Q13 33 20 37 Q27 41 34 37 Q39 34 43 37" stroke="#4CAF50" strokeWidth="1.2" fill="none"/>
-      <path d="M6 40 Q13 36 20 40 Q27 44 34 40 Q39 37 43 40" stroke="#66BB6A" strokeWidth="0.9" fill="none" opacity="0.6"/>
-      <path d="M17 34 C17 34 17 30 20 28" stroke="#81C784" strokeWidth="1.3" fill="none" strokeLinecap="round"/>
-      <path d="M20 28 C20 28 22 26 24 28" stroke="#81C784" strokeWidth="1.3" fill="none" strokeLinecap="round"/>
-      <path d="M24 33 C24 33 24 29 27 27" stroke="#81C784" strokeWidth="1.1" fill="none" strokeLinecap="round"/>
+    <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="38" cy="50" r="36" fill="#F97316"/>
+      <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
+      <circle cx="33" cy="24" r="6" fill="white"/>
+      <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
+      <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
+      <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+      <path d="M14 67 Q27 61 40 65 Q53 69 65 63" stroke="#4ADE80" strokeWidth="1.2" fill="none" strokeLinecap="round" opacity="0.7"/>
+      <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+      <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+      <path d="M42 51 C42 51 42 45 46 42" stroke="#4ADE80" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.8"/>
     </svg>
   );
 }
 
-const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#0D47A1] focus:ring-2 focus:ring-[#0D47A1]/15 placeholder:text-[#9CA3AF]";
+const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20 placeholder:text-[#9CA3AF]";
 const selectCls = inputCls + " appearance-none cursor-pointer";
 
 function Field({ label, required, error, hint, children }) {
@@ -250,13 +270,13 @@ function StatCard({ icon: Icon, label, value, color, tint, sub }) {
 function Toast({ message, type = "success", onDone }) {
   useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
   return (
-    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#2E7D32", color: "#fff" }}>
+    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#16A34A", color: "#fff" }}>
       {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
     </div>
   );
 }
 
-function SectionHeader({ title, color = "#2E7D32" }) {
+function SectionHeader({ title, color = "#16A34A" }) {
   return (
     <div className="flex items-center gap-2 mt-6 mb-3">
       <span className="w-2 h-2 rounded-full" style={{ background: color }} />
@@ -295,11 +315,11 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#0D47A1] via-[#F57C00] to-[#2E7D32]" />
+      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
       <div className="w-full max-w-[400px]">
         <div className="flex flex-col items-center mb-6">
           <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#2E7D32] text-center">TAPASVI</h1>
+          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
           <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
         </div>
         <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
@@ -308,7 +328,7 @@ function LoginScreen({ onLogin }) {
             {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
               <button key={r} type="button" onClick={() => setRole(r)}
                 className="flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition"
-                style={role === r ? { background: "#2E7D32", color: "#fff", borderColor: "#2E7D32" } : { borderColor: "#E5E7EB", color: "#111827" }}>
+                style={role === r ? { background: "#16A34A", color: "#fff", borderColor: "#16A34A" } : { borderColor: "#E5E7EB", color: "#111827" }}>
                 <Icon size={14} /> {label}
               </button>
             ))}
@@ -319,7 +339,7 @@ function LoginScreen({ onLogin }) {
           <Field label="Password" required error={error}>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
           </Field>
-          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#0D47A1", color: "#fff" }}>
+          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#1E3A8A", color: "#fff" }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
           <p className="text-[10.5px] text-[#AAA] text-center mt-3">
@@ -575,7 +595,7 @@ function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
           <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
         </Field>
         <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
-          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#0D47A1", color: "#fff" }}>Save</button>
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#1E3A8A", color: "#fff" }}>Save</button>
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </form>
@@ -635,7 +655,7 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
           <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
         </Field>
         <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
-          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>Save</button>
+          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>Save</button>
           <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </form>
@@ -682,7 +702,7 @@ function VillageForm({ editing, onSave, onCancel }) {
           </Field>
         </div>
         <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
-          <button onClick={() => { if (validate()) onSave(form); }} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>Save Village</button>
+          <button onClick={() => { if (validate()) onSave(form); }} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>Save Village</button>
           <button onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
         </div>
       </div>
@@ -723,24 +743,24 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
     return m;
   }, [beneficiaries]);
 
-  const statusColors = { Registered: "#0D47A1", Training: "#F57C00", Completed: "#2E7D32", Dropped: "#D32F2F" };
+  const statusColors = { Registered: "#1E3A8A", Training: "#F97316", Completed: "#16A34A", Dropped: "#D32F2F" };
   const maxVillage = Math.max(1, ...byVillage.map(v => v[1]));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[18px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif"}}>Dashboard</h2>
+          <h2 className="text-[18px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif"}}>Dashboard</h2>
           <p className="text-[12px] text-[#6B7280]">TAPASVI — Program Overview</p>
         </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#2E7D32" tint="#E8F5E9" />
-        <StatCard icon={Award} label="Trained" value={trained} color="#0D47A1" tint="#E3F2FD" sub={`${certIssued} certificates issued`} />
-        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F57C00" tint="#FFF3E0" sub={`${employmentRate}% rate`} />
-        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F57C00" tint="#FFF3E0" />
+        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#16A34A" tint="#DCFCE7" />
+        <StatCard icon={Award} label="Trained" value={trained} color="#1E3A8A" tint="#EFF6FF" sub={`${certIssued} certificates issued`} />
+        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F97316" tint="#FFF7ED" sub={`${employmentRate}% rate`} />
+        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F97316" tint="#FFF7ED" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
@@ -748,7 +768,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
         <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
           <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Gender Split</h3>
           <div className="flex items-end gap-4 h-28">
-            {[["Women", women, "#F57C00"], ["Youth (M)", youth, "#0D47A1"]].map(([label, count, color]) => (
+            {[["Women", women, "#F97316"], ["Youth (M)", youth, "#1E3A8A"]].map(([label, count, color]) => (
               <div key={label} className="flex flex-col items-center gap-2 flex-1">
                 <span className="text-[16px] font-bold text-[#111827]">{count}</span>
                 <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
@@ -802,7 +822,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
               <div key={v} className="flex items-center gap-3 py-1.5">
                 <span className="text-[12px] text-[#111827] w-28 shrink-0 truncate">{v}</span>
                 <div className="flex-1 h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
-                  <div className="h-full rounded-full bg-[#2E7D32]" style={{ width: `${(c / maxVillage) * 100}%` }} />
+                  <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${(c / maxVillage) * 100}%` }} />
                 </div>
                 <span className="text-[12px] font-bold text-[#111827] w-6 text-right">{c}</span>
               </div>
@@ -887,7 +907,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-[13.5px] text-[#111827]">{b.name}</span>
                       <Badge label={p.short} color={p.color} tint={p.tint} />
-                      <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#2E7D32"} tint={(statusColors[b.status] || "#2E7D32") + "18"} />
+                      <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#16A34A"} tint={(statusColors[b.status] || "#16A34A") + "18"} />
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                       <span className="font-mono">{b.beneficiary_id}</span>
@@ -902,8 +922,8 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                   </div>
                   {isAdmin && (
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
-                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
+                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
                     </div>
                   )}
                 </div>
@@ -916,7 +936,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
   );
 }
 
-const statusColors = { Registered: "#0D47A1", Training: "#F57C00", Completed: "#2E7D32", Dropped: "#D32F2F" };
+const statusColors = { Registered: "#1E3A8A", Training: "#F97316", Completed: "#16A34A", Dropped: "#D32F2F" };
 
 /* ============================================================
    TRAINING LIST
@@ -939,7 +959,7 @@ function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelet
           <p className="text-[12px] text-[#6B7280]">{filtered.length} records</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#0D47A1", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1E3A8A", color: "#fff" }}>
             <Plus size={14} /> Add Training
           </button>
           {isAdmin && (
@@ -959,12 +979,12 @@ function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelet
       ) : (
         <div className="space-y-2.5">
           {filtered.map(t => (
-            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #0D47A1" }}>
+            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #1E3A8A" }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(t.beneficiary_id)}</span>
-                  <Badge label={t.course_name} color="#0D47A1" tint="#E3F2FD" />
-                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#2E7D32" tint="#E8F5E9" />}
+                  <Badge label={t.course_name} color="#1E3A8A" tint="#EFF6FF" />
+                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
                 </div>
                 <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                   <span className="font-mono">{t.beneficiary_id}</span>
@@ -976,8 +996,8 @@ function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelet
               </div>
               {isAdmin && (
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
+                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -1001,7 +1021,7 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
           <p className="text-[12px] text-[#6B7280]">{employment.length} records</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>
             <Plus size={14} /> Add Employment
           </button>
           {isAdmin && (
@@ -1017,12 +1037,12 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
       ) : (
         <div className="space-y-2.5">
           {employment.map(e => (
-            <div key={e.job_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #F57C00" }}>
+            <div key={e.job_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #F97316" }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(e.beneficiary_id)}</span>
-                  <Badge label={e.employment_type} color="#F57C00" tint="#FFF3E0" />
-                  <Badge label={e.status} color={e.status === "Active" ? "#2E7D32" : "#888"} tint={e.status === "Active" ? "#E8F5E9" : "#F5F5F5"} />
+                  <Badge label={e.employment_type} color="#F97316" tint="#FFF7ED" />
+                  <Badge label={e.status} color={e.status === "Active" ? "#16A34A" : "#888"} tint={e.status === "Active" ? "#DCFCE7" : "#F5F5F5"} />
                 </div>
                 <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                   <span className="font-mono">{e.beneficiary_id}</span>
@@ -1033,8 +1053,8 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
               </div>
               {isAdmin && (
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={() => onEdit(e)} className="p-2 rounded-lg text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(e)} className="p-2 rounded-lg text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={14} /></button>
+                  <button onClick={() => onEdit(e)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                  <button onClick={() => onDelete(e)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -1057,7 +1077,7 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
           <p className="text-[12px] text-[#6B7280]">{villages.length} villages configured</p>
         </div>
         {isAdmin && (
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#2E7D32", color: "#fff" }}>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>
             <Plus size={14} /> Add Village
           </button>
         )}
@@ -1072,7 +1092,7 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
         <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden">
           <table className="w-full text-[12.5px]">
             <thead>
-              <tr className="bg-[#0D47A1] text-white">
+              <tr className="text-white">
                 <th className="text-left px-4 py-3 font-semibold">Village</th>
                 <th className="text-left px-4 py-3 font-semibold">Mandal</th>
                 <th className="text-left px-4 py-3 font-semibold">District</th>
@@ -1090,8 +1110,8 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
                   {isAdmin && (
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => onEdit(v)} className="p-1.5 rounded text-[#0D47A1] hover:bg-[#E3F2FD]"><Edit2 size={13} /></button>
-                        <button onClick={() => onDelete(v)} className="p-1.5 rounded text-[#F57C00] hover:bg-[#FFF3E0]"><Trash2 size={13} /></button>
+                        <button onClick={() => onEdit(v)} className="p-1.5 rounded text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={13} /></button>
+                        <button onClick={() => onDelete(v)} className="p-1.5 rounded text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={13} /></button>
                       </div>
                     </td>
                   )}
@@ -1299,7 +1319,7 @@ export default function App() {
         <AlertCircle size={28} className="mx-auto mb-3 text-red-600" />
         <p className="text-[13px] text-[#111827] mb-2 font-medium">Failed to load data</p>
         <p className="text-[11.5px] text-[#6B7280] mb-4">{loadError}</p>
-        <button onClick={loadAll} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#2E7D32" }}>Retry</button>
+        <button onClick={loadAll} className="rounded-lg px-4 py-2 text-[13px] font-medium text-white" style={{ background: "#16A34A" }}>Retry</button>
       </div>
     </div>
   );
@@ -1323,7 +1343,7 @@ export default function App() {
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#F3F4F6]">
           <Logo size={30} />
           <div>
-            <p className="text-[13px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
+            <p className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
             <p className="text-[10px] text-[#999]">{isAdmin ? "Admin" : "Field Worker"}</p>
           </div>
         </div>
@@ -1331,7 +1351,7 @@ export default function App() {
           {NAVITEMS.map(item => (
             <button key={item.key} onClick={() => goTo(item.key)}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition"
-              style={view === item.key ? { background: "#2E7D32", color: "#fff" } : { color: "#374151" }}>
+              style={view === item.key ? { background: "#16A34A", color: "#fff" } : { color: "#374151" }}>
               <item.icon size={16} />{item.label}
             </button>
           ))}
@@ -1340,7 +1360,7 @@ export default function App() {
           <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
             <RefreshCw size={15} /> Refresh Data
           </button>
-          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F57C00] hover:bg-[#FFF3E0] transition">
+          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition">
             <LogOut size={15} /> Sign Out
           </button>
         </div>
@@ -1350,9 +1370,9 @@ export default function App() {
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E7EB] flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <Logo size={24} />
-          <span className="text-[13px] font-bold text-[#0D47A1]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
+          <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
         </div>
-        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#F57C00]" /></button>
+        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#F97316]" /></button>
       </div>
 
       {/* Main content */}
@@ -1362,7 +1382,7 @@ export default function App() {
           {/* FAB for new registration */}
           {(view === "beneficiaries" || view === "dashboard") && !subView && (
             <button onClick={() => { setEditing(null); setSubView("beneficiary-form"); setView("beneficiaries"); }}
-              className="fixed bottom-24 md:bottom-6 right-5 z-20 w-13 h-13 rounded-full shadow-lg flex items-center justify-center" style={{ background: "#0D47A1", width: 52, height: 52, boxShadow: "0 4px 16px rgba(13,71,161,0.4)" }}>
+              className="fixed bottom-24 md:bottom-6 right-5 z-20 w-13 h-13 rounded-full shadow-lg flex items-center justify-center" style={{ background: "#1E3A8A", width: 52, height: 52, boxShadow: "0 4px 16px rgba(30,58,138,0.4)" }}>
               <Plus size={22} color="white" />
             </button>
           )}
@@ -1419,8 +1439,8 @@ export default function App() {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-2">
         {NAVITEMS.slice(0, 5).map(item => (
           <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-            <item.icon size={18} style={{ color: view === item.key ? "#2E7D32" : "#9CA3AF" }} />
-            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#2E7D32" : "#9CA3AF" }}>{item.label}</span>
+            <item.icon size={18} style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }} />
+            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }}>{item.label}</span>
           </button>
         ))}
       </nav>
@@ -1440,7 +1460,7 @@ export default function App() {
                 else if (type === "training") deleteTraining(record);
                 else if (type === "employment") deleteEmployment(record);
                 else if (type === "village") deleteVillage(record);
-              }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#F57C00", color: "#fff" }}>Delete</button>
+              }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#F97316", color: "#fff" }}>Delete</button>
               <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
             </div>
           </div>
