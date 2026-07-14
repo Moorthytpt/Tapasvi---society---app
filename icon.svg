@@ -1,35 +1,3 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background circle -->
-  <circle cx="256" cy="256" r="256" fill="#1B5E3F"/>
-  
-  <!-- White inner area -->
-  <circle cx="256" cy="256" r="220" fill="#F7F5EF"/>
-  
-  <!-- Gold ring -->
-  <circle cx="256" cy="256" r="220" fill="none" stroke="#D4A843" stroke-width="8"/>
-
-  <!-- LEAF (top center) -->
-  <path d="M256 80 C256 80 200 120 200 175 C200 215 225 238 256 238 C287 238 312 215 312 175 C312 120 256 80 256 80 Z" fill="#1B5E3F"/>
-  <line x1="256" y1="80" x2="256" y2="238" stroke="#D4A843" stroke-width="3" stroke-linecap="round"/>
-  <path d="M256 130 Q235 155 225 170" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.6"/>
-  <path d="M256 165 Q277 185 287 198" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.6"/>
-
-  <!-- THREE PEOPLE (middle) -->
-  <!-- Left person -->
-  <circle cx="185" cy="262" r="22" fill="#0E5C73"/>
-  <path d="M148 320 Q148 292 185 292 Q222 292 222 320 L222 328 L148 328 Z" fill="#0E5C73"/>
-  <!-- Center person (taller) -->
-  <circle cx="256" cy="255" r="25" fill="#1B5E3F"/>
-  <path d="M213 320 Q213 288 256 288 Q299 288 299 320 L299 328 L213 328 Z" fill="#1B5E3F"/>
-  <!-- Right person -->
-  <circle cx="327" cy="262" r="22" fill="#0E5C73"/>
-  <path d="M290 320 Q290 292 327 292 Q364 292 364 320 L364 328 L290 328 Z" fill="#0E5C73"/>
-
-  <!-- HEALTH CROSS (bottom center) -->
-  <rect x="240" y="345" width="32" height="10" rx="5" fill="#C0392B"/>
-  <rect x="251" y="334" width="10" height="32" rx="5" fill="#C0392B"/>
-
-  <!-- T letter at bottom -->
-  <text x="256" y="430" text-anchor="middle" font-family="Georgia, serif" font-size="42" font-weight="bold" fill="#1B5E3F" letter-spacing="3">TAPASVI</text>
-
+  <image href="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" width="512" height="512"/>
 </svg>
