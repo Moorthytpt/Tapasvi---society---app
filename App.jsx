@@ -22,9 +22,9 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYDEAP" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WASTE" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYD" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WTE" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WSR" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
@@ -46,7 +46,7 @@ function nextId(records, prefix) {
     return m ? parseInt(m[1], 10) : 0;
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
-  return `${prefix}-${String(next).padStart(4, "0")}`;
+  return `${prefix}-${String(next).padStart(6, "0")}`;
 }
 
 function downloadCSV(rows, filename) {
@@ -303,10 +303,11 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
       <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6">
-          <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
-          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
+        <div className="flex flex-col items-center mb-6 px-2">
+          <Logo size={90} />
+          <h1 className="mt-3 text-[15px] sm:text-[17px] font-bold text-[#16A34A] text-center leading-snug max-w-[360px] break-words">
+            TAPASVI Society for Rural Development, Social Issues &amp; Health Organization
+          </h1>
         </div>
         <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
           <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
@@ -352,9 +353,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     age: "",
     aadhaar_number: "",
     phone: "",
+    house_no: "",
     state: "Andhra Pradesh",
     education: "",
     village: "",
+    gram_panchayat: "",
     mandal: "",
     district: "Tirupati",
     category: "BC",
@@ -379,7 +382,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
       const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
       if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
     }
-    if (form.aadhaar && !/^\d{12}$/.test(form.aadhaar)) e.aadhaar = "Must be exactly 12 digits";
+    if (!form.aadhaar_number || !/^\d{12}$/.test(form.aadhaar_number)) e.aadhaar_number = "Aadhaar number is required and must be exactly 12 digits";
     if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
@@ -441,8 +444,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* SYSTEM INFORMATION */}
           <SectionHeader title="System Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint="Auto-generated after save">
-              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            <Field label="Registration ID" hint={editing ? undefined : "Auto-generated"}>
+              <Input value={editing?.beneficiary_id || nextId(beneficiaries, p.idPrefix)} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
             </Field>
             <Field label="Registration Date">
               <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
@@ -478,10 +481,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                 inputMode="numeric"
               />
             </Field>
-            <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
+            <Field label="Aadhaar Number" required error={errors.aadhaar_number} hint="12-digit Aadhaar number">
               <Input
-                value={form.aadhaar}
-                onChange={e => setForm(f => ({ ...f, aadhaar: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                value={form.aadhaar_number}
+                onChange={e => setForm(f => ({ ...f, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
                 placeholder="Enter 12-digit Aadhaar"
                 inputMode="numeric"
               />
@@ -508,8 +511,14 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* ADDRESS */}
           <SectionHeader title="Address" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
+            <Field label="House No">
+              <Input value={form.house_no} onChange={set("house_no")} placeholder="House / door number" />
+            </Field>
             <Field label="Village" required error={errors.village}>
               <Input value={form.village} onChange={set("village")} placeholder="Village name" />
+            </Field>
+            <Field label="Gram Panchayat">
+              <Input value={form.gram_panchayat} onChange={set("gram_panchayat")} placeholder="Gram Panchayat name" />
             </Field>
             <Field label="Mandal" required error={errors.mandal}>
               <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
@@ -881,7 +890,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
-      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q) || b.aadhaar_number?.includes(q) || b.gram_panchayat?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [beneficiaries, query, programFilter, statusFilter]);
@@ -908,7 +917,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village, Aadhaar..." className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
@@ -947,9 +956,10 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <span>•</span>
                       <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
                       <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
+                      <span><MapPin size={10} className="inline mr-0.5" />{[b.house_no, b.village, b.gram_panchayat, b.mandal].filter(Boolean).join(", ")}</span>
                       <span>•</span>
                       <span>📞 {b.phone}</span>
+                      {b.aadhaar_number && <><span>•</span><span>🆔 {b.aadhaar_number}</span></>}
                       {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
                     </div>
                   </div>
@@ -1296,29 +1306,30 @@ export default function App() {
 
   // ---- EXPORTS ----
   const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
-    "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
-    Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
-    Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
-    Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
+    "Registration ID": b.beneficiary_id, "Program Name": PROGRAM_MAP[b.program]?.label || b.program, Name: b.name, Age: b.age, Gender: b.gender,
+    "Aadhaar Number": b.aadhaar_number, Phone: b.phone,
+    Education: b.education, Status: b.status,
+    "House No": b.house_no, Village: b.village, "Gram Panchayat": b.gram_panchayat, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
 
   const printBeneficiaries = (rows) => printTable(rows.map(b => ({
-    "ID": b.beneficiary_id,
+    "Registration ID": b.beneficiary_id,
     "Name": b.name,
-    "Program": PROGRAM_MAP[b.program]?.short || b.program,
+    "Program Name": PROGRAM_MAP[b.program]?.label || b.program,
     "Age": b.age,
     "Gender": b.gender,
+    "Aadhaar Number": b.aadhaar_number || "—",
     "Phone": b.phone,
     "Education": b.education || "—",
-    "Skill": b.skill_interest || "—",
     "Status": b.status || "Registered",
+    "House No": b.house_no || "—",
     "Village": b.village || "—",
+    "Gram Panchayat": b.gram_panchayat || "—",
     "Mandal": b.mandal || "—",
     "District": b.district || "—",
+    "State": b.state || "Andhra Pradesh",
     "Category": b.category || "—",
-    "Aadhaar ✓": b.aadhaar_verified || "No",
-    "eKYC": b.ekyc_status || "No",
     "Field Worker": b.field_worker_name || "—",
     "Survey Date": b.survey_date || "—",
   })), "Beneficiary Report — All Programs");
