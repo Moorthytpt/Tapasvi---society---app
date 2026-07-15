@@ -345,11 +345,8 @@ function LoginScreen({ onLogin }) {
    BENEFICIARY FORM
    ============================================================ */
 function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
-  const today = new Date().toISOString().slice(0, 10);
-
   const blank = {
     program: "rydeap",
-    registration_date: today,
     name: "",
     gender: "Female",
     age: "",
@@ -447,9 +444,6 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="Registration ID" hint={editing ? undefined : "Auto-generated"}>
               <Input value={editing?.beneficiary_id || nextId(beneficiaries, p.idPrefix)} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
-            </Field>
-            <Field label="Registration Date">
-              <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
             </Field>
             <Field label="Program">
               <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
