@@ -115,16 +115,7 @@ function printTable(rows, title, cols) {
     <!-- LETTERHEAD -->
     <div class="header">
       <div class="logo-circle">
-        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="38" cy="50" r="36" fill="#F97316"/>
-          <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
-          <circle cx="33" cy="24" r="6" fill="white"/>
-          <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
-          <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
-          <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-          <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-        </svg>
+        <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI Logo" style="width:56px;height:56px;object-fit:contain;"/>
       </div>
       <div>
         <div class="org-name">TAPASVI SOCIETY</div>
@@ -205,18 +196,13 @@ const TAPASVI_LOGO_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/20
 
 function Logo({ size = 40 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="38" cy="50" r="36" fill="#F97316"/>
-      <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
-      <circle cx="33" cy="24" r="6" fill="white"/>
-      <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
-      <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
-      <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-      <path d="M14 67 Q27 61 40 65 Q53 69 65 63" stroke="#4ADE80" strokeWidth="1.2" fill="none" strokeLinecap="round" opacity="0.7"/>
-      <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-      <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-      <path d="M42 51 C42 51 42 45 46 42" stroke="#4ADE80" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.8"/>
-    </svg>
+    <img
+      src="/icon-512.png"
+      alt="TAPASVI Logo"
+      width={size}
+      height={size}
+      style={{ objectFit: "contain", display: "block" }}
+    />
   );
 }
 
@@ -355,42 +341,64 @@ function LoginScreen({ onLogin }) {
 /* ============================================================
    BENEFICIARY FORM
    ============================================================ */
-function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, beneficiaries }) {
-  const prog = editing?.program || "rydeap";
+function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
+  const today = new Date().toISOString().slice(0, 10);
+
   const blank = {
-    program: prog, name: "", age: "", gender: "Female", phone: "",
-    aadhaar_verified: "No", ekyc_status: "No",
-    education: "", skill_interest: "", status: "Registered",
-    house_no: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", pin: "",
-    category: "BC", disability: "No", shg: "No",
+    program: "rydeap",
+    registration_date: today,
+    name: "",
+    gender: "Female",
+    dob: "",
+    age: "",
+    aadhaar: "",
+    phone: "",
+    education: "",
+    village: "",
+    mandal: "",
+    district: "Tirupati",
+    category: "BC",
+    disability: "No",
+    shg: "No",
     field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
-    survey_date: new Date().toISOString().slice(0, 10),
     notes: "",
   };
+
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
-  const [activeProgram, setActiveProgram] = useState(prog);
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
 
-  const villagesForDistrict = useMemo(() =>
-    villages.filter(v => !form.district || v.district === form.district).map(v => v.village_name),
-    [villages, form.district]);
+  // Auto-calculate age from DOB
+  const calcAge = (dob) => {
+    if (!dob) return "";
+    const today = new Date();
+    const birth = new Date(dob);
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age > 0 ? String(age) : "";
+  };
+
+  const handleDOBChange = (e) => {
+    const dob = e.target.value;
+    setForm(f => ({ ...f, dob, age: calcAge(dob) }));
+  };
 
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = "Required";
-    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
+    if (!form.dob) e.dob = "Required";
     if (!form.phone.trim()) e.phone = "Required";
-    else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    else if (!/^\d{10}$/.test(form.phone)) e.phone = "10 digits required";
     else {
       const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
-      if (dup) e.phone = `Phone already registered to ${dup.name} (${dup.beneficiary_id})`;
+      if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
     }
-    if (!form.village) e.village = "Required";
+    if (form.aadhaar && !/^\d{12}$/.test(form.aadhaar)) e.aadhaar = "Must be exactly 12 digits";
+    if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
-    if (form.pin && !/^\d{6}$/.test(form.pin)) e.pin = "6 digits only";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -398,142 +406,180 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, villages, ben
   const submit = e => {
     e.preventDefault();
     if (!validate()) return;
-    onSave({ ...form, program: activeProgram });
+    onSave(form);
   };
 
-  const p = PROGRAM_MAP[activeProgram];
+  const p = PROGRAM_MAP[form.program] || PROGRAMS[0];
 
   return (
-    <div className="max-w-[820px] mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "New Beneficiary Registration"}</h2>
-          <p className="text-[12px] text-[#6B7280] mt-0.5">Fill all required fields carefully</p>
+    <div className="max-w-[720px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <Logo size={36} />
+          <div>
+            <h2 className="text-[17px] font-bold text-[#111827]">
+              {editing ? "Edit Beneficiary" : "New Beneficiary Registration"}
+            </h2>
+            <p className="text-[11.5px] text-[#6B7280]">TAPASVI Society — {p.label}</p>
+          </div>
         </div>
-        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
       </div>
 
-      {!editing && (
-        <div className="grid grid-cols-3 gap-2 mb-5">
-          {PROGRAMS.map(pr => {
-            const Icon = pr.icon;
-            return (
-              <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
-                className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
-                style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280" }}>
-                <Icon size={18} />{pr.short}
-              </button>
-            );
-          })}
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
+
+        {/* Program selector */}
+        {!editing && (
+          <div className="px-5 pt-5 pb-4 border-b border-[#F3F4F6] bg-[#F8FAFC]">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280] mb-3">Select Program</p>
+            <div className="grid grid-cols-3 gap-2">
+              {PROGRAMS.map(pr => {
+                const Icon = pr.icon;
+                const active = form.program === pr.key;
+                return (
+                  <button key={pr.key} type="button"
+                    onClick={() => setForm(f => ({ ...blank, program: pr.key, field_worker_name: f.field_worker_name }))}
+                    className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
+                    style={active
+                      ? { background: pr.tint, borderColor: pr.color, color: pr.color }
+                      : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
+                    <Icon size={18} />{pr.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="p-5 space-y-0">
+
+          {/* SYSTEM INFORMATION */}
+          <SectionHeader title="System Information" color={p.color} />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Registration ID" hint="Auto-generated after save">
+              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            </Field>
+            <Field label="Registration Date">
+              <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+            </Field>
+            <Field label="Program">
+              <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+            </Field>
+            <Field label="Field Worker" required error={errors.field_worker_name}>
+              <Input
+                value={form.field_worker_name}
+                onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
+                readOnly={currentUser.role === "fieldworker"}
+                className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls}
+              />
+            </Field>
+          </div>
+
+          {/* PERSONAL INFORMATION */}
+          <SectionHeader title="Personal Information" color={p.color} />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Beneficiary Name" required error={errors.name}>
+              <Input value={form.name} onChange={set("name")} placeholder="Full name as per Aadhaar" />
+            </Field>
+            <Field label="Gender" required>
+              <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
+            </Field>
+            <Field label="Date of Birth" required error={errors.dob}>
+              <input type="date" value={form.dob} onChange={handleDOBChange}
+                max={today} className={inputCls} />
+            </Field>
+            <Field label="Age" hint="Auto-calculated from Date of Birth">
+              <Input value={form.age ? `${form.age} years` : ""} readOnly
+                placeholder="Select DOB above"
+                className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-semibold"} />
+            </Field>
+            <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
+              <Input
+                value={form.aadhaar}
+                onChange={e => setForm(f => ({ ...f, aadhaar: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                placeholder="Enter 12-digit Aadhaar"
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Mobile Number" required error={errors.phone}>
+              <Input
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                placeholder="10-digit mobile number"
+                inputMode="numeric"
+              />
+            </Field>
+          </div>
+
+          {/* EDUCATION */}
+          <SectionHeader title="Education" color={p.color} />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Education Qualification">
+              <Select value={form.education} onChange={set("education")}
+                options={EDUCATION_OPTIONS} placeholder="Select qualification" />
+            </Field>
+          </div>
+
+          {/* ADDRESS */}
+          <SectionHeader title="Address" color={p.color} />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Village" required error={errors.village}>
+              <Input value={form.village} onChange={set("village")} placeholder="Village name" />
+            </Field>
+            <Field label="Mandal" required error={errors.mandal}>
+              <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
+            </Field>
+            <Field label="District" required>
+              <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
+            </Field>
+          </div>
+
+          {/* SOCIAL INFORMATION */}
+          <SectionHeader title="Social Information" color={p.color} />
+          <div className="grid grid-cols-3 gap-x-4">
+            <Field label="Category">
+              <Select value={form.category} onChange={set("category")} options={["SC", "ST", "BC", "OC", "Minority"]} />
+            </Field>
+            <Field label="Disability">
+              <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
+            </Field>
+            <Field label="SHG Member">
+              <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
+            </Field>
+          </div>
+
+          {/* NOTES */}
+          <Field label="Notes / Remarks">
+            <textarea value={form.notes || ""} onChange={set("notes")} rows={2}
+              className={inputCls} placeholder="Any additional observations..." />
+          </Field>
+
         </div>
-      )}
 
-      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
-        <SectionHeader title="Program Information" color={p.color} />
-        <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Field Worker Name" required error={errors.field_worker_name}>
-            <Input value={form.field_worker_name} onChange={set("field_worker_name")} readOnly={currentUser.role === "fieldworker"} className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F8FAFC] text-[#888]" : inputCls} />
-          </Field>
-          <Field label="Survey Date" required>
-            <input type="date" value={form.survey_date} onChange={set("survey_date")} className={inputCls} />
-          </Field>
-          <Field label="Status">
-            <Select value={form.status} onChange={set("status")} options={STATUS_OPTIONS} />
-          </Field>
-        </div>
-
-        <SectionHeader title="Personal Details" color={p.color} />
-        <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Full Name" required error={errors.name}>
-            <Input value={form.name} onChange={set("name")} placeholder="As per Aadhaar" />
-          </Field>
-          <Field label="Age" required error={errors.age}>
-            <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} />
-          </Field>
-          <Field label="Gender" required>
-            <Select value={form.gender} onChange={set("gender")} options={GENDER_OPTIONS} />
-          </Field>
-          <Field label="Phone Number" required error={errors.phone} hint="Must be unique across all registrations">
-            <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))} placeholder="10-digit mobile" inputMode="numeric" />
-          </Field>
-          <Field label="Aadhaar Verified" hint="Do NOT enter full Aadhaar number">
-            <Select value={form.aadhaar_verified} onChange={set("aadhaar_verified")} options={["Yes", "No"]} />
-          </Field>
-          <Field label="eKYC Status">
-            <Select value={form.ekyc_status} onChange={set("ekyc_status")} options={["Yes", "No", "Pending"]} />
-          </Field>
-        </div>
-
-        <SectionHeader title="Education & Skills" color={p.color} />
-        <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Education Qualification">
-            <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education" />
-          </Field>
-          <Field label="Skill Interest">
-            <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select skill" />
-          </Field>
-        </div>
-
-        <SectionHeader title="Address" color={p.color} />
-        <div className="grid grid-cols-2 gap-x-4">
-          <Field label="House No.">
-            <Input value={form.house_no} onChange={set("house_no")} />
-          </Field>
-          <Field label="District" required>
-            <Select value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value, village: "", mandal: "" }))} options={DISTRICTS_AP} />
-          </Field>
-          <Field label="Village" required error={errors.village}>
-            {villagesForDistrict.length > 0 ? (
-              <Select value={form.village} onChange={e => {
-                const v = villages.find(x => x.village_name === e.target.value);
-                setForm(f => ({ ...f, village: e.target.value, mandal: v?.mandal || f.mandal }));
-              }} options={villagesForDistrict} placeholder="Select village" />
-            ) : (
-              <Input value={form.village} onChange={set("village")} placeholder="Type village name" />
-            )}
-          </Field>
-          <Field label="Mandal" required error={errors.mandal}>
-            <Input value={form.mandal} onChange={set("mandal")} />
-          </Field>
-          <Field label="State">
-            <Input value={form.state} readOnly className={inputCls + " bg-[#F8FAFC] text-[#888]"} />
-          </Field>
-          <Field label="PIN Code" error={errors.pin}>
-            <Input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" />
-          </Field>
-        </div>
-
-        <SectionHeader title="Social Information" color={p.color} />
-        <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Category">
-            <Select value={form.category} onChange={set("category")} options={CATEGORY_OPTIONS} />
-          </Field>
-          <Field label="Disability">
-            <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
-          </Field>
-          <Field label="SHG Member">
-            <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
-          </Field>
-        </div>
-
-        <Field label="Notes / Remarks">
-          <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} placeholder="Any additional observations..." />
-        </Field>
-
-        <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
-          <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13.5px] font-bold" style={{ background: p.color, color: "#fff" }}>
+        {/* Footer buttons */}
+        <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
+          <button type="submit" onClick={submit}
+            className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold transition"
+            style={{ background: p.color, color: "#fff" }}>
             {editing ? "Update Record" : "Save Registration"}
           </button>
-          <button type="button" onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#111827]">Cancel</button>
+          <button type="button" onClick={onCancel}
+            className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+            Cancel
+          </button>
+          {!editing && (
+            <span className="text-[11px] text-[#9CA3AF] ml-auto">
+              * Registration ID will be auto-generated on save
+            </span>
+          )}
         </div>
       </form>
     </div>
   );
 }
 
-/* ============================================================
-   TRAINING FORM
-   ============================================================ */
+
 function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
   const blank = {
     beneficiary_id: "", course_name: "", trainer_name: "", center: "",
@@ -1390,7 +1436,7 @@ export default function App() {
           {/* FORMS */}
           {subView === "beneficiary-form" && (
             <BeneficiaryForm editing={editing} onSave={saveBeneficiary} onCancel={() => { setSubView(null); setEditing(null); }}
-              currentUser={user} villages={villages} beneficiaries={beneficiaries} />
+              currentUser={user} beneficiaries={beneficiaries} />
           )}
           {subView === "training-form" && (
             <TrainingForm editing={editing} onSave={saveTraining} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
