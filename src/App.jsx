@@ -49,6 +49,14 @@ function nextId(records, prefix) {
   return `${prefix}-${String(next).padStart(6, "0")}`;
 }
 
+/* Returns the Program Name label if this Aadhaar Number is registered under RYDEAP or
+   Women's Tailoring & Embroidery (the two mutually-exclusive programs), else null. */
+function findExclusiveRegistration(aadhaarNumber, records) {
+  if (!aadhaarNumber) return null;
+  const match = records.find(r => r.aadhaar_number === aadhaarNumber && ["rydeap", "womens"].includes(r.program));
+  return match ? PROGRAM_MAP[match.program]?.label || null : null;
+}
+
 function downloadCSV(rows, filename) {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
@@ -376,11 +384,17 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
     if (!form.phone.trim()) e.phone = "Required";
     else if (!/^\d{10}$/.test(form.phone)) e.phone = "10 digits required";
-    else {
-      const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
-      if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
+    if (!form.aadhaar_number || !/^\d{12}$/.test(form.aadhaar_number)) {
+      e.aadhaar_number = "Aadhaar number is required and must be exactly 12 digits";
+    } else if (["rydeap", "womens"].includes(form.program)) {
+      // Cross-program exclusivity: a beneficiary can be in only ONE of RYDEAP / Women's Tailoring & Embroidery
+      const dupAadhaar = beneficiaries.find(b =>
+        b.aadhaar_number === form.aadhaar_number &&
+        ["rydeap", "womens"].includes(b.program) &&
+        b.beneficiary_id !== editing?.beneficiary_id
+      );
+      if (dupAadhaar) e.aadhaar_number = "This Aadhaar Number is already registered in another exclusive program (RYDEAP/Women's Tailoring & Embroidery).";
     }
-    if (!form.aadhaar_number || !/^\d{12}$/.test(form.aadhaar_number)) e.aadhaar_number = "Aadhaar number is required and must be exactly 12 digits";
     if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
@@ -931,6 +945,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
           {filtered.map(b => {
             const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
             const Icon = p.icon;
+            const exclusiveProgram = findExclusiveRegistration(b.aadhaar_number, beneficiaries);
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
@@ -942,6 +957,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <span className="font-bold text-[13.5px] text-[#111827]">{b.name}</span>
                       <Badge label={p.short} color={p.color} tint={p.tint} />
                       <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#16A34A"} tint={(statusColors[b.status] || "#16A34A") + "18"} />
+                      {exclusiveProgram && <Badge label={`Registered in ${exclusiveProgram}`} color="#1E3A8A" tint="#EFF6FF" />}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                       <span className="font-mono">{b.beneficiary_id}</span>
@@ -1301,6 +1317,7 @@ export default function App() {
     "Registration ID": b.beneficiary_id, "Program Name": PROGRAM_MAP[b.program]?.label || b.program, Name: b.name, Age: b.age, Gender: b.gender,
     "Aadhaar Number": b.aadhaar_number, Phone: b.phone,
     Education: b.education, Status: b.status,
+    "Registration Status": findExclusiveRegistration(b.aadhaar_number, beneficiaries) ? `Registered in ${findExclusiveRegistration(b.aadhaar_number, beneficiaries)}` : "—",
     "House No": b.house_no, Village: b.village, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
@@ -1312,6 +1329,7 @@ export default function App() {
     "Age": b.age,
     "Gender": b.gender,
     "Aadhaar Number": b.aadhaar_number || "—",
+    "Registration Status": findExclusiveRegistration(b.aadhaar_number, beneficiaries) ? `Registered in ${findExclusiveRegistration(b.aadhaar_number, beneficiaries)}` : "—",
     "Phone": b.phone,
     "Education": b.education || "—",
     "Status": b.status || "Registered",
