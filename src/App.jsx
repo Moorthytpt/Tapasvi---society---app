@@ -46,7 +46,7 @@ function nextId(records, prefix) {
     return m ? parseInt(m[1], 10) : 0;
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
-  return `${prefix}-${String(next).padStart(4, "0")}`;
+  return `${prefix}-${String(next).padStart(6, "0")}`;
 }
 
 function downloadCSV(rows, filename) {
@@ -303,10 +303,11 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
       <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6">
-          <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
-          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
+        <div className="flex flex-col items-center mb-6 px-2">
+          <Logo size={90} />
+          <h1 className="mt-3 text-[15px] sm:text-[17px] font-bold text-[#16A34A] text-center leading-snug max-w-[360px] break-words">
+            TAPASVI Society for Rural Development, Social Issues &amp; Health Organization
+          </h1>
         </div>
         <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
           <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
@@ -349,10 +350,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     registration_date: today,
     name: "",
     gender: "Female",
-    dob: "",
     age: "",
-    aadhaar: "",
+    aadhaar_number: "",
     phone: "",
+    state: "Andhra Pradesh",
     education: "",
     village: "",
     mandal: "",
@@ -369,26 +370,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
 
-  // Auto-calculate age from DOB
-  const calcAge = (dob) => {
-    if (!dob) return "";
-    const today = new Date();
-    const birth = new Date(dob);
-    let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-    return age > 0 ? String(age) : "";
-  };
-
-  const handleDOBChange = (e) => {
-    const dob = e.target.value;
-    setForm(f => ({ ...f, dob, age: calcAge(dob) }));
-  };
-
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = "Required";
-    if (!form.dob) e.dob = "Required";
+    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
     if (!form.phone.trim()) e.phone = "Required";
     else if (!/^\d{10}$/.test(form.phone)) e.phone = "10 digits required";
     else {
@@ -457,8 +442,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* SYSTEM INFORMATION */}
           <SectionHeader title="System Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint="Auto-generated after save">
-              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            <Field label="Registration ID" hint={editing ? undefined : "Auto-generated"}>
+              <Input value={editing?.beneficiary_id || nextId(beneficiaries, "TAP")} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
             </Field>
             <Field label="Registration Date">
               <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
@@ -485,14 +470,14 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             <Field label="Gender" required>
               <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
             </Field>
-            <Field label="Date of Birth" required error={errors.dob}>
-              <input type="date" value={form.dob} onChange={handleDOBChange}
-                max={today} className={inputCls} />
-            </Field>
-            <Field label="Age" hint="Auto-calculated from Date of Birth">
-              <Input value={form.age ? `${form.age} years` : ""} readOnly
-                placeholder="Select DOB above"
-                className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-semibold"} />
+            <Field label="Age" required error={errors.age} hint="Enter age in years">
+              <Input
+                type="number" min="1" max="120"
+                value={form.age}
+                onChange={e => setForm(f => ({ ...f, age: e.target.value }))}
+                placeholder="e.g. 25"
+                inputMode="numeric"
+              />
             </Field>
             <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
               <Input
@@ -532,6 +517,9 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             </Field>
             <Field label="District" required>
               <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
+            </Field>
+            <Field label="State">
+              <Input value="Andhra Pradesh" readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
             </Field>
           </div>
 
@@ -1224,8 +1212,7 @@ export default function App() {
       setBeneficiaries(bs => bs.map(b => b.beneficiary_id === editing.beneficiary_id ? { ...b, ...form } : b));
       showToast("Beneficiary updated.");
     } else {
-      const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
-      const beneficiary_id = nextId(beneficiaries, prefix);
+      const beneficiary_id = nextId(beneficiaries, "TAP");
       const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) { showToast("Error: " + error.message, "error"); return; }
@@ -1311,7 +1298,7 @@ export default function App() {
   const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
     "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
     Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
-    Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
+    Education: b.education, Status: b.status,
     Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
@@ -1324,7 +1311,6 @@ export default function App() {
     "Gender": b.gender,
     "Phone": b.phone,
     "Education": b.education || "—",
-    "Skill": b.skill_interest || "—",
     "Status": b.status || "Registered",
     "Village": b.village || "—",
     "Mandal": b.mandal || "—",
