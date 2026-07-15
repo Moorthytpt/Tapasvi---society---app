@@ -359,7 +359,6 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     state: "Andhra Pradesh",
     education: "",
     village: "",
-    gram_panchayat: "",
     mandal: "",
     district: "Tirupati",
     category: "BC",
@@ -518,9 +517,6 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             </Field>
             <Field label="Village" required error={errors.village}>
               <Input value={form.village} onChange={set("village")} placeholder="Village name" />
-            </Field>
-            <Field label="Gram Panchayat">
-              <Input value={form.gram_panchayat} onChange={set("gram_panchayat")} placeholder="Gram Panchayat name" />
             </Field>
             <Field label="Mandal" required error={errors.mandal}>
               <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
@@ -892,7 +888,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
-      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q) || b.aadhaar_number?.includes(q) || b.gram_panchayat?.toLowerCase().includes(q));
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q) || b.aadhaar_number?.includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [beneficiaries, query, programFilter, statusFilter]);
@@ -958,7 +954,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <span>•</span>
                       <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
                       <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{[b.house_no, b.village, b.gram_panchayat, b.mandal].filter(Boolean).join(", ")}</span>
+                      <span><MapPin size={10} className="inline mr-0.5" />{[b.house_no, b.village, b.mandal].filter(Boolean).join(", ")}</span>
                       <span>•</span>
                       <span>📞 {b.phone}</span>
                       {b.aadhaar_number && <><span>•</span><span>🆔 {b.aadhaar_number}</span></>}
@@ -1311,7 +1307,7 @@ export default function App() {
     "Registration ID": b.beneficiary_id, "Program Name": PROGRAM_MAP[b.program]?.label || b.program, Name: b.name, Age: b.age, Gender: b.gender,
     "Aadhaar Number": b.aadhaar_number, Phone: b.phone,
     Education: b.education, Status: b.status,
-    "House No": b.house_no, Village: b.village, "Gram Panchayat": b.gram_panchayat, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
+    "House No": b.house_no, Village: b.village, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
 
@@ -1327,7 +1323,6 @@ export default function App() {
     "Status": b.status || "Registered",
     "House No": b.house_no || "—",
     "Village": b.village || "—",
-    "Gram Panchayat": b.gram_panchayat || "—",
     "Mandal": b.mandal || "—",
     "District": b.district || "—",
     "State": b.state || "Andhra Pradesh",
@@ -1517,4 +1512,3 @@ export default function App() {
     </div>
   );
 }
-
