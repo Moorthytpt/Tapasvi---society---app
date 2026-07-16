@@ -1319,7 +1319,7 @@ export default function App() {
     Education: b.education, Status: b.status,
     "Registration Status": findExclusiveRegistration(b.aadhaar_number, beneficiaries) ? `Registered in ${findExclusiveRegistration(b.aadhaar_number, beneficiaries)}` : "—",
     "House No": b.house_no, Village: b.village, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
-    "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
+    "Field Worker": b.field_worker_name,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
 
   const printBeneficiaries = (rows, programName) => printTable(rows.map(b => ({
@@ -1340,7 +1340,6 @@ export default function App() {
     "State": b.state || "Andhra Pradesh",
     "Category": b.category || "—",
     "Field Worker": b.field_worker_name || "—",
-    "Survey Date": b.survey_date || "—",
   })), programName ? `Beneficiary Report — ${programName}` : "Beneficiary Report — All Programs", null, { generatedBy: user?.username, programName });
 
   const exportTraining = (rows) => downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`);
