@@ -76,9 +76,9 @@ function printTable(rows, title, cols, meta = {}) {
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
   w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Database Management System — ${title}</title><style>
-    @page { size: A4 landscape; margin: 10mm 12mm; }
+    @page { size: A4 landscape; margin: 8mm 8mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
+    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; width: 100%; overflow-x: hidden; }
 
     /* HEADER / LETTERHEAD */
     .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }
@@ -94,13 +94,13 @@ function printTable(rows, title, cols, meta = {}) {
     .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
 
     /* TABLE */
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
     thead tr { background: #1E3A8A; }
-    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
+    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700; letter-spacing: 0.2px; border: 1px solid #155030; word-wrap: break-word; overflow-wrap: break-word; }
     tbody tr:nth-child(even) { background: #F8FAFF; }
     tbody tr:nth-child(odd) { background: #FFFFFF; }
     tbody tr:hover { background: #DCFCE7; }
-    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
+    tbody td { padding: 4px 6px; font-size: 8px; border: 1px solid #E5E7EB; vertical-align: middle; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
     tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
 
     /* STATUS BADGES */
