@@ -802,7 +802,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 /* ============================================================
    BENEFICIARY LIST
    ============================================================ */
-function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint }) {
+function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -886,6 +886,13 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
+                    {onAddPrograms && (
+                      <button onClick={() => onAddPrograms(b)} title="Add to other programs"
+                        className="p-2 rounded-lg text-[#16A34A] hover:bg-[#DCFCE7] flex items-center gap-1">
+                        <Plus size={13} />
+                        <span className="text-[10px] font-bold hidden sm:inline">Programs</span>
+                      </button>
+                    )}
                     {isAdmin && (
                       <button onClick={() => pdfIndividual(b)} title="Download PDF Profile"
                         className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
@@ -1967,7 +1974,15 @@ export default function App() {
             <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
-              onExport={exportBeneficiaries} onPrint={printBeneficiaries} />
+              onExport={exportBeneficiaries} onPrint={printBeneficiaries}
+              onAddPrograms={b => {
+                const eligible = checkEligibility(b, b.program, beneficiaries);
+                if (eligible.length === 0) {
+                  showToast("No additional programs available for this beneficiary.", "error");
+                } else {
+                  setMultiProgDialog({ savedRec: b, eligible });
+                }
+              }} />
           )}
           {!subView && view === "training" && (
             <TrainingList training={training} beneficiaries={beneficiaries} isAdmin={isAdmin}
