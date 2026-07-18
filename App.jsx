@@ -22,11 +22,18 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYDEAP" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WASTE" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYD" },
+  { key: "womens", label: "Women's Empowerment", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Management", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WSR" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
+
+
+const IDENTITY_TYPES = [
+  { value: "aadhaar", label: "Aadhaar Card", placeholder: "12-digit Aadhaar number", pattern: /^\d{12}$/, hint: "12 digits" },
+  { value: "voter", label: "Voter ID", placeholder: "Voter ID number", pattern: /^[A-Z]{3}\d{7}$/, hint: "e.g. ABC1234567" },
+  { value: "ration", label: "Ration Card", placeholder: "Ration Card number", pattern: /.{4,}/, hint: "Minimum 4 characters" },
+];
 
 const EDUCATION_OPTIONS = ["Below 5th", "5th Class", "7th Class", "10th Class / SSC", "Intermediate / 12th", "ITI", "Diploma", "Degree / Graduate", "Post Graduate", "No Formal Education"];
 const STATUS_OPTIONS = ["Registered", "Training", "Completed", "Dropped"];
@@ -168,7 +175,7 @@ function Toast({ message, type = "success", onDone }) {
   useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
   return (
     <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl"
-      style={{ background: type === "error" ? "#B71C1C" : "#1E3A8A", color: "#fff", animation: "fadein .2s ease" }}>
+      style={{ background: type === "error" ? "#B71C1C" : type === "info" ? "#0369A1" : "#1E3A8A", color: "#fff", animation: "fadein .2s ease" }}>
       {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
     </div>
   );
@@ -275,43 +282,44 @@ function LoginScreen({ onLogin }) {
    ============================================================ */
 function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
   const today = new Date().toISOString().slice(0, 10);
-
   const blank = {
-    program: "rydeap",
-    registration_date: today,
-    name: "",
-    gender: "Female",
-    age: "",
-    aadhaar_number: "",
-    phone: "",
-    state: "Andhra Pradesh",
-    education: "",
-    village: "",
-    mandal: "",
-    district: "Tirupati",
-    category: "BC",
-    disability: "No",
-    shg: "No",
-    field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
-    notes: "",
+    program: "rydeap", registration_date: today,
+    name: "", age: "", gender: "Female", phone: "",
+    identity_type: "aadhaar", identity_number: "",
+    education: "", village: "", mandal: "",
+    district: "Tirupati", state: "Andhra Pradesh",
+    category: "BC", disability: "No", shg: "No",
+    field_worker_name: "", notes: "",
+    aadhaar_number: "", aadhaar_verified: "No", ekyc_status: "No",
   };
 
-  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : {
+    ...blank,
+    field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
+  });
   const [errors, setErrors] = useState({});
-
+  const [activeProgram, setActiveProgram] = useState(editing?.program || "rydeap");
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+  const identityInfo = IDENTITY_TYPES.find(i => i.value === form.identity_type) || IDENTITY_TYPES[0];
 
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = "Required";
-    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
+    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required (1-120)";
     if (!form.phone.trim()) e.phone = "Required";
-    else if (!/^\d{10}$/.test(form.phone)) e.phone = "10 digits required";
-    else {
-      const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
-      if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
+    else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    if (!form.identity_number.trim()) e.identity_number = "Document number required";
+    else if (!identityInfo.pattern.test(form.identity_number)) {
+      e.identity_number = `Invalid format. ${identityInfo.hint}`;
+    } else {
+      const dup = beneficiaries.find(b =>
+        b.identity_type === form.identity_type &&
+        b.identity_number === form.identity_number &&
+        b.program === activeProgram &&
+        b.beneficiary_id !== editing?.beneficiary_id
+      );
+      if (dup) e.identity_number = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
     }
-    if (form.aadhaar_number && !/^\d{12}$/.test(form.aadhaar_number)) e.aadhaar_number = "Must be exactly 12 digits";
     if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
@@ -322,122 +330,96 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const submit = e => {
     e.preventDefault();
     if (!validate()) return;
-    onSave(form);
+    onSave({
+      ...form, program: activeProgram,
+      aadhaar_number: form.identity_type === "aadhaar" ? form.identity_number : (form.aadhaar_number || ""),
+    });
   };
 
-  const p = PROGRAM_MAP[form.program] || PROGRAMS[0];
+  const p = PROGRAM_MAP[activeProgram] || PROGRAMS[0];
 
   return (
     <div className="max-w-[720px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Logo size={36} />
+          <Logo size={32} />
           <div>
-            <h2 className="text-[17px] font-bold text-[#111827]">
-              {editing ? "Edit Beneficiary" : "New Beneficiary Registration"}
-            </h2>
-            <p className="text-[11.5px] text-[#6B7280]">TAPASVI Society — {p.label}</p>
+            <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "Quick Registration"}</h2>
+            <p className="text-[11.5px] text-[#6B7280]">Complete in 2–3 minutes</p>
           </div>
         </div>
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
       </div>
 
+      {!editing && (
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {PROGRAMS.map(pr => { const Icon = pr.icon; return (
+            <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
+              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
+              style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
+              <Icon size={18} />{pr.short}
+            </button>
+          );})}
+        </div>
+      )}
+
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
+        <div className="p-5">
 
-        {/* Program selector */}
-        {!editing && (
-          <div className="px-5 pt-5 pb-4 border-b border-[#F3F4F6] bg-[#F8FAFC]">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-[#6B7280] mb-3">Select Program</p>
-            <div className="grid grid-cols-3 gap-2">
-              {PROGRAMS.map(pr => {
-                const Icon = pr.icon;
-                const active = form.program === pr.key;
-                return (
-                  <button key={pr.key} type="button"
-                    onClick={() => setForm(f => ({ ...blank, program: pr.key, field_worker_name: f.field_worker_name }))}
-                    className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
-                    style={active
-                      ? { background: pr.tint, borderColor: pr.color, color: pr.color }
-                      : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
-                    <Icon size={18} />{pr.short}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <div className="p-5 space-y-0">
-
-          {/* SYSTEM INFORMATION */}
           <SectionHeader title="System Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint="Auto-generated after save">
-              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            <Field label="Registration ID" hint="Auto-generated">
+              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono text-[12px]"} />
             </Field>
-            <Field label="Registration Date">
+            <Field label="Date">
               <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
             </Field>
             <Field label="Program">
               <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
             </Field>
             <Field label="Field Worker" required error={errors.field_worker_name}>
-              <Input
-                value={form.field_worker_name}
+              <Input value={form.field_worker_name}
                 onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
                 readOnly={currentUser.role === "fieldworker"}
-                className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls}
-              />
+                className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
             </Field>
           </div>
 
-          {/* PERSONAL INFORMATION */}
           <SectionHeader title="Personal Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="Beneficiary Name" required error={errors.name}>
-              <Input value={form.name} onChange={set("name")} placeholder="Full name as per Aadhaar" />
+              <Input value={form.name} onChange={set("name")} placeholder="Full name" />
             </Field>
             <Field label="Gender" required>
-              <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
+              <Select value={form.gender} onChange={set("gender")} options={["Male","Female","Other"]} />
             </Field>
-            <Field label="Age" required error={errors.age} hint="Enter age in years">
-              <Input
-                type="number" min="1" max="120"
-                value={form.age}
-                onChange={e => setForm(f => ({ ...f, age: e.target.value }))}
-                placeholder="e.g. 25"
-                inputMode="numeric"
-              />
-            </Field>
-            <Field label="Aadhaar Number" error={errors.aadhaar_number} hint="12-digit Aadhaar number">
-              <Input
-                value={form.aadhaar_number}
-                onChange={e => setForm(f => ({ ...f, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
-                placeholder="Enter 12-digit Aadhaar"
-                inputMode="numeric"
-              />
+            <Field label="Age" required error={errors.age}>
+              <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
             </Field>
             <Field label="Mobile Number" required error={errors.phone}>
-              <Input
-                value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
-                placeholder="10-digit mobile number"
-                inputMode="numeric"
-              />
+              <Input value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g,"").slice(0,10) }))}
+                placeholder="10-digit mobile" inputMode="numeric" />
             </Field>
           </div>
 
-          {/* EDUCATION */}
-          <SectionHeader title="Education" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Education Qualification">
-              <Select value={form.education} onChange={set("education")}
-                options={EDUCATION_OPTIONS} placeholder="Select qualification" />
-            </Field>
+          <SectionHeader title="Identity Proof" color={p.color} />
+          <div className="bg-[#F8FAFC] rounded-xl border border-[#E5E7EB] p-4 mb-2">
+            <div className="grid grid-cols-2 gap-x-4">
+              <Field label="Document Type" required>
+                <Select value={form.identity_type} onChange={set("identity_type")}
+                  options={IDENTITY_TYPES.map(i => ({ value: i.value, label: i.label }))} />
+              </Field>
+              <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
+                <Input value={form.identity_number}
+                  onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
+                  placeholder={identityInfo.placeholder}
+                  inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
+              </Field>
+            </div>
+            <p className="text-[10.5px] text-[#6B7280]">ℹ Additional documents can be added from Beneficiary Profile later.</p>
           </div>
 
-          {/* ADDRESS */}
           <SectionHeader title="Address" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
             <Field label="Village" required error={errors.village}>
@@ -446,7 +428,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             <Field label="Mandal" required error={errors.mandal}>
               <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
             </Field>
-            <Field label="District" required>
+            <Field label="District">
               <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
             </Field>
             <Field label="State">
@@ -454,44 +436,30 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             </Field>
           </div>
 
-          {/* SOCIAL INFORMATION */}
           <SectionHeader title="Social Information" color={p.color} />
           <div className="grid grid-cols-3 gap-x-4">
             <Field label="Category">
-              <Select value={form.category} onChange={set("category")} options={["SC", "ST", "BC", "OC", "Minority"]} />
+              <Select value={form.category} onChange={set("category")} options={["SC","ST","BC","OC","Minority"]} />
             </Field>
             <Field label="Disability">
-              <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
+              <Select value={form.disability} onChange={set("disability")} options={["No","Yes"]} />
             </Field>
             <Field label="SHG Member">
-              <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
+              <Select value={form.shg} onChange={set("shg")} options={["No","Yes"]} />
             </Field>
           </div>
 
-          {/* NOTES */}
-          <Field label="Notes / Remarks">
-            <textarea value={form.notes || ""} onChange={set("notes")} rows={2}
-              className={inputCls} placeholder="Any additional observations..." />
+          <Field label="Notes">
+            <textarea value={form.notes||""} onChange={set("notes")} rows={2} className={inputCls} placeholder="Field worker observations..." />
           </Field>
 
         </div>
-
-        {/* Footer buttons */}
         <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
-          <button type="submit" onClick={submit}
-            className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold transition"
-            style={{ background: p.color, color: "#fff" }}>
+          <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white" style={{ background: p.color }}>
             {editing ? "Update Record" : "Save Registration"}
           </button>
-          <button type="button" onClick={onCancel}
-            className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
-            Cancel
-          </button>
-          {!editing && (
-            <span className="text-[11px] text-[#9CA3AF] ml-auto">
-              * Registration ID will be auto-generated on save
-            </span>
-          )}
+          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">Cancel</button>
+          {!editing && <span className="text-[10.5px] text-[#9CA3AF] ml-auto">* ID auto-generated on save</span>}
         </div>
       </form>
     </div>
@@ -802,7 +770,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 /* ============================================================
    BENEFICIARY LIST
    ============================================================ */
-function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms }) {
+function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -874,37 +842,54 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <Badge label={p.short} color={p.color} tint={p.tint} />
                       <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#16A34A"} tint={(statusColors[b.status] || "#16A34A") + "18"} />
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
-                      <span className="font-mono">{b.beneficiary_id}</span>
-                      <span>•</span>
-                      <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
-                      <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
-                      <span>•</span>
-                      <span>📞 {b.phone}</span>
-                      {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
+                    <div className="mt-1 text-[11.5px] text-[#6B7280] space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[11px] text-[#1E3A8A]">{b.beneficiary_id}</span>
+                        {b.age && <span>{b.age} yrs{b.gender ? `, ${b.gender}` : ""}</span>}
+                      </div>
+                      {(b.village || b.mandal) && (
+                        <div className="flex items-center gap-1">
+                          <MapPin size={10} className="shrink-0" />
+                          <span>{[b.village, b.mandal].filter(Boolean).join(", ")}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {b.phone && <span>📞 {b.phone}</span>}
+                        {b.field_worker_name && <span>👤 {b.field_worker_name}</span>}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    {onAddPrograms && (
-                      <button onClick={() => onAddPrograms(b)} title="Add to other programs"
-                        className="p-2 rounded-lg text-[#16A34A] hover:bg-[#DCFCE7] flex items-center gap-1">
-                        <Plus size={13} />
-                        <span className="text-[10px] font-bold hidden sm:inline">Programs</span>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {onViewProfile && (
+                      <button onClick={() => onViewProfile(b)} title="View Profile"
+                        className="px-2.5 py-1.5 rounded-lg text-[#1E3A8A] bg-[#EFF6FF] flex items-center gap-1 text-[11px] font-semibold">
+                        <User size={12} /> Profile
                       </button>
                     )}
-                    {isAdmin && (
-                      <button onClick={() => pdfIndividual(b)} title="Download PDF Profile"
-                        className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
-                        <Download size={14} />
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
-                    )}
+                    <div className="flex gap-1">
+                      {onAddPrograms && (
+                        <button onClick={() => onAddPrograms(b)} title="Add to other programs"
+                          className="p-1.5 rounded-lg text-[#16A34A] hover:bg-[#DCFCE7]">
+                          <Plus size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => pdfIndividual(b)} title="PDF"
+                          className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
+                          <Download size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onEdit(b)} className="p-1.5 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                          <Edit2 size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onDelete(b)} className="p-1.5 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1104,6 +1089,199 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
     </div>
   );
 }
+
+/* ============================================================
+   BENEFICIARY PROFILE
+   ============================================================ */
+function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin }) {
+  const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
+
+  // Calculate profile completion
+  const sections = {
+    Personal:  { fields: ["name","age","gender","phone"], weight: 25 },
+    Address:   { fields: ["village","mandal","district"], weight: 20 },
+    Identity:  { fields: ["identity_type","identity_number"], weight: 20 },
+    Social:    { fields: ["category"], weight: 15 },
+    Education: { fields: ["education"], weight: 10 },
+    Notes:     { fields: ["field_worker_name","registration_date"], weight: 10 },
+  };
+
+  const completion = Object.entries(sections).map(([name, { fields, weight }]) => {
+    const filled = fields.filter(f => b[f] && String(b[f]).trim() !== "" && b[f] !== "No").length;
+    const pct = Math.round((filled / fields.length) * 100);
+    return { name, pct, weight };
+  });
+  const overall = Math.round(completion.reduce((sum, s) => sum + (s.pct * s.weight / 100), 0));
+
+  // Other programs this person is registered in
+  const otherPrograms = beneficiaries.filter(x =>
+    x.beneficiary_id !== b.beneficiary_id &&
+    x.phone === b.phone && x.phone
+  );
+
+  const InfoRow = ({ label, value }) => (
+    <div className="flex py-2 border-b border-[#F3F4F6] last:border-0">
+      <span className="text-[11.5px] text-[#6B7280] w-36 shrink-0">{label}</span>
+      <span className="text-[12px] font-medium text-[#111827] flex-1">{value || "—"}</span>
+    </div>
+  );
+
+  return (
+    <div className="max-w-[720px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]">
+          <X size={18} className="text-[#6B7280]" />
+        </button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Beneficiary Profile</h2>
+          <p className="text-[11.5px] text-[#6B7280]">{b.beneficiary_id}</p>
+        </div>
+        <span className="px-3 py-1 rounded-full text-[11px] font-bold text-white" style={{ background: p.color }}>
+          {p.short}
+        </span>
+      </div>
+
+      {/* Profile Header Card */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4 flex items-center gap-4">
+        <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
+          style={{ background: p.color }}>
+          {(b.name || "?").charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
+          <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
+          <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1E3A8A"} tint={(statusColors[b.status] || "#1E3A8A") + "18"} />
+            {b.field_worker_name && <span className="text-[10.5px] text-[#6B7280]">👤 {b.field_worker_name}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Completion */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-[13px] font-bold text-[#111827]">Profile Completion</h4>
+          <span className="text-[20px] font-black" style={{ color: overall >= 70 ? "#16A34A" : overall >= 40 ? "#F97316" : "#DC2626" }}>
+            {overall}%
+          </span>
+        </div>
+        <div className="h-2.5 bg-[#F3F4F6] rounded-full overflow-hidden mb-4">
+          <div className="h-full rounded-full transition-all"
+            style={{ width: `${overall}%`, background: overall >= 70 ? "#16A34A" : overall >= 40 ? "#F97316" : "#DC2626" }} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {completion.map(s => (
+            <div key={s.name} className="text-center">
+              <div className="h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden mb-1">
+                <div className="h-full rounded-full bg-[#1E3A8A]" style={{ width: `${s.pct}%` }} />
+              </div>
+              <p className="text-[10px] text-[#6B7280]">{s.name}</p>
+              <p className="text-[11px] font-bold text-[#111827]">{s.pct}%</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Personal & Contact */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">👤 Personal & Contact</h4>
+        <InfoRow label="Full Name" value={b.name} />
+        <InfoRow label="Age" value={b.age ? `${b.age} years` : null} />
+        <InfoRow label="Gender" value={b.gender} />
+        <InfoRow label="Mobile" value={b.phone} />
+        <InfoRow label="Category" value={b.category} />
+        <InfoRow label="Disability" value={b.disability} />
+        <InfoRow label="SHG Member" value={b.shg} />
+      </div>
+
+      {/* Address */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">📍 Address</h4>
+        <InfoRow label="Village" value={b.village} />
+        <InfoRow label="Mandal" value={b.mandal} />
+        <InfoRow label="District" value={b.district} />
+        <InfoRow label="State" value={b.state || "Andhra Pradesh"} />
+      </div>
+
+      {/* Identity & Documents */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">🪪 Identity & Documents</h4>
+        <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || (b.identity_type ? b.identity_type : "Aadhaar Card")} />
+        <InfoRow label="Document Number" value={
+          b.identity_number
+            ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number)
+            : b.aadhaar_number
+            ? `XXXX XXXX ${String(b.aadhaar_number).slice(-4)}`
+            : null
+        } />
+        <InfoRow label="Aadhaar Verified" value={b.aadhaar_verified} />
+        <InfoRow label="eKYC Status" value={b.ekyc_status} />
+        <div className="mt-3 p-3 bg-[#EFF6FF] rounded-lg">
+          <p className="text-[11px] text-[#1E3A8A] font-medium">Additional documents (Aadhaar, Voter ID, Ration Card) can be added here in future updates.</p>
+        </div>
+      </div>
+
+      {/* Education */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Education & Skills</h4>
+        <InfoRow label="Education" value={b.education} />
+        <InfoRow label="Skill Interest" value={b.skill_interest} />
+        <div className="mt-3 p-3 bg-[#F0FDF4] rounded-lg">
+          <p className="text-[11px] text-[#16A34A] font-medium">Training, Employment, and Certification modules coming soon.</p>
+        </div>
+      </div>
+
+      {/* Program Information */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">📋 Program Information</h4>
+        <InfoRow label="Program" value={p.label} />
+        <InfoRow label="Registration ID" value={b.beneficiary_id} />
+        <InfoRow label="Registration Date" value={b.registration_date || b.survey_date} />
+        <InfoRow label="Status" value={b.status} />
+        <InfoRow label="Field Worker" value={b.field_worker_name} />
+        {otherPrograms.length > 0 && (
+          <div className="mt-3">
+            <p className="text-[11.5px] font-semibold text-[#111827] mb-2">Also registered in:</p>
+            <div className="flex gap-2 flex-wrap">
+              {otherPrograms.map(op => {
+                const op_p = PROGRAM_MAP[op.program];
+                return op_p ? (
+                  <span key={op.beneficiary_id} className="px-3 py-1 rounded-full text-[11px] font-semibold"
+                    style={{ background: op_p.tint, color: op_p.color }}>
+                    {op_p.short} · {op.beneficiary_id}
+                  </span>
+                ) : null;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      {b.notes && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+          <h4 className="text-[13px] font-bold text-[#111827] mb-2">📝 Field Worker Notes</h4>
+          <p className="text-[12.5px] text-[#374151]">{b.notes}</p>
+        </div>
+      )}
+
+      {/* Future Modules */}
+      <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[12px] font-bold text-[#6B7280] uppercase tracking-wide mb-3">🚀 Coming Soon</h4>
+        <div className="grid grid-cols-3 gap-2">
+          {["Training","Employment","Attendance","Certificates","Govt Schemes","AI Insights"].map(m => (
+            <div key={m} className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center">
+              <p className="text-[11px] text-[#9CA3AF] font-medium">{m}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ============================================================
    USER MANAGEMENT MODULE — Admin Only
@@ -1624,6 +1802,7 @@ export default function App() {
   const [loadError, setLoadError] = useState(null);
   // Multi-program auto-registration
   const [multiProgDialog, setMultiProgDialog] = useState(null); // { savedRec, eligible: [{key,label,checked}] }
+  const [profileBeneficiary, setProfileBeneficiary] = useState(null); // beneficiary to show profile
 
   // Data state
   const [beneficiaries, setBeneficiaries] = useState([]);
@@ -1666,15 +1845,17 @@ export default function App() {
     const age = parseInt(form.age) || 0;
     const gender = form.gender;
     const edu = form.education || "";
-    const phone = form.phone;
     const eligible = [];
 
     PROGRAMS.forEach(p => {
       if (p.key === savedProgram) return; // skip current program
 
-      // Check if already registered (same phone number in this program)
+      // Check if already registered (same identity in this program)
       const alreadyExists = currentBeneficiaries.find(b =>
-        b.program === p.key && b.phone === phone
+        b.program === p.key && (
+          (form.identity_type && b.identity_type === form.identity_type && b.identity_number === form.identity_number) ||
+          (form.aadhaar_number && b.aadhaar_number === form.aadhaar_number)
+        )
       );
       if (alreadyExists) return; // already registered, skip
 
@@ -1896,7 +2077,7 @@ export default function App() {
     ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
   ];
 
-  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); };
+  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
@@ -1970,19 +2151,27 @@ export default function App() {
           {!subView && view === "dashboard" && (
             <Dashboard beneficiaries={beneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
           )}
-          {!subView && view === "beneficiaries" && (
+          {!subView && view === "beneficiaries" && !profileBeneficiary && (
             <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
+              onViewProfile={b => setProfileBeneficiary(b)}
               onAddPrograms={b => {
                 const eligible = checkEligibility(b, b.program, beneficiaries);
                 if (eligible.length === 0) {
-                  showToast("No additional programs available for this beneficiary.", "error");
+                  showToast("No additional eligible programs available for this beneficiary.", "info");
                 } else {
                   setMultiProgDialog({ savedRec: b, eligible });
                 }
               }} />
+          )}
+          {!subView && view === "beneficiaries" && profileBeneficiary && (
+            <BeneficiaryProfile
+              beneficiary={profileBeneficiary}
+              beneficiaries={beneficiaries}
+              isAdmin={isAdmin}
+              onClose={() => setProfileBeneficiary(null)} />
           )}
           {!subView && view === "training" && (
             <TrainingList training={training} beneficiaries={beneficiaries} isAdmin={isAdmin}
@@ -2027,8 +2216,8 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-[400px] w-full overflow-hidden">
             <div className="px-5 py-4 border-b border-[#E5E7EB]" style={{ background: "linear-gradient(135deg, #1E3A8A 0%, #16A34A 100%)" }}>
-              <p className="text-[15px] font-bold text-white">🎯 Eligible for Additional Programs</p>
-              <p className="text-[11.5px] text-white/80 mt-1">This beneficiary qualifies for more TAPASVI programs</p>
+              <p className="text-[15px] font-bold text-white">🎯 Eligible Additional Programs</p>
+              <p className="text-[11.5px] text-white/80 mt-1">This beneficiary qualifies for additional TAPASVI programs based on age, gender and education.</p>
             </div>
             <div className="px-5 py-4">
               <p className="text-[12px] text-[#6B7280] mb-3">Select programs to auto-register:</p>
@@ -2070,7 +2259,7 @@ export default function App() {
               </div>
               <button onClick={() => { setMultiProgDialog(null); setView("beneficiaries"); }}
                 className="w-full rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#6B7280]">
-                Skip — Register Later
+                Later
               </button>
             </div>
           </div>
