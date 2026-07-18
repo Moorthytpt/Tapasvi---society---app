@@ -63,296 +63,50 @@ function downloadCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-/* ── LETTERHEAD HTML shared by both PDF types ── */
-const LETTERHEAD_HTML = (title, meta = "") => `
-  <div class="header">
-    <div class="logo-wrap">
-      <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI" style="width:64px;height:64px;object-fit:contain;"/>
-    </div>
-    <div class="org-info">
-      <div class="org-name">TAPASVI SOCIETY</div>
-      <div class="org-sub">Society for Rural Development, Social Issues and Health Organization</div>
-      <div class="org-addr">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
-    </div>
-    <div class="report-info">
-      <div class="report-title">${title}</div>
-      <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
-      ${meta ? `<div class="report-meta">${meta}</div>` : ""}
-    </div>
-  </div>`;
-
-const SHARED_CSS = [
-  "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');",
-  "* { box-sizing: border-box; margin: 0; padding: 0; }",
-  "body { font-family: Inter, Arial, sans-serif; color: #111827; background: white; }",
-  ".header { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid #1E3A8A; margin-bottom: 10px; }",
-  ".org-info { flex: 1; }",
-  ".org-name { font-size: 18px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px; }",
-  ".org-sub { font-size: 9px; color: #374151; margin-top: 2px; }",
-  ".org-addr { font-size: 8px; color: #6B7280; margin-top: 1px; }",
-  ".report-info { text-align: right; }",
-  ".report-title { font-size: 13px; font-weight: 700; color: #1E3A8A; }",
-  ".report-meta { font-size: 8px; color: #6B7280; margin-top: 2px; }",
-  ".footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }",
-].join(" ");
-
-/* ── PDF TYPE 1: Individual Beneficiary Profile (A4 Portrait) ── */
+/* ── PDF: Individual Profile ── */
 function pdfIndividual(b) {
-  const w = window.open("", "_blank");
+  var w = window.open("", "_blank");
   if (!w) return;
-  const prog = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
-  const pdfCSS = [
-    SHARED_CSS,
-    "@page { size: A4 portrait; margin: 12mm 15mm; }",
-    ".profile-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-bottom: 12px; }",
-    ".section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #1E3A8A; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; margin-bottom: 10px; }",
-    ".field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }",
-    ".field-item { }",
-    ".field-label { font-size: 7.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }",
-    ".field-value { font-size: 10px; font-weight: 600; color: #111827; border-bottom: 1px solid #F3F4F6; padding-bottom: 3px; min-height: 16px; }",
-    ".reg-id { font-family: monospace; font-size: 14px; font-weight: 900; color: #1E3A8A; background: #EFF6FF; padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; }",
-    ".program-badge { display: inline-block; background: #DCFCE7; color: #16A34A; font-size: 9px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px; }",
-    ".photo-placeholder { width: 80px; height: 100px; border: 2px dashed #D1D5DB; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9CA3AF; text-align: center; flex-shrink: 0; }",
-    ".top-row { display: flex; gap: 16px; align-items: flex-start; }",
-    ".top-info { flex: 1; }",
-    ".sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 16px; }",
-    ".sign-box { border-top: 1px solid #374151; padding-top: 4px; font-size: 8px; color: #374151; text-align: center; }",
-    "@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
-  ].join(" ");
-  var _lh = LETTERHEAD_HTML('Beneficiary Profile', 'Registration ID: ' + (b.beneficiary_id || '—'));
-  var _pid = b.beneficiary_id || '—';
-  var _prog = prog[b.program] || b.program || '—';
-  var _rd = b.registration_date || b.survey_date || '—';
-  var _st = b.status || 'Registered';
-  var _nm = b.name || '—';
-  var _gn = b.gender || '—';
-  var _ag = b.age ? b.age + ' years' : '—';
-  var _ph = b.phone || '—';
-  var _aa = b.aadhaar_number ? 'XXXX XXXX ' + String(b.aadhaar_number).slice(-4) : '—';
-  var _ed = b.education || '—';
-  var _vl = b.village || '—';
-  var _mn = b.mandal || '—';
-  var _dt = b.district || '—';
-  var _stt = b.state || 'Andhra Pradesh';
-  var _cat = b.category || '—';
-  var _dis = b.disability || 'No';
-  var _shg = b.shg || 'No';
-  var _fw = b.field_worker_name || '—';
-  var _nt = b.notes ? '<div style="margin-top:8px"><div class="field-label">Notes</div><div style="font-size:9px;padding:6px;background:#F9FAFB;border-radius:4px;">' + b.notes + '</div></div>' : '';
-  var _printDate = new Date().toLocaleDateString('en-IN');
-  var _html = '<!DOCTYPE html><html><head><title>TAPASVI Profile</title><style>' + pdfCSS + '</style></head><body>'
-    + _lh
-    + '<div class="profile-card"><div class="top-row"><div class="top-info">'
-    + '<div class="reg-id">' + _pid + '<span class="program-badge">' + _prog + '</span></div>'
-    + '<div class="field-grid">'
-    + '<div class="field-item"><div class="field-label">Registration Date</div><div class="field-value">' + _rd + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Status</div><div class="field-value">' + _st + '</div></div>'
-    + '</div></div><div class="photo-placeholder">Photo<br/>Here</div></div></div>'
-    + '<div class="profile-card"><div class="section-title">Personal Information</div><div class="field-grid">'
-    + '<div class="field-item"><div class="field-label">Full Name</div><div class="field-value">' + _nm + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Gender</div><div class="field-value">' + _gn + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Age</div><div class="field-value">' + _ag + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Mobile</div><div class="field-value">' + _ph + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Aadhaar</div><div class="field-value">' + _aa + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Education</div><div class="field-value">' + _ed + '</div></div>'
-    + '</div></div>'
-    + '<div class="profile-card"><div class="section-title">Address</div><div class="field-grid">'
-    + '<div class="field-item"><div class="field-label">Village</div><div class="field-value">' + _vl + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Mandal</div><div class="field-value">' + _mn + '</div></div>'
-    + '<div class="field-item"><div class="field-label">District</div><div class="field-value">' + _dt + '</div></div>'
-    + '<div class="field-item"><div class="field-label">State</div><div class="field-value">' + _stt + '</div></div>'
-    + '</div></div>'
-    + '<div class="profile-card"><div class="section-title">Social Information</div><div class="field-grid">'
-    + '<div class="field-item"><div class="field-label">Category</div><div class="field-value">' + _cat + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Disability</div><div class="field-value">' + _dis + '</div></div>'
-    + '<div class="field-item"><div class="field-label">SHG Member</div><div class="field-value">' + _shg + '</div></div>'
-    + '<div class="field-item"><div class="field-label">Field Worker</div><div class="field-value">' + _fw + '</div></div>'
-    + '</div>' + _nt + '</div>'
-    + '<div class="sign-section">'
-    + '<div class="sign-box">Field Worker Signature</div>'
-    + '<div class="sign-box">Beneficiary Signature / Thumb</div>'
-    + '<div class="sign-box">Authorized Signatory</div>'
-    + '</div>'
-    + '<div class="footer"><span>TAPASVI Society — Confidential</span><span>Printed: ' + _printDate + '</span></div>'
-    + '</body></html>';
-  w.document.write(_html)
+  var prog = { rydeap: "RYDEAP", womens: "Womens Tailoring", waste: "Waste Management" };
+  var lines = [
+    "<h2>" + (b.name || "") + " - " + (prog[b.program] || b.program || "") + "</h2>",
+    "<p><b>ID:</b> " + (b.beneficiary_id || "") + "</p>",
+    "<p><b>Age:</b> " + (b.age || "") + " | <b>Gender:</b> " + (b.gender || "") + "</p>",
+    "<p><b>Phone:</b> " + (b.phone || "") + "</p>",
+    "<p><b>Education:</b> " + (b.education || "") + "</p>",
+    "<p><b>Village:</b> " + (b.village || "") + " | <b>Mandal:</b> " + (b.mandal || "") + "</p>",
+    "<p><b>District:</b> " + (b.district || "") + " | <b>State:</b> " + (b.state || "Andhra Pradesh") + "</p>",
+    "<p><b>Category:</b> " + (b.category || "") + " | <b>Disability:</b> " + (b.disability || "No") + "</p>",
+    "<p><b>Field Worker:</b> " + (b.field_worker_name || "") + "</p>",
+    "<p><b>Date:</b> " + (b.registration_date || b.survey_date || "") + "</p>",
+  ].join("");
+  var css = "body{font-family:Arial,sans-serif;padding:20px;} h2{color:#1E3A8A;} p{margin:6px 0;font-size:13px;}";
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI Profile</title><style>" + css + "</style></head><body><h1 style='color:#1E3A8A'>TAPASVI Society</h1>" + lines + "</body></html>");
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 600);
+  setTimeout(function(){ w.print(); }, 500);
 }
 
-/* ── PDF TYPE 2: All Beneficiaries List (A4 Landscape) ── */
-function printTable(rows, title, cols) {
-  const w = window.open("", "_blank");
-  if (!w) return;
-  const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  const tableCss = [
-    SHARED_CSS,
-    "@page { size: A4 landscape; margin: 10mm 12mm; }",
-    ".summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }",
-    "table { width: 100%; border-collapse: collapse; margin-top: 4px; }",
-    "thead tr { background: #1E3A8A; }",
-    "thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }",
-    "tbody tr:nth-child(even) { background: #F8FAFF; }",
-    "tbody tr:nth-child(odd) { background: #FFFFFF; }",
-    "tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }",
-    "tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }",
-    ".status-registered { color: #1E3A8A; font-weight: 700; }",
-    ".status-training { color: #D97706; font-weight: 700; }",
-    ".status-completed { color: #16A34A; font-weight: 700; }",
-    ".status-dropped { color: #DC2626; font-weight: 700; }",
-    "@media print { thead { display: table-header-group; } tbody tr { page-break-inside: avoid; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
-  ].join(" ");
-  const summaryHtml = rows.some(r => r["Status"]) ? "<span>Completed: " + rows.filter(r => r["Status"] === "Completed").length + "</span> <span>Training: " + rows.filter(r => r["Status"] === "Training").length + "</span> <span>Registered: " + rows.filter(r => r["Status"] === "Registered").length + "</span> <span>Dropped: " + rows.filter(r => r["Status"] === "Dropped").length + "</span>" : "";
-  const genderHtml = rows.some(r => r["Gender"]) ? "<span>Women: " + rows.filter(r => r["Gender"] === "Female").length + "</span> <span>Men: " + rows.filter(r => r["Gender"] === "Male").length + "</span>" : "";
-  const theadHtml = "<thead><tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr></thead>";
-  const tbodyHtml = "<tbody>" + rows.map(r => "<tr>" + headers.map(h => { const val = r[h] ?? ""; const cls = h === "Status" ? "status-" + String(val).toLowerCase() : ""; return '<td class="' + cls + '">' + val + "</td>"; }).join("") + "</tr>").join("") + "</tbody>";
-  const footerDate = new Date().toLocaleDateString("en-IN");
-  const generatedDate = new Date().toLocaleString("en-IN");
-  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI — " + title + "</title><style>" + tableCss + "</style></head><body>" + LETTERHEAD_HTML(title, "Total Records: " + rows.length) + '<div class="summary">' + summaryHtml + " " + genderHtml + "</div><table>" + theadHtml + tbodyHtml + "</table>" + '<div class="footer"><span>TAPASVI Database Management System — Confidential | For Official Use Only</span><span>Printed: ' + footerDate + "</span></div></body></html>");
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 600);
-}
 
 function printTable(rows, title, cols) {
-  const w = window.open("", "_blank");
+  var w = window.open("", "_blank");
   if (!w) return;
-  const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  const css3 = [
-    "@page { size: A4 landscape; margin: 10mm 12mm; }",
-    "* { box-sizing: border-box; margin: 0; padding: 0; }",
-    "body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }",
-    ".header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }",
-    ".logo-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }",
-    ".org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; }",
-    ".org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }",
-    ".org-address { font-size: 7.5px; color: #666; margin-top: 1px; }",
-    ".header-right { margin-left: auto; text-align: right; }",
-    ".report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }",
-    ".report-meta { font-size: 8px; color: #888; margin-top: 3px; }",
-    ".summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }",
-    "table { width: 100%; border-collapse: collapse; margin-top: 4px; }",
-    "thead tr { background: #1E3A8A; }",
-    "thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }",
-    "tbody tr:nth-child(even) { background: #F8FAFF; }",
-    "tbody tr:nth-child(odd) { background: #FFFFFF; }",
-    "tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }",
-    "tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }",
-    ".status-registered { color: #1E3A8A; font-weight: 700; }",
-    ".status-training { color: #D97706; font-weight: 700; }",
-    ".status-completed { color: #16A34A; font-weight: 700; }",
-    ".status-dropped { color: #DC2626; font-weight: 700; }",
-    ".footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }",
-    "@media print { thead { display: table-header-group; } tbody tr { page-break-inside: avoid; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
-  ].join(" ");
-  const th3 = "<thead><tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr></thead>";
-  const tb3 = "<tbody>" + rows.map(r => "<tr>" + headers.map(h => { const val = r[h] ?? ""; const cls = h === "Status" ? "status-" + String(val).toLowerCase() : ""; return '<td class="' + cls + '">' + val + "</td>"; }).join("") + "</tr>").join("") + "</tbody>";
-  const sum3 = rows.some(r => r["Status"]) ? "<span>Completed: " + rows.filter(r => r["Status"] === "Completed").length + "</span> <span>Training: " + rows.filter(r => r["Status"] === "Training").length + "</span>" : "";
-  const gen3 = rows.some(r => r["Gender"]) ? "<span>Women: " + rows.filter(r => r["Gender"] === "Female").length + "</span> <span>Men: " + rows.filter(r => r["Gender"] === "Male").length + "</span>" : "";
-  const logoImg3 = '<img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI" style="width:56px;height:56px;object-fit:contain;"/>';
-  const hdr3 = '<div class="header"><div class="logo-circle">' + logoImg3 + '</div><div><div class="org-name">TAPASVI SOCIETY</div><div class="org-sub">Society for Rural Development, Social Issues and Health Organization</div><div class="org-address">Andhra Pradesh, India</div></div><div class="header-right"><div class="report-title">' + title + '</div><div class="report-meta">Total: ' + rows.length + '</div><div class="report-meta">Generated: ' + new Date().toLocaleString("en-IN") + '</div></div></div>';
-  const ftr3 = '<div class="footer"><span>TAPASVI DMS — Confidential</span><span>Printed: ' + new Date().toLocaleDateString("en-IN") + '</span></div>';
-  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI — " + title + "</title><style>" + css3 + "</style></head><body>" + hdr3 + '<div class="summary">' + sum3 + " " + gen3 + "</div><table>" + th3 + tb3 + "</table>" + ftr3 + "</body></html>");
+  var headers = cols || (rows.length ? Object.keys(rows[0]) : []);
+  var css = "body{font-family:Arial,sans-serif;padding:16px;font-size:11px;} h1{color:#1E3A8A;font-size:16px;} table{width:100%;border-collapse:collapse;margin-top:12px;} th{background:#1E3A8A;color:white;padding:5px 7px;text-align:left;font-size:10px;} td{border:1px solid #ddd;padding:4px 7px;} tr:nth-child(even){background:#f9f9f9;} .footer{margin-top:12px;font-size:9px;color:#999;}";
+  var thead = "<tr>" + headers.map(function(h){ return "<th>" + h + "</th>"; }).join("") + "</tr>";
+  var tbody = rows.map(function(r){ return "<tr>" + headers.map(function(h){ return "<td>" + (r[h] || "") + "</td>"; }).join("") + "</tr>"; }).join("");
+  var footer = "<div class='footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + rows.length + "</div>";
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body><h1>TAPASVI Society</h1><h2 style='color:#374151;font-size:13px;'>" + title + "</h2><table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table>" + footer + "</body></html>");
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 500);
+  setTimeout(function(){ w.print(); }, 500);
 }
+
 
 /* ============================================================
    UI ATOMS
    ============================================================ */
 /* ── OFFICIAL TAPASVI LOGO ── same SVG used everywhere in the app and in print */
-const TAPASVI_LOGO_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="38" cy="50" r="36" fill="#F97316"/>
-  <path d="M38 14 C55 14 70 28 68 50 C66 65 52 72 38 70 C48 60 52 44 38 34 Z" fill="white" opacity="0.95"/>
-  <circle cx="33" cy="24" r="6" fill="white"/>
-  <path d="M22 42 C22 34 27 30 33 30 C39 30 44 34 44 42 Z" fill="white"/>
-  <path d="M8 58 C8 58 20 48 38 52 C56 56 68 48 72 50 C72 50 58 72 38 72 C18 72 8 58 8 58 Z" fill="#16A34A"/>
-  <path d="M12 62 Q25 56 38 60 Q51 64 64 58" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-  <path d="M14 67 Q27 61 40 65 Q53 69 65 63" stroke="#4ADE80" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.7"/>
-  <path d="M32 52 C32 52 31 46 35 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-  <path d="M35 43 C35 43 38 40 41 43" stroke="#4ADE80" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-  <path d="M42 51 C42 51 42 45 46 42" stroke="#4ADE80" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.8"/>
-</svg>`;
-
-function Logo({ size = 40 }) {
-  return (
-    <img
-      src="/icon-512.png"
-      alt="TAPASVI Logo"
-      width={size}
-      height={size}
-      style={{ objectFit: "contain", display: "block" }}
-    />
-  );
-}
-
-const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20 placeholder:text-[#9CA3AF]";
-const selectCls = inputCls + " appearance-none cursor-pointer";
-
-function Field({ label, required, error, hint, children }) {
-  return (
-    <label className="block mb-4">
-      <span className="block text-[12.5px] font-semibold text-[#111827] mb-1.5 uppercase tracking-wide">
-        {label}{required && <span className="text-red-500 ml-1">*</span>}
-      </span>
-      {hint && <span className="block text-[11px] text-[#888] mb-1.5">{hint}</span>}
-      {children}
-      {error && <span className="block text-[11.5px] text-red-600 mt-1">⚠ {error}</span>}
-    </label>
-  );
-}
-
-function Input(props) { return <input {...props} className={inputCls} />; }
-function Select({ options, placeholder, ...props }) {
-  return (
-    <select {...props} className={selectCls}>
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map(o => typeof o === "string"
-        ? <option key={o} value={o}>{o}</option>
-        : <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
-}
-
-function Badge({ label, color, tint }) {
-  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: tint, color }}>{label}</span>;
-}
-
-function StatCard({ icon: Icon, label, value, color, tint, sub }) {
-  return (
-    <div className="rounded-xl bg-white border border-[#E5E7EB] p-4 flex items-center gap-3.5">
-      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint }}>
-        <Icon size={20} style={{ color }} />
-      </div>
-      <div>
-        <p className="text-[22px] font-bold text-[#111827] leading-none">{value}</p>
-        <p className="text-[12px] text-[#6B7280] mt-1">{label}</p>
-        {sub && <p className="text-[11px] text-[#999] mt-0.5">{sub}</p>}
-      </div>
-    </div>
-  );
-}
-
-function Toast({ message, type = "success", onDone }) {
-  useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
-  return (
-    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl" style={{ background: type === "error" ? "#B71C1C" : "#16A34A", color: "#fff" }}>
-      {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
-    </div>
-  );
-}
-
-function SectionHeader({ title, color = "#16A34A" }) {
-  return (
-    <div className="flex items-center gap-2 mt-6 mb-3">
-      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-      <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color }}>{title}</span>
-      <div className="flex-1 h-px bg-[#F3F4F6]" />
-    </div>
-  );
-}
 
 /* ============================================================
    LOGIN
