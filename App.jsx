@@ -22,9 +22,9 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYD" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WTE" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WSR" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYDEAP" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WASTE" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
@@ -46,7 +46,7 @@ function nextId(records, prefix) {
     return m ? parseInt(m[1], 10) : 0;
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
-  return `${prefix}-${String(next).padStart(6, "0")}`;
+  return `${prefix}-${String(next).padStart(4, "0")}`;
 }
 
 function downloadCSV(rows, filename) {
@@ -63,7 +63,191 @@ function downloadCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-function printTable(rows, title, cols, meta = {}) {
+/* ── LETTERHEAD HTML shared by both PDF types ── */
+const LETTERHEAD_HTML = (title, meta = "") => `
+  <div class="header">
+    <div class="logo-wrap">
+      <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI" style="width:64px;height:64px;object-fit:contain;"/>
+    </div>
+    <div class="org-info">
+      <div class="org-name">TAPASVI SOCIETY</div>
+      <div class="org-sub">Society for Rural Development, Social Issues and Health Organization</div>
+      <div class="org-addr">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
+    </div>
+    <div class="report-info">
+      <div class="report-title">${title}</div>
+      <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
+      ${meta ? `<div class="report-meta">${meta}</div>` : ""}
+    </div>
+  </div>`;
+
+const SHARED_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, Arial, sans-serif; color: #111827; background: white; }
+  .header { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid #1E3A8A; margin-bottom: 10px; }
+  .org-info { flex: 1; }
+  .org-name { font-size: 18px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px; }
+  .org-sub { font-size: 9px; color: #374151; margin-top: 2px; }
+  .org-addr { font-size: 8px; color: #6B7280; margin-top: 1px; }
+  .report-info { text-align: right; }
+  .report-title { font-size: 13px; font-weight: 700; color: #1E3A8A; }
+  .report-meta { font-size: 8px; color: #6B7280; margin-top: 2px; }
+  .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }
+`;
+
+/* ── PDF TYPE 1: Individual Beneficiary Profile (A4 Portrait) ── */
+function pdfIndividual(b) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const prog = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>TAPASVI — ${b.name} Profile</title>
+    <style>
+      @page { size: A4 portrait; margin: 12mm 15mm; }
+      ${SHARED_CSS}
+      .profile-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+      .section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #1E3A8A; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; margin-bottom: 10px; }
+      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+      .field-item { }
+      .field-label { font-size: 7.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+      .field-value { font-size: 10px; font-weight: 600; color: #111827; border-bottom: 1px solid #F3F4F6; padding-bottom: 3px; min-height: 16px; }
+      .reg-id { font-family: monospace; font-size: 14px; font-weight: 900; color: #1E3A8A; background: #EFF6FF; padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; }
+      .program-badge { display: inline-block; background: #DCFCE7; color: #16A34A; font-size: 9px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px; }
+      .photo-placeholder { width: 80px; height: 100px; border: 2px dashed #D1D5DB; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9CA3AF; text-align: center; flex-shrink: 0; }
+      .top-row { display: flex; gap: 16px; align-items: flex-start; }
+      .top-info { flex: 1; }
+      .sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 16px; }
+      .sign-box { border-top: 1px solid #374151; padding-top: 4px; font-size: 8px; color: #374151; text-align: center; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style>
+  </head><body>
+    ${LETTERHEAD_HTML("Beneficiary Profile", "Registration ID: " + (b.beneficiary_id || "—"))}
+
+    <div class="profile-card">
+      <div class="top-row">
+        <div class="top-info">
+          <div class="reg-id">${b.beneficiary_id || "—"}
+            <span class="program-badge">${prog[b.program] || b.program || "—"}</span>
+          </div>
+          <div class="field-grid">
+            <div class="field-item">
+              <div class="field-label">Registration Date</div>
+              <div class="field-value">${b.registration_date || b.survey_date || "—"}</div>
+            </div>
+            <div class="field-item">
+              <div class="field-label">Status</div>
+              <div class="field-value">${b.status || "Registered"}</div>
+            </div>
+          </div>
+        </div>
+        <div class="photo-placeholder">Photo<br/>Here</div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Personal Information</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Full Name</div><div class="field-value">${b.name || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Gender</div><div class="field-value">${b.gender || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Age</div><div class="field-value">${b.age ? b.age + " years" : "—"}</div></div>
+        <div class="field-item"><div class="field-label">Mobile Number</div><div class="field-value">${b.phone || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Aadhaar Number</div><div class="field-value">${b.aadhaar_number ? "XXXX XXXX " + String(b.aadhaar_number).slice(-4) : "—"}</div></div>
+        <div class="field-item"><div class="field-label">Education</div><div class="field-value">${b.education || "—"}</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Address</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Village</div><div class="field-value">${b.village || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Mandal</div><div class="field-value">${b.mandal || "—"}</div></div>
+        <div class="field-item"><div class="field-label">District</div><div class="field-value">${b.district || "—"}</div></div>
+        <div class="field-item"><div class="field-label">State</div><div class="field-value">${b.state || "Andhra Pradesh"}</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Social Information</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Category</div><div class="field-value">${b.category || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Disability</div><div class="field-value">${b.disability || "No"}</div></div>
+        <div class="field-item"><div class="field-label">SHG Member</div><div class="field-value">${b.shg || "No"}</div></div>
+        <div class="field-item"><div class="field-label">Field Worker</div><div class="field-value">${b.field_worker_name || "—"}</div></div>
+      </div>
+      ${b.notes ? '<div style="margin-top:8px"><div class="field-label">Notes</div><div style="font-size:9px;color:#374151;margin-top:3px;padding:6px;background:#F9FAFB;border-radius:4px;">' + b.notes + '</div></div>' : ""}
+    </div>
+
+    <div class="sign-section">
+      <div class="sign-box">Field Worker Signature</div>
+      <div class="sign-box">Beneficiary Signature / Thumb</div>
+      <div class="sign-box">Authorized Signatory</div>
+    </div>
+
+    <div class="footer">
+      <span>TAPASVI Society — Confidential | For Official Use Only</span>
+      <span>Printed: ${new Date().toLocaleDateString("en-IN")}</span>
+    </div>
+  </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+/* ── PDF TYPE 2: All Beneficiaries List (A4 Landscape) ── */
+function printTable(rows, title, cols) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>TAPASVI — ${title}</title>
+    <style>
+      @page { size: A4 landscape; margin: 10mm 12mm; }
+      ${SHARED_CSS}
+      .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      thead tr { background: #1E3A8A; }
+      thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }
+      tbody tr:nth-child(even) { background: #F8FAFF; }
+      tbody tr:nth-child(odd) { background: #FFFFFF; }
+      tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
+      tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
+      .status-registered { color: #1E3A8A; font-weight: 700; }
+      .status-training { color: #D97706; font-weight: 700; }
+      .status-completed { color: #16A34A; font-weight: 700; }
+      .status-dropped { color: #DC2626; font-weight: 700; }
+      @media print {
+        thead { display: table-header-group; }
+        tbody tr { page-break-inside: avoid; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+    </style>
+  </head><body>
+    ${LETTERHEAD_HTML(title, "Total Records: " + rows.length)}
+    <div class="summary">
+      <span>📋 Total: ${rows.length}</span>
+      ${rows.some(r => r["Status"]) ? '<span>Completed: ' + rows.filter(r => r["Status"] === "Completed").length + '</span> <span>Training: ' + rows.filter(r => r["Status"] === "Training").length + '</span> <span>Registered: ' + rows.filter(r => r["Status"] === "Registered").length + '</span> <span>Dropped: ' + rows.filter(r => r["Status"] === "Dropped").length + '</span>' : ""}
+      ${rows.some(r => r["Gender"]) ? '<span>Women: ' + rows.filter(r => r["Gender"] === "Female").length + '</span> <span>Men: ' + rows.filter(r => r["Gender"] === "Male").length + '</span>' : ""}
+    </div>
+    <table>
+      <thead><tr>${headers.map(h => "<th>" + h + "</th>").join("")}</tr></thead>
+      <tbody>
+        ${rows.map(r => "<tr>" + headers.map(h => {
+          const val = r[h] ?? "";
+          const cls = h === "Status" ? "status-" + String(val).toLowerCase() : "";
+          return '<td class="' + cls + '">' + val + '</td>';
+        }).join("") + "</tr>").join("")}
+      </tbody>
+    </table>
+    <div class="footer">
+      <span>TAPASVI Database Management System — Confidential | For Official Use Only</span>
+      <span>Printed: ${new Date().toLocaleDateString("en-IN")}</span>
+    </div>
+  </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 600);
+}
   const w = window.open("", "_blank");
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
@@ -76,8 +260,9 @@ function printTable(rows, title, cols, meta = {}) {
     .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }
     .logo-circle { width: 48px; height: 48px; background: transparent; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .logo-circle svg { width: 36px; height: 36px; }
-    .org-name { font-size: 12.5px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 0.3px; max-width: 380px; line-height: 1.25; }
-    .org-address { font-size: 7.5px; color: #666; margin-top: 2px; }
+    .org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; letter-spacing: 1px; }
+    .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
+    .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
     .header-right { margin-left: auto; text-align: right; }
     .report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }
     .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
@@ -104,11 +289,10 @@ function printTable(rows, title, cols, meta = {}) {
     /* FOOTER */
     .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
 
-    /* PAGE BREAK + PAGE NUMBERS */
+    /* PAGE BREAK */
     @media print {
       thead { display: table-header-group; }
       tbody tr { page-break-inside: avoid; }
-      @page { @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 7.5px; color: #999; } }
     }
   </style></head><body>
 
@@ -118,15 +302,13 @@ function printTable(rows, title, cols, meta = {}) {
         <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI Logo" style="width:56px;height:56px;object-fit:contain;"/>
       </div>
       <div>
-        <div class="org-name">TAPASVI Society for Rural Development, Social Issues &amp; Health Organization</div>
+        <div class="org-name">TAPASVI SOCIETY</div>
+        <div class="org-sub">For Rural Development, Social Issues and Health Organization</div>
         <div class="org-address">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
       </div>
       <div class="header-right">
         <div class="report-title">${title}</div>
-        ${meta.programName ? `<div class="report-meta">Program: ${meta.programName}</div>` : ""}
-        ${meta.fieldWorkerName ? `<div class="report-meta">Field Worker: ${meta.fieldWorkerName}</div>` : ""}
         <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
-        ${meta.generatedBy ? `<div class="report-meta">Generated By: ${meta.generatedBy}</div>` : ""}
         <div class="report-meta">Total Records: ${rows.length}</div>
       </div>
     </div>
@@ -134,36 +316,24 @@ function printTable(rows, title, cols, meta = {}) {
     <!-- SUMMARY -->
     <div class="summary">
       <span>📋 Total: ${rows.length}</span>
-      ${rows.some(r => r["Status"]) ? `
-        <span>✅ Completed: ${rows.filter(r => r["Status"] === "Completed").length}</span>
-        <span>📚 Training: ${rows.filter(r => r["Status"] === "Training").length}</span>
-        <span>🆕 Registered: ${rows.filter(r => r["Status"] === "Registered").length}</span>
-        <span>❌ Dropped: ${rows.filter(r => r["Status"] === "Dropped").length}</span>
-      ` : ""}
-      ${rows.some(r => r["Gender"]) ? `
-        <span>👩 Women: ${rows.filter(r => r["Gender"] === "Female").length}</span>
-        <span>👨 Men: ${rows.filter(r => r["Gender"] === "Male").length}</span>
-      ` : ""}
+      ${rows.some(r => r["Status"]) ? '<span>Completed: ' + rows.filter(r => r["Status"] === "Completed").length + '</span> <span>Training: ' + rows.filter(r => r["Status"] === "Training").length + '</span> <span>Registered: ' + rows.filter(r => r["Status"] === "Registered").length + '</span> <span>Dropped: ' + rows.filter(r => r["Status"] === "Dropped").length + '</span>' : ""}
+      ${rows.some(r => r["Gender"]) ? '<span>Women: ' + rows.filter(r => r["Gender"] === "Female").length + '</span> <span>Men: ' + rows.filter(r => r["Gender"] === "Male").length + '</span>' : ""}
     </div>
 
     <!-- TABLE -->
     <table>
       <thead>
-        <tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>
+        <tr>${headers.map(h => "<th>" + h + "</th>").join("")}</tr>
       </thead>
       <tbody>
-        ${rows.map((r, i) => `
-          <tr>
-            ${headers.map(h => {
-              const val = r[h] ?? "";
-              let cls = "";
-              if (h === "Status") {
-                cls = `status-${String(val).toLowerCase()}`;
-              }
-              return `<td class="${cls}">${val}</td>`;
-            }).join("")}
-          </tr>
-        `).join("")}
+        ${rows.map((r, i) => {
+          return "<tr>" + headers.map(h => {
+            const val = r[h] ?? "";
+            let cls = "";
+            if (h === "Status") { cls = "status-" + String(val).toLowerCase(); }
+            return '<td class="' + cls + '">' + val + '</td>';
+          }).join("") + "</tr>";
+        }).join("")}
       </tbody>
     </table>
 
@@ -305,11 +475,10 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
       <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6 px-2">
-          <Logo size={90} />
-          <h1 className="mt-3 text-[15px] sm:text-[17px] font-bold text-[#16A34A] text-center leading-snug max-w-[360px] break-words">
-            TAPASVI Society for Rural Development, Social Issues &amp; Health Organization
-          </h1>
+        <div className="flex flex-col items-center mb-6">
+          <Logo size={60} />
+          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
+          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
         </div>
         <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
           <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
@@ -355,11 +524,9 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     age: "",
     aadhaar_number: "",
     phone: "",
-    house_no: "",
     state: "Andhra Pradesh",
     education: "",
     village: "",
-    gram_panchayat: "",
     mandal: "",
     district: "Tirupati",
     category: "BC",
@@ -384,7 +551,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
       const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
       if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
     }
-    if (!form.aadhaar_number || !/^\d{12}$/.test(form.aadhaar_number)) e.aadhaar_number = "Aadhaar number is required and must be exactly 12 digits";
+    if (form.aadhaar && !/^\d{12}$/.test(form.aadhaar)) e.aadhaar = "Must be exactly 12 digits";
     if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
@@ -446,8 +613,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* SYSTEM INFORMATION */}
           <SectionHeader title="System Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint={editing ? undefined : "Auto-generated"}>
-              <Input value={editing?.beneficiary_id || nextId(beneficiaries, p.idPrefix)} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            <Field label="Registration ID" hint="Auto-generated after save">
+              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
             </Field>
             <Field label="Registration Date">
               <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
@@ -483,10 +650,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                 inputMode="numeric"
               />
             </Field>
-            <Field label="Aadhaar Number" required error={errors.aadhaar_number} hint="12-digit Aadhaar number">
+            <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
               <Input
-                value={form.aadhaar_number}
-                onChange={e => setForm(f => ({ ...f, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                value={form.aadhaar}
+                onChange={e => setForm(f => ({ ...f, aadhaar: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
                 placeholder="Enter 12-digit Aadhaar"
                 inputMode="numeric"
               />
@@ -513,14 +680,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* ADDRESS */}
           <SectionHeader title="Address" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="House No">
-              <Input value={form.house_no} onChange={set("house_no")} placeholder="House / door number" />
-            </Field>
             <Field label="Village" required error={errors.village}>
               <Input value={form.village} onChange={set("village")} placeholder="Village name" />
-            </Field>
-            <Field label="Gram Panchayat">
-              <Input value={form.gram_panchayat} onChange={set("gram_panchayat")} placeholder="Gram Panchayat name" />
             </Field>
             <Field label="Mandal" required error={errors.mandal}>
               <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
@@ -892,7 +1053,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
-      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q) || b.aadhaar_number?.includes(q) || b.gram_panchayat?.toLowerCase().includes(q));
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [beneficiaries, query, programFilter, statusFilter]);
@@ -909,8 +1070,8 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
             <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
               <FileSpreadsheet size={13} /> Export CSV
             </button>
-            <button onClick={() => onPrint(filtered, programFilter !== "all" ? PROGRAM_MAP[programFilter]?.label : null)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
-              <Printer size={13} /> Print
+            <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
+              <Printer size={13} /> List PDF
             </button>
           </div>
         )}
@@ -919,7 +1080,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village, Aadhaar..." className={inputCls + " pl-9 text-[12.5px]"} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
@@ -958,19 +1119,26 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <span>•</span>
                       <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
                       <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{[b.house_no, b.village, b.gram_panchayat, b.mandal].filter(Boolean).join(", ")}</span>
+                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
                       <span>•</span>
                       <span>📞 {b.phone}</span>
-                      {b.aadhaar_number && <><span>•</span><span>🆔 {b.aadhaar_number}</span></>}
                       {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
                     </div>
                   </div>
-                  {isAdmin && (
-                    <div className="flex gap-1 shrink-0">
+                  <div className="flex gap-1 shrink-0">
+                    {isAdmin && (
+                      <button onClick={() => pdfIndividual(b)} title="Download PDF Profile"
+                        className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
+                        <Download size={14} />
+                      </button>
+                    )}
+                    {isAdmin && (
                       <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                    )}
+                    {isAdmin && (
                       <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1171,6 +1339,456 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
 }
 
 /* ============================================================
+   USER MANAGEMENT MODULE — Admin Only
+   ============================================================ */
+function UserManagement({ currentUser, showToast }) {
+  const [users, setUsers] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subView, setSubView] = useState("list"); // list | form | audit
+  const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("app_users").select("*").order("created_at", { ascending: false });
+    if (!error) setUsers(data || []);
+    setLoading(false);
+  }, []);
+
+  const loadAuditLogs = useCallback(async () => {
+    const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100);
+    setAuditLogs(data || []);
+  }, []);
+
+  useEffect(() => { loadUsers(); loadAuditLogs(); }, [loadUsers, loadAuditLogs]);
+
+  const logAudit = async (action, details) => {
+    await supabase.from("audit_logs").insert({
+      user_email: currentUser.username,
+      action, module: "User Management", details,
+      created_at: new Date().toISOString()
+    });
+  };
+
+  const saveUser = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("app_users").update(form).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setUsers(us => us.map(u => u.id === editing.id ? { ...u, ...form } : u));
+      await logAudit("UPDATE", `Updated user: ${form.full_name} (${form.email})`);
+      showToast("User updated successfully.");
+    } else {
+      const rec = { ...form, created_by: currentUser.username, created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("app_users").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setUsers(us => [data, ...us]);
+      await logAudit("CREATE", `Created user: ${form.full_name} (${form.email})`);
+      showToast("User created successfully.");
+    }
+    await loadAuditLogs();
+    setEditing(null); setSubView("list");
+  };
+
+  const deleteUser = async (u) => {
+    const { error } = await supabase.from("app_users").delete().eq("id", u.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setUsers(us => us.filter(x => x.id !== u.id));
+    await logAudit("DELETE", `Deleted user: ${u.full_name} (${u.email})`);
+    showToast("User deleted."); setDeleteTarget(null);
+  };
+
+  const toggleStatus = async (u) => {
+    const newStatus = u.status === "active" ? "inactive" : "active";
+    const { error } = await supabase.from("app_users").update({ status: newStatus }).eq("id", u.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setUsers(us => us.map(x => x.id === u.id ? { ...x, status: newStatus } : x));
+    await logAudit("STATUS", `${newStatus === "active" ? "Activated" : "Deactivated"} user: ${u.full_name}`);
+    await loadAuditLogs();
+    showToast(`User ${newStatus === "active" ? "activated" : "deactivated"}.`);
+  };
+
+  const exportUsersCSV = () => {
+    const rows = filtered.map(u => ({
+      "Full Name": u.full_name, "Email": u.email, "Role": u.role,
+      "Phone": u.phone || "—", "Program": u.program || "—",
+      "Village": u.village || "—", "Status": u.status,
+      "Created At": new Date(u.created_at).toLocaleDateString("en-IN"),
+    }));
+    downloadCSV(rows, `TAPASVI_Users_${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  const printUsersPDF = () => {
+    printTable(filtered.map(u => ({
+      "Name": u.full_name, "Email": u.email, "Role": u.role,
+      "Phone": u.phone || "—", "Program": u.program || "—",
+      "Status": u.status,
+      "Created": new Date(u.created_at).toLocaleDateString("en-IN"),
+    })), "User Management Report");
+  };
+
+  const filtered = useMemo(() => {
+    let r = users;
+    if (roleFilter !== "all") r = r.filter(u => u.role === roleFilter);
+    if (statusFilter !== "all") r = r.filter(u => u.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(u => u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phone?.includes(q) || u.village?.toLowerCase().includes(q));
+    }
+    return r;
+  }, [users, query, roleFilter, statusFilter]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * PER_PAGE;
+    return filtered.slice(start, start + PER_PAGE);
+  }, [filtered, page]);
+
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+
+  const roleColor = { admin: "#1E3A8A", fieldworker: "#16A34A" };
+  const roleLabel = { admin: "Admin", fieldworker: "Field Worker" };
+
+  // ── USER FORM ──────────────────────────────────────────────
+  if (subView === "form") {
+    const blank = { full_name: "", email: "", role: "fieldworker", phone: "", program: "", village: "", status: "active" };
+    return <UserForm editing={editing} blank={blank} onSave={saveUser} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+
+  // ── AUDIT LOG VIEW ─────────────────────────────────────────
+  if (subView === "audit") {
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-5">
+          <button onClick={() => setSubView("list")} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+          <div>
+            <h2 className="text-[18px] font-bold text-[#111827]">Audit Logs</h2>
+            <p className="text-[12px] text-[#6B7280]">{auditLogs.length} entries</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr style={{ background: "#1E3A8A" }}>
+                <th className="text-left px-4 py-3 text-white font-semibold">Date & Time</th>
+                <th className="text-left px-4 py-3 text-white font-semibold">Action</th>
+                <th className="text-left px-4 py-3 text-white font-semibold">By</th>
+                <th className="text-left px-4 py-3 text-white font-semibold">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.map((log, i) => (
+                <tr key={log.id} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFF]"}>
+                  <td className="px-4 py-3 text-[#6B7280] whitespace-nowrap">{new Date(log.created_at).toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                      style={{
+                        background: log.action === "CREATE" ? "#DCFCE7" : log.action === "DELETE" ? "#FEE2E2" : log.action === "STATUS" ? "#FFF7ED" : "#EFF6FF",
+                        color: log.action === "CREATE" ? "#16A34A" : log.action === "DELETE" ? "#DC2626" : log.action === "STATUS" ? "#F97316" : "#1E3A8A"
+                      }}>{log.action}</span>
+                  </td>
+                  <td className="px-4 py-3 text-[#374151] font-medium">{log.user_email}</td>
+                  <td className="px-4 py-3 text-[#6B7280]">{log.details}</td>
+                </tr>
+              ))}
+              {auditLogs.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-12 text-center text-[#9CA3AF]">No audit logs yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ── USER LIST ──────────────────────────────────────────────
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">User Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} users · Admin only</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setSubView("audit")}
+            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+            <Clock size={13} /> Audit Logs
+          </button>
+          <button onClick={exportUsersCSV}
+            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+            <FileSpreadsheet size={13} /> CSV
+          </button>
+          <button onClick={printUsersPDF}
+            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+            <Printer size={13} /> PDF
+          </button>
+          <button onClick={() => { setEditing(null); setSubView("form"); }}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold"
+            style={{ background: "#1E3A8A", color: "#fff" }}>
+            <Plus size={14} /> Add User
+          </button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          { label: "Total Users", value: users.length, color: "#1E3A8A", tint: "#EFF6FF" },
+          { label: "Active", value: users.filter(u => u.status === "active").length, color: "#16A34A", tint: "#DCFCE7" },
+          { label: "Admins", value: users.filter(u => u.role === "admin").length, color: "#F97316", tint: "#FFF7ED" },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: s.tint }}>
+              <Users size={16} style={{ color: s.color }} />
+            </div>
+            <div>
+              <p className="text-[18px] font-bold text-[#111827]">{s.value}</p>
+              <p className="text-[11px] text-[#6B7280]">{s.label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}
+            placeholder="Search name, email, phone, village..."
+            className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Roles</option>
+          <option value="admin">Admin</option>
+          <option value="fieldworker">Field Worker</option>
+        </select>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <button onClick={() => { setQuery(""); setRoleFilter("all"); setStatusFilter("all"); setPage(1); }}
+          className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#6B7280] hover:bg-[#F3F4F6]">
+          <RefreshCw size={13} /> Reset
+        </button>
+      </div>
+
+      {/* User Cards */}
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading users...</p>
+        </div>
+      ) : paginated.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Users size={30} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No users found.</p>
+          <button onClick={() => { setEditing(null); setSubView("form"); }}
+            className="mt-3 rounded-xl px-4 py-2 text-[12px] font-bold text-white"
+            style={{ background: "#1E3A8A" }}>Add First User</button>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {paginated.map(u => (
+            <div key={u.id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition">
+              <div className="flex items-center gap-3 px-4 py-3.5"
+                style={{ borderLeft: `4px solid ${u.status === "active" ? (roleColor[u.role] || "#1E3A8A") : "#D1D5DB"}` }}>
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
+                  style={{ background: u.status === "active" ? (roleColor[u.role] || "#1E3A8A") : "#9CA3AF" }}>
+                  {u.full_name?.charAt(0)?.toUpperCase() || "?"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-[13.5px] text-[#111827]">{u.full_name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
+                      style={{ background: (roleColor[u.role] || "#1E3A8A") + "18", color: roleColor[u.role] || "#1E3A8A" }}>
+                      {roleLabel[u.role] || u.role}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
+                      style={{ background: u.status === "active" ? "#DCFCE7" : "#F3F4F6", color: u.status === "active" ? "#16A34A" : "#6B7280" }}>
+                      {u.status === "active" ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
+                    <span>✉ {u.email}</span>
+                    {u.phone && <><span>•</span><span>📞 {u.phone}</span></>}
+                    {u.program && <><span>•</span><span>📋 {PROGRAM_MAP[u.program]?.short || u.program}</span></>}
+                    {u.village && <><span>•</span><span><MapPin size={10} className="inline" /> {u.village}</span></>}
+                    <span>•</span>
+                    <span>📅 {new Date(u.created_at).toLocaleDateString("en-IN")}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => toggleStatus(u)} title={u.status === "active" ? "Deactivate" : "Activate"}
+                    className="p-2 rounded-lg hover:bg-[#F3F4F6]">
+                    {u.status === "active"
+                      ? <CheckCircle size={15} className="text-[#16A34A]" />
+                      : <XCircle size={15} className="text-[#9CA3AF]" />}
+                  </button>
+                  <button onClick={() => { setEditing(u); setSubView("form"); }}
+                    className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                  <button onClick={() => setDeleteTarget(u)}
+                    className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-5">
+          <p className="text-[12px] text-[#6B7280]">
+            Showing {Math.min((page-1)*PER_PAGE+1, filtered.length)}–{Math.min(page*PER_PAGE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+              className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40 hover:bg-[#F3F4F6]">← Prev</button>
+            {Array.from({ length: totalPages }, (_, i) => i+1).map(p => (
+              <button key={p} onClick={() => setPage(p)}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-medium border"
+                style={page === p ? { background: "#1E3A8A", color: "#fff", borderColor: "#1E3A8A" } : { borderColor: "#E5E7EB" }}>
+                {p}
+              </button>
+            ))}
+            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40 hover:bg-[#F3F4F6]">Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <Trash2 size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Delete User?</p>
+                <p className="text-[12px] text-[#6B7280]">{deleteTarget.full_name}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">This action cannot be undone. The user will be permanently removed.</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteUser(deleteTarget)}
+                className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)}
+                className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── USER FORM COMPONENT ──────────────────────────────────── */
+function UserForm({ editing, blank, onSave, onCancel }) {
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.full_name.trim()) e.full_name = "Required";
+    if (!form.email.trim()) e.email = "Required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email format";
+    if (form.phone && !/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
+
+  return (
+    <div className="max-w-[620px] mx-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+        <div>
+          <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit User" : "Add New User"}</h2>
+          <p className="text-[12px] text-[#6B7280]">User Management · Admin only</p>
+        </div>
+      </div>
+
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
+        <div className="p-5">
+          <SectionHeader title="Account Information" color="#1E3A8A" />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Full Name" required error={errors.full_name}>
+              <Input value={form.full_name} onChange={set("full_name")} placeholder="Enter full name" />
+            </Field>
+            <Field label="Email Address" required error={errors.email}>
+              <Input type="email" value={form.email} onChange={set("email")} placeholder="user@tapasvi.org" inputMode="email"
+                readOnly={!!editing} className={editing ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
+            </Field>
+            <Field label="Role" required>
+              <Select value={form.role} onChange={set("role")} options={[
+                { value: "admin", label: "Admin" },
+                { value: "fieldworker", label: "Field Worker" },
+              ]} />
+            </Field>
+            <Field label="Status">
+              <Select value={form.status} onChange={set("status")} options={[
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+              ]} />
+            </Field>
+          </div>
+
+          <SectionHeader title="Contact & Assignment" color="#1E3A8A" />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Phone Number" error={errors.phone}>
+              <Input value={form.phone || ""} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0,10) }))}
+                placeholder="10-digit mobile" inputMode="numeric" />
+            </Field>
+            <Field label="Assigned Program">
+              <Select value={form.program || ""} onChange={set("program")} options={[
+                { value: "", label: "All Programs" },
+                ...PROGRAMS.map(p => ({ value: p.key, label: p.short }))
+              ]} />
+            </Field>
+            <Field label="Assigned Village">
+              <Input value={form.village || ""} onChange={set("village")} placeholder="Village name (optional)" />
+            </Field>
+          </div>
+
+          {!editing && (
+            <div className="bg-[#EFF6FF] rounded-xl p-4 mt-2">
+              <p className="text-[12px] font-semibold text-[#1E3A8A] mb-1">ℹ Password Note</p>
+              <p className="text-[11.5px] text-[#374151]">
+                Default passwords: <strong>Admin → admin123</strong> | <strong>Field Worker → tapasvi</strong>
+              </p>
+              <p className="text-[11px] text-[#6B7280] mt-1">Ask the user to change their password after first login.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
+          <button type="submit" onClick={submit}
+            className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white"
+            style={{ background: "#1E3A8A" }}>
+            {editing ? "Update User" : "Create User"}
+          </button>
+          <button type="button" onClick={onCancel}
+            className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ============================================================
    MAIN APP
    ============================================================ */
 export default function App() {
@@ -1308,46 +1926,45 @@ export default function App() {
 
   // ---- EXPORTS ----
   const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
-    "Registration ID": b.beneficiary_id, "Program Name": PROGRAM_MAP[b.program]?.label || b.program, Name: b.name, Age: b.age, Gender: b.gender,
-    "Aadhaar Number": b.aadhaar_number, Phone: b.phone,
-    Education: b.education, Status: b.status,
-    "House No": b.house_no, Village: b.village, "Gram Panchayat": b.gram_panchayat, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
+    "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
+    Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
+    Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
+    Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
 
-  const printBeneficiaries = (rows, programName) => printTable(rows.map(b => ({
-    "Registration ID": b.beneficiary_id,
+  const printBeneficiaries = (rows) => printTable(rows.map(b => ({
+    "ID": b.beneficiary_id,
     "Name": b.name,
-    "Program Name": PROGRAM_MAP[b.program]?.label || b.program,
+    "Program": PROGRAM_MAP[b.program]?.short || b.program,
     "Age": b.age,
     "Gender": b.gender,
-    "Aadhaar Number": b.aadhaar_number || "—",
     "Phone": b.phone,
     "Education": b.education || "—",
+    "Skill": b.skill_interest || "—",
     "Status": b.status || "Registered",
-    "House No": b.house_no || "—",
     "Village": b.village || "—",
-    "Gram Panchayat": b.gram_panchayat || "—",
     "Mandal": b.mandal || "—",
     "District": b.district || "—",
-    "State": b.state || "Andhra Pradesh",
     "Category": b.category || "—",
+    "Aadhaar ✓": b.aadhaar_verified || "No",
+    "eKYC": b.ekyc_status || "No",
     "Field Worker": b.field_worker_name || "—",
     "Survey Date": b.survey_date || "—",
-  })), programName ? `Beneficiary Report — ${programName}` : "Beneficiary Report — All Programs", null, { generatedBy: user?.username, programName });
+  })), "Beneficiary Report — All Programs");
 
   const exportTraining = (rows) => downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`);
   const printTraining = (rows) => printTable(rows.map(t => ({
     "Training ID": t.training_id, "Beneficiary ID": t.beneficiary_id, "Course": t.course_name,
     "Trainer": t.trainer_name, "Center": t.center, "Start": t.start_date, "End": t.end_date,
     "Attendance %": t.attendance_pct, "Certificate": t.certificate_issued,
-  })), "Training Report", null, { generatedBy: user?.username });
+  })), "Training Report");
 
   const exportEmployment = (rows) => downloadCSV(rows, `TAPASVI_Employment_${new Date().toISOString().slice(0, 10)}.csv`);
   const printEmployment = (rows) => printTable(rows.map(e => ({
     "Job ID": e.job_id, "Beneficiary ID": e.beneficiary_id, "Type": e.employment_type,
     "Role": e.job_role, "Employer": e.employer, "Income": e.monthly_income, "Status": e.status,
-  })), "Employment Report", null, { generatedBy: user?.username });
+  })), "Employment Report");
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
@@ -1376,6 +1993,7 @@ export default function App() {
     { key: "training", label: "Training", icon: BookOpen },
     { key: "employment", label: "Employment", icon: Briefcase },
     ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
+    ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
   ];
 
   const goTo = (v) => { setView(v); setSubView(null); setEditing(null); };
@@ -1477,6 +2095,9 @@ export default function App() {
               onAdd={() => { setEditing(null); setSubView("village-form"); }}
               onEdit={v => { setEditing(v); setSubView("village-form"); }}
               onDelete={v => setDeleteTarget({ type: "village", record: v })} />
+          )}
+          {!subView && view === "users" && isAdmin && (
+            <UserManagement currentUser={user} showToast={showToast} />
           )}
         </div>
       </main>
