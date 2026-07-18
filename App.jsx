@@ -3,9 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
-  ChevronRight, X, Check, Globe, MapPin, BarChart3, FileSpreadsheet,
-  AlertCircle, Filter, BookOpen, Briefcase, Calendar, TrendingUp,
-  CheckCircle, XCircle, Clock, Award, Home, Settings, ChevronDown, RefreshCw
+  ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
+  AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
+  CheckCircle, XCircle, Clock, Award, RefreshCw
 } from "lucide-react";
 
 /* ============================================================
@@ -63,9 +63,7 @@ function downloadCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-/* ── LETTERHEAD HTML shared by both PDF types ── */
-
-/* ── PDF TYPE 1: Individual Beneficiary Profile (A4 Portrait) ── */
+/* ── PDF: Individual Profile ── */
 function pdfIndividual(b) {
   var w = window.open("", "_blank");
   if (!w) return;
@@ -1457,14 +1455,35 @@ function UserForm({ editing, blank, onSave, onCancel }) {
 /* ============================================================
    MAIN APP
    ============================================================ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, fontFamily: "Arial", color: "#111" }}>
+          <h2 style={{ color: "#DC2626" }}>App Error</h2>
+          <pre style={{ background: "#FEF2F2", padding: 16, borderRadius: 8, fontSize: 12, whiteSpace: "pre-wrap" }}>
+            {this.state.error.toString()}
+          </pre>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 16, padding: "8px 16px", background: "#1E3A8A", color: "white", border: "none", borderRadius: 8, cursor: "pointer" }}>
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [subView, setSubView] = useState(null); // "beneficiary-form" | "training-form" | "employment-form" | "village-form"
+  const [subView, setSubView] = useState(null);
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
   // Data state
