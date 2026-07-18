@@ -410,10 +410,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                 inputMode="numeric"
               />
             </Field>
-            <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
+            <Field label="Aadhaar Number" error={errors.aadhaar_number} hint="12-digit Aadhaar number">
               <Input
-                value={form.aadhaar}
-                onChange={e => setForm(f => ({ ...f, aadhaar: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                value={form.aadhaar_number}
+                onChange={e => setForm(f => ({ ...f, aadhaar_number e.target.value.replace(/\D/g, "").slice(0, 12) }))}
                 placeholder="Enter 12-digit Aadhaar"
                 inputMode="numeric"
               />
