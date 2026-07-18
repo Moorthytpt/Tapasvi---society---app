@@ -1,3 +1,7 @@
+/* ============================================================
+   TAPASVI NGO Management System — DMS v2.1
+   Training Module integrated
+   ============================================================ */
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -844,8 +848,15 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                     </div>
                     <div className="mt-1 text-[11.5px] text-[#6B7280] space-y-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-[11px] text-[#1E3A8A]">{b.beneficiary_id}</span>
+                        <span className="font-mono text-[11px] text-[#1E3A8A] font-bold">{b.beneficiary_id}</span>
                         {b.age && <span>{b.age} yrs{b.gender ? `, ${b.gender}` : ""}</span>}
+                        {(b.identity_number || b.aadhaar_number) && (
+                          <span className="text-[10.5px] bg-[#F3F4F6] px-1.5 py-0.5 rounded font-mono">
+                            {isAdmin
+                              ? (b.identity_number || b.aadhaar_number)
+                              : "XXXX " + String(b.identity_number || b.aadhaar_number).slice(-4)}
+                          </span>
+                        )}
                       </div>
                       {(b.village || b.mandal) && (
                         <div className="flex items-center gap-1">
@@ -906,72 +917,547 @@ const statusColors = { Registered: "#1E3A8A", Training: "#F97316", Completed: "#
 /* ============================================================
    TRAINING LIST
    ============================================================ */
-function TrainingList({ training, beneficiaries, isAdmin, onAdd, onEdit, onDelete, onExport, onPrint }) {
-  const [query, setQuery] = useState("");
-  const filtered = useMemo(() => {
-    if (!query.trim()) return training;
-    const q = query.toLowerCase();
-    return training.filter(t => t.beneficiary_id?.toLowerCase().includes(q) || t.course_name?.toLowerCase().includes(q) || t.trainer_name?.toLowerCase().includes(q) || t.center?.toLowerCase().includes(q));
-  }, [training, query]);
+/* ============================================================
+   TRAINING MODULE — TAPASVI DMS
+   Complete Training Management System
+   ============================================================ */
 
-  const getBeneficiaryName = id => beneficiaries.find(b => b.beneficiary_id === id)?.name || "—";
+const TRAINING_TYPES = ["Skill Development","Awareness","Vocational","Technical","Livelihood","Health","Other"];
+const TRAINING_STATUS = ["Upcoming","Ongoing","Completed","Cancelled"];
+
+// Auto-generate certificate number
+function genCertNo(trainingId, beneficiaryId) {
+  const d = new Date();
+  return `CERT/${d.getFullYear()}/${String(trainingId).slice(-4)}/${String(beneficiaryId).slice(-4)}`;
+}
+
+// Training status color
+function trainingStatusColor(status) {
+  const colors = { Upcoming: "#1E3A8A", Ongoing: "#F97316", Completed: "#16A34A", Cancelled: "#DC2626" };
+  const tints  = { Upcoming: "#EFF6FF", Ongoing: "#FFF7ED", Completed: "#DCFCE7", Cancelled: "#FEF2F2" };
+  return { color: colors[status] || "#6B7280", tint: tints[status] || "#F3F4F6" };
+}
+
+/* ── TRAINING DASHBOARD STATS ──────────────────────────────── */
+function TrainingDashboard({ batches, enrollments }) {
+  const total     = batches.length;
+  const upcoming  = batches.filter(b => b.status === "Upcoming").length;
+  const ongoing   = batches.filter(b => b.status === "Ongoing").length;
+  const completed = batches.filter(b => b.status === "Completed").length;
+  const totalPart = enrollments.length;
+  const compRate  = totalPart > 0 ? Math.round((enrollments.filter(e => e.attendance_pct >= 75).length / totalPart) * 100) : 0;
+
+  const stats = [
+    { label: "Total Trainings", value: total,    color: "#1E3A8A", tint: "#EFF6FF", icon: BookOpen },
+    { label: "Upcoming",        value: upcoming,  color: "#6366F1", tint: "#EEF2FF", icon: Clock },
+    { label: "Ongoing",         value: ongoing,   color: "#F97316", tint: "#FFF7ED", icon: TrendingUp },
+    { label: "Completed",       value: completed, color: "#16A34A", tint: "#DCFCE7", icon: CheckCircle },
+    { label: "Participants",    value: totalPart, color: "#0369A1", tint: "#E0F2FE", icon: Users },
+    { label: "Completion Rate", value: compRate + "%", color: "#7C3AED", tint: "#F5F3FF", icon: Award },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+      {stats.map(s => (
+        <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-4 flex items-center gap-3" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.tint }}>
+            <s.icon size={18} style={{ color: s.color }} />
+          </div>
+          <div>
+            <p className="text-[20px] font-bold text-[#111827] leading-none">{s.value}</p>
+            <p className="text-[11px] text-[#6B7280] mt-0.5">{s.label}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── BATCH TRAINING FORM ────────────────────────────────────── */
+function BatchTrainingForm({ editing, onSave, onCancel }) {
+  const blank = {
+    training_name: "", program: "rydeap", trainer_name: "", training_type: "Skill Development",
+    venue: "", start_date: "", end_date: "", max_capacity: "", description: "", status: "Upcoming",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.training_name.trim()) e.training_name = "Required";
+    if (!form.trainer_name.trim()) e.trainer_name = "Required";
+    if (!form.venue.trim()) e.venue = "Required";
+    if (!form.start_date) e.start_date = "Required";
+    if (form.end_date && form.end_date < form.start_date) e.end_date = "End date must be after start date";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
+  const p = PROGRAM_MAP[form.program] || PROGRAMS[0];
+
+  return (
+    <div className="max-w-[720px] mx-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+        <div>
+          <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Training" : "Create Training"}</h2>
+          <p className="text-[12px] text-[#6B7280]">Training Module</p>
+        </div>
+      </div>
+      <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
+        <div className="p-5">
+          <SectionHeader title="Training Details" color="#1E3A8A" />
+          <div className="grid grid-cols-2 gap-x-4">
+            <div className="col-span-2">
+              <Field label="Training Name" required error={errors.training_name}>
+                <Input value={form.training_name} onChange={set("training_name")} placeholder="e.g. Digital Literacy Batch 1" />
+              </Field>
+            </div>
+            <Field label="Program" required>
+              <Select value={form.program} onChange={set("program")}
+                options={PROGRAMS.map(p => ({ value: p.key, label: p.short }))} />
+            </Field>
+            <Field label="Training Type">
+              <Select value={form.training_type} onChange={set("training_type")} options={TRAINING_TYPES} />
+            </Field>
+            <Field label="Trainer Name" required error={errors.trainer_name}>
+              <Input value={form.trainer_name} onChange={set("trainer_name")} placeholder="Trainer full name" />
+            </Field>
+            <Field label="Venue" required error={errors.venue}>
+              <Input value={form.venue} onChange={set("venue")} placeholder="Training center / location" />
+            </Field>
+            <Field label="Start Date" required error={errors.start_date}>
+              <input type="date" value={form.start_date} onChange={set("start_date")} className={inputCls} />
+            </Field>
+            <Field label="End Date" error={errors.end_date}>
+              <input type="date" value={form.end_date} onChange={set("end_date")} className={inputCls} />
+            </Field>
+            <Field label="Maximum Capacity">
+              <Input type="number" value={form.max_capacity} onChange={set("max_capacity")} placeholder="e.g. 30" inputMode="numeric" />
+            </Field>
+            <Field label="Status">
+              <Select value={form.status} onChange={set("status")} options={TRAINING_STATUS} />
+            </Field>
+          </div>
+          <Field label="Description / Notes">
+            <textarea value={form.description} onChange={set("description")} rows={3}
+              className={inputCls} placeholder="Training objectives, curriculum details..." />
+          </Field>
+        </div>
+        <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex gap-3">
+          <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            {editing ? "Update Training" : "Create Training"}
+          </button>
+          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ── ENROLLMENT SCREEN ──────────────────────────────────────── */
+function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose }) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(new Set());
+
+  // Only beneficiaries in this program, not already enrolled
+  const enrolledIds = new Set(enrollments.filter(e => e.batch_id === batch.batch_id).map(e => e.beneficiary_id));
+  const eligible = useMemo(() => {
+    return beneficiaries.filter(b =>
+      b.program === batch.program && !enrolledIds.has(b.beneficiary_id)
+    );
+  }, [beneficiaries, batch, enrolledIds]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return eligible;
+    const q = query.toLowerCase();
+    return eligible.filter(b =>
+      b.name?.toLowerCase().includes(q) ||
+      b.beneficiary_id?.toLowerCase().includes(q) ||
+      b.village?.toLowerCase().includes(q)
+    );
+  }, [eligible, query]);
+
+  const toggleSelect = id => {
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const selectAll = () => setSelected(new Set(filtered.map(b => b.beneficiary_id)));
+  const clearAll  = () => setSelected(new Set());
+  const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+
+  return (
+    <div className="max-w-[720px] mx-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Enroll Beneficiaries</h2>
+          <p className="text-[12px] text-[#6B7280]">{batch.training_name} · {p.short}</p>
+        </div>
+        <span className="text-[11px] text-[#6B7280]">{selected.size} selected</span>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+        <div className="p-4 border-b border-[#F3F4F6] flex gap-3">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Search name, ID, village..."
+              className={inputCls + " pl-9 text-[12.5px]"} />
+          </div>
+          <button onClick={selectAll} className="px-3 py-2 rounded-lg text-[12px] font-medium text-[#1E3A8A] border border-[#1E3A8A] hover:bg-[#EFF6FF]">All</button>
+          <button onClick={clearAll} className="px-3 py-2 rounded-lg text-[12px] font-medium text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F3F4F6]">Clear</button>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="text-center py-12 text-[#9CA3AF]">
+            <Users size={24} className="mx-auto mb-2 opacity-40" />
+            <p className="text-[13px]">{eligible.length === 0 ? "All eligible beneficiaries already enrolled." : "No matching beneficiaries."}</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#F3F4F6] max-h-[50vh] overflow-y-auto">
+            {filtered.map(b => {
+              const isChecked = selected.has(b.beneficiary_id);
+              return (
+                <label key={b.beneficiary_id}
+                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#F8FAFC] transition"
+                  style={{ background: isChecked ? "#EFF6FF" : "white" }}>
+                  <input type="checkbox" checked={isChecked}
+                    onChange={() => toggleSelect(b.beneficiary_id)}
+                    className="w-4 h-4 accent-[#1E3A8A]" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-[#111827]">{b.name}</p>
+                    <p className="text-[11px] text-[#6B7280]">
+                      {b.beneficiary_id} · {b.village || "—"} · {b.age ? `${b.age} yrs` : "—"} · {b.education || "—"}
+                    </p>
+                  </div>
+                  <Badge label={b.status || "Registered"} color="#16A34A" tint="#DCFCE7" />
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
+          <button
+            onClick={() => onEnroll([...selected])}
+            disabled={selected.size === 0}
+            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40"
+            style={{ background: "#1E3A8A" }}>
+            Enroll {selected.size > 0 ? `${selected.size} Beneficiaries` : ""}
+          </button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
+function AttendanceScreen({ batch, enrollments, onSaveAttendance, onClose }) {
+  const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id);
+  const [attendance, setAttendance] = useState(() => {
+    const init = {};
+    batchEnrollments.forEach(e => { init[e.enrollment_id] = e.attendance_status || "Present"; });
+    return init;
+  });
+
+  const statusOptions = ["Present","Absent","Late","Leave"];
+  const statusColors  = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316", Leave: "#6B7280" };
+  const statusTints   = { Present: "#DCFCE7", Absent: "#FEF2F2", Late: "#FFF7ED", Leave: "#F3F4F6" };
+
+  const presentCount = Object.values(attendance).filter(s => s === "Present" || s === "Late").length;
+  const total        = batchEnrollments.length;
+  const pct          = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+
+  return (
+    <div className="max-w-[720px] mx-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Mark Attendance</h2>
+          <p className="text-[12px] text-[#6B7280]">{batch.training_name}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[18px] font-black text-[#1E3A8A]">{pct}%</p>
+          <p className="text-[10px] text-[#6B7280]">{presentCount}/{total}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+        {batchEnrollments.length === 0 ? (
+          <div className="text-center py-12 text-[#9CA3AF]">
+            <Users size={24} className="mx-auto mb-2 opacity-40" />
+            <p className="text-[13px]">No beneficiaries enrolled yet.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#F3F4F6] max-h-[60vh] overflow-y-auto">
+            {batchEnrollments.map(e => (
+              <div key={e.enrollment_id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
+                  <p className="text-[11px] text-[#6B7280]">{e.beneficiary_id}</p>
+                </div>
+                <div className="flex gap-1">
+                  {statusOptions.map(s => (
+                    <button key={s} onClick={() => setAttendance(a => ({ ...a, [e.enrollment_id]: s }))}
+                      className="px-2 py-1 rounded-lg text-[10.5px] font-semibold transition"
+                      style={attendance[e.enrollment_id] === s
+                        ? { background: statusColors[s], color: "white" }
+                        : { background: "#F3F4F6", color: "#6B7280" }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
+          <button onClick={() => onSaveAttendance(attendance)}
+            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            Save Attendance
+          </button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CERTIFICATE SCREEN ─────────────────────────────────────── */
+function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose }) {
+  const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id);
+  const [certStatus, setCertStatus] = useState(() => {
+    const init = {};
+    batchEnrollments.forEach(e => { init[e.enrollment_id] = e.certificate_status || "Pending"; });
+    return init;
+  });
+
+  const eligible = batchEnrollments.filter(e => (e.attendance_pct || 0) >= 75);
+  const issued   = batchEnrollments.filter(e => e.certificate_status === "Issued").length;
+
+  return (
+    <div className="max-w-[720px] mx-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Issue Certificates</h2>
+          <p className="text-[12px] text-[#6B7280]">{batch.training_name} · {issued}/{batchEnrollments.length} issued</p>
+        </div>
+      </div>
+
+      <div className="bg-[#EFF6FF] rounded-xl border border-[#BFDBFE] p-4 mb-4">
+        <p className="text-[12px] text-[#1E3A8A] font-semibold">ℹ Eligibility: Attendance ≥ 75%</p>
+        <p className="text-[11px] text-[#374151] mt-1">{eligible.length} of {batchEnrollments.length} beneficiaries are eligible.</p>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+        <div className="divide-y divide-[#F3F4F6] max-h-[55vh] overflow-y-auto">
+          {batchEnrollments.map(e => {
+            const attPct = e.attendance_pct || 0;
+            const canIssue = attPct >= 75;
+            const current = certStatus[e.enrollment_id];
+            return (
+              <div key={e.enrollment_id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
+                  <p className="text-[11px] text-[#6B7280]">Attendance: {attPct}% {!canIssue && "· Below 75% — not eligible"}</p>
+                  {e.certificate_no && <p className="text-[10.5px] font-mono text-[#1E3A8A]">{e.certificate_no}</p>}
+                </div>
+                {canIssue ? (
+                  <select value={current}
+                    onChange={ev => setCertStatus(s => ({ ...s, [e.enrollment_id]: ev.target.value }))}
+                    className="text-[11.5px] rounded-lg border border-[#E5E7EB] px-2 py-1.5 outline-none">
+                    {["Pending","Issued","Downloaded"].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <Badge label="Not Eligible" color="#DC2626" tint="#FEF2F2" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
+          <button onClick={() => onIssueCertificates(certStatus)}
+            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>
+            Save Certificate Status
+          </button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── BATCH TRAINING LIST (replaces old TrainingList) ────────── */
+
+function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
+  onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
+  onExport, onPrint }) {
+  const [query, setQuery] = useState("");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
+
+  const filtered = useMemo(() => {
+    let r = batches || [];
+    if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
+    if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(b => b.training_name?.toLowerCase().includes(q) || b.trainer_name?.toLowerCase().includes(q) || b.venue?.toLowerCase().includes(q));
+    }
+    return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [batches, query, programFilter, statusFilter]);
+
+  const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+
+  const getEnrollCount = batchId => (enrollments || []).filter(e => e.batch_id === batchId).length;
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">Training Records</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} records</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Training Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} trainings</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#1E3A8A", color: "#fff" }}>
-            <Plus size={14} /> Add Training
-          </button>
+        <div className="flex gap-2 flex-wrap">
           {isAdmin && (
             <>
-              <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
-              <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
+              <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                <FileSpreadsheet size={13} /> CSV
+              </button>
+              <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                <Printer size={13} /> PDF
+              </button>
             </>
           )}
+          <button onClick={onAdd}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white"
+            style={{ background: "#1E3A8A" }}>
+            <Plus size={14} /> New Training
+          </button>
         </div>
       </div>
-      <div className="relative mb-4">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by beneficiary, course, trainer..." className={inputCls + " pl-9 text-[12.5px]"} />
+
+      {/* Dashboard */}
+      <TrainingDashboard batches={batches || []} enrollments={enrollments || []} />
+
+      {/* Filters */}
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}
+            placeholder="Search training, trainer, venue..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Programs</option>
+          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          {TRAINING_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
-      {filtered.length === 0 ? (
-        <div className="text-center py-12 text-[#9CA3AF]"><BookOpen size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No training records yet.</p></div>
+
+      {/* List */}
+      {paginated.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <BookOpen size={30} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No trainings found.</p>
+          <button onClick={onAdd} className="mt-3 rounded-xl px-4 py-2 text-[12px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            Create First Training
+          </button>
+        </div>
       ) : (
-        <div className="space-y-2.5">
-          {filtered.map(t => (
-            <div key={t.training_id} className="bg-white rounded-xl border border-[#E5E7EB] px-4 py-3.5 flex items-center gap-3" style={{ borderLeft: "4px solid #1E3A8A" }}>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(t.beneficiary_id)}</span>
-                  <Badge label={t.course_name} color="#1E3A8A" tint="#EFF6FF" />
-                  {t.certificate_issued === "Yes" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
-                </div>
-                <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
-                  <span className="font-mono">{t.beneficiary_id}</span>
-                  <span>•</span><span>Trainer: {t.trainer_name}</span>
-                  <span>•</span><span>Center: {t.center}</span>
-                  {t.attendance_pct && <><span>•</span><span>Attendance: {t.attendance_pct}%</span></>}
-                  {t.start_date && <><span>•</span><span>{t.start_date}{t.end_date ? ` → ${t.end_date}` : ""}</span></>}
+        <div className="space-y-3">
+          {paginated.map(batch => {
+            const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+            const sc = trainingStatusColor(batch.status);
+            const enrollCount = getEnrollCount(batch.batch_id);
+            const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
+            return (
+              <div key={batch.batch_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
+                <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
+                      <BookOpen size={18} style={{ color: p.color }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-[14px] text-[#111827]">{batch.training_name}</span>
+                        <Badge label={p.short} color={p.color} tint={p.tint} />
+                        <Badge label={batch.status} color={sc.color} tint={sc.tint} />
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11.5px] text-[#6B7280]">
+                        <span>👤 {batch.trainer_name}</span>
+                        <span>📍 {batch.venue}</span>
+                        <span>📅 {batch.start_date}{batch.end_date ? ` → ${batch.end_date}` : ""}</span>
+                        <span>👥 {capacity} participants</span>
+                        {batch.training_type && <span>📚 {batch.training_type}</span>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      {/* Action buttons */}
+                      <div className="flex gap-1">
+                        <button onClick={() => onEnroll(batch)} title="Enroll Beneficiaries"
+                          className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                          style={{ background: "#1E3A8A" }}>
+                          + Enroll
+                        </button>
+                        <button onClick={() => onAttendance(batch)} title="Mark Attendance"
+                          className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                          style={{ background: "#F97316" }}>
+                          Attend
+                        </button>
+                      </div>
+                      <div className="flex gap-1">
+                        {batch.status === "Completed" && (
+                          <button onClick={() => onCertificates(batch)} title="Issue Certificates"
+                            className="flex-1 px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#16A34A" }}>
+                            🏅 Certs
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <>
+                            <button onClick={() => onEdit(batch)} className="p-1.5 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]"><Edit2 size={13} /></button>
+                            <button onClick={() => onDelete(batch)} className="p-1.5 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={13} /></button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-              {isAdmin && (
-                <div className="flex gap-1 shrink-0">
-                  <button onClick={() => onEdit(t)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
-                  <button onClick={() => onDelete(t)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-5">
+          <p className="text-[12px] text-[#6B7280]">
+            Showing {Math.min((page-1)*PER_PAGE+1, filtered.length)}–{Math.min(page*PER_PAGE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+              className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">← Prev</button>
+            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next →</button>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
 
 /* ============================================================
    EMPLOYMENT LIST
@@ -1093,7 +1579,7 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
 /* ============================================================
    BENEFICIARY PROFILE
    ============================================================ */
-function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin }) {
+function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, enrollments }) {
   const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
 
   // Calculate profile completion
@@ -1210,7 +1696,9 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin })
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">🪪 Identity & Documents</h4>
         <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || (b.identity_type ? b.identity_type : "Aadhaar Card")} />
         <InfoRow label="Document Number" value={
-          b.identity_number
+          isAdmin
+            ? (b.identity_number || b.aadhaar_number || null)
+            : b.identity_number
             ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number)
             : b.aadhaar_number
             ? `XXXX XXXX ${String(b.aadhaar_number).slice(-4)}`
@@ -1258,6 +1746,31 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin })
           </div>
         )}
       </div>
+
+      {/* Training History */}
+      {(() => {
+        const myEnrollments = (enrollments || []).filter(e => e.beneficiary_id === b.beneficiary_id);
+        if (myEnrollments.length === 0) return null;
+        return (
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+            <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Training History</h4>
+            <div className="space-y-2.5">
+              {myEnrollments.map(e => (
+                <div key={e.enrollment_id} className="bg-[#F8FAFC] rounded-xl p-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
+                    <div className="flex gap-2">
+                      {e.attendance_pct > 0 && <Badge label={`${e.attendance_pct}% Attendance`} color="#1E3A8A" tint="#EFF6FF" />}
+                      {e.certificate_status === "Issued" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
+                    </div>
+                  </div>
+                  {e.certificate_no && <p className="text-[10.5px] font-mono text-[#6B7280] mt-1">{e.certificate_no}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Notes */}
       {b.notes && (
@@ -1807,6 +2320,10 @@ export default function App() {
   // Data state
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [training, setTraining] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [trainingSubView, setTrainingSubView] = useState(null); // null|"batch-form"|"enroll"|"attendance"|"certificates"
+  const [activeBatch, setActiveBatch] = useState(null);
   const [employment, setEmployment] = useState([]);
   const [villages, setVillages] = useState([]);
 
@@ -1817,9 +2334,11 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
-      const [b, t, e, v] = await Promise.all([
+      const [b, t, e, v, bt, te] = await Promise.all([
         supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
         supabase.from("training").select("*").order("created_at", { ascending: false }),
+        supabase.from("batch_trainings").select("*").order("created_at", { ascending: false }),
+        supabase.from("training_enrollments").select("*").order("enrolled_at", { ascending: false }),
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
@@ -1828,6 +2347,8 @@ export default function App() {
       setTraining(t.data || []);
       setEmployment(e.data || []);
       setVillages(v.data || []);
+      setBatches(bt.data || []);
+      setEnrollments(te.data || []);
     } catch (err) {
       setLoadError(err.message);
     }
@@ -1937,8 +2458,126 @@ export default function App() {
     const { error } = await supabase.from("beneficiaries_v2").delete().eq("beneficiary_id", b.beneficiary_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setBeneficiaries(bs => bs.filter(x => x.beneficiary_id !== b.beneficiary_id));
-    showToast("Deleted."); setDeleteTarget(null);
   };
+
+  // ---- BATCH TRAINING CRUD ----
+  const saveBatch = async (form) => {
+    if (activeBatch && trainingSubView === "batch-form") {
+      const { error } = await supabase.from("batch_trainings").update(form).eq("batch_id", activeBatch.batch_id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setBatches(bs => bs.map(b => b.batch_id === activeBatch.batch_id ? { ...b, ...form } : b));
+      await logTrainingAudit("Training Updated", `Updated: ${form.training_name}`);
+      showToast("Training updated.");
+    } else {
+      const rec = { ...form, created_at: new Date().toISOString(), created_by: user.username };
+      const { data, error } = await supabase.from("batch_trainings").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setBatches(bs => [data, ...bs]);
+      await logTrainingAudit("Training Created", `Created: ${form.training_name}`);
+      showToast("Training created.");
+    }
+    setTrainingSubView(null); setActiveBatch(null);
+  };
+
+  const deleteBatch = async (batch) => {
+    const { error } = await supabase.from("batch_trainings").delete().eq("batch_id", batch.batch_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setBatches(bs => bs.filter(b => b.batch_id !== batch.batch_id));
+    await logTrainingAudit("Training Deleted", `Deleted: ${batch.training_name}`);
+    showToast("Training deleted."); setDeleteTarget(null);
+  };
+
+  const enrollBeneficiaries = async (beneficiaryIds) => {
+    if (!activeBatch) return;
+    const recs = beneficiaryIds.map(bid => {
+      const ben = beneficiaries.find(b => b.beneficiary_id === bid);
+      return {
+        batch_id: activeBatch.batch_id,
+        beneficiary_id: bid,
+        beneficiary_name: ben?.name || "",
+        program: activeBatch.program,
+        attendance_status: "Present",
+        attendance_pct: 0,
+        certificate_status: "Pending",
+        certificate_no: "",
+        enrolled_at: new Date().toISOString(),
+      };
+    });
+    const { data, error } = await supabase.from("training_enrollments").insert(recs).select();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setEnrollments(es => [...es, ...(data || [])]);
+    await logTrainingAudit("Enrollment", `Enrolled ${beneficiaryIds.length} in ${activeBatch.training_name}`);
+    showToast(`${beneficiaryIds.length} beneficiaries enrolled!`);
+    setTrainingSubView(null); setActiveBatch(null);
+  };
+
+  const saveAttendance = async (attendanceMap) => {
+    if (!activeBatch) return;
+    const batchEnrollments = enrollments.filter(e => e.batch_id === activeBatch.batch_id);
+    const updates = batchEnrollments.map(e => ({
+      enrollment_id: e.enrollment_id,
+      attendance_status: attendanceMap[e.enrollment_id] || "Present",
+    }));
+    // Update each enrollment
+    let hasError = false;
+    for (const u of updates) {
+      const presentStatuses = ["Present","Late"];
+      const batchTotal = batchEnrollments.length;
+      const presentCount = updates.filter(x => presentStatuses.includes(x.attendance_status)).length;
+      const pct = batchTotal > 0 ? Math.round((presentCount / batchTotal) * 100) : 0;
+      const { error } = await supabase.from("training_enrollments")
+        .update({ attendance_status: u.attendance_status, attendance_pct: pct })
+        .eq("enrollment_id", u.enrollment_id);
+      if (error) hasError = true;
+    }
+    if (hasError) { showToast("Some updates failed.", "error"); return; }
+    // Refresh enrollments
+    const { data } = await supabase.from("training_enrollments").select("*").order("enrolled_at");
+    if (data) setEnrollments(data);
+    await logTrainingAudit("Attendance Updated", `Attendance for ${activeBatch.training_name}`);
+    showToast("Attendance saved!");
+    setTrainingSubView(null); setActiveBatch(null);
+  };
+
+  const saveCertificates = async (certStatusMap) => {
+    if (!activeBatch) return;
+    const batchEnrollments = enrollments.filter(e => e.batch_id === activeBatch.batch_id);
+    for (const e of batchEnrollments) {
+      const newStatus = certStatusMap[e.enrollment_id];
+      if (!newStatus || newStatus === e.certificate_status) continue;
+      const certNo = newStatus === "Issued" && !e.certificate_no
+        ? genCertNo(activeBatch.batch_id, e.beneficiary_id)
+        : e.certificate_no;
+      await supabase.from("training_enrollments")
+        .update({ certificate_status: newStatus, certificate_no: certNo })
+        .eq("enrollment_id", e.enrollment_id);
+    }
+    const { data } = await supabase.from("training_enrollments").select("*").order("enrolled_at");
+    if (data) setEnrollments(data);
+    await logTrainingAudit("Certificate Issued", `Certificates for ${activeBatch.training_name}`);
+    showToast("Certificates updated!");
+    setTrainingSubView(null); setActiveBatch(null);
+  };
+
+  const logTrainingAudit = async (action, details) => {
+    await supabase.from("audit_logs").insert({
+      user_email: user?.username || "system",
+      action, module: "Training", details,
+      created_at: new Date().toISOString(),
+    });
+  };
+
+  const exportBatches = (rows) => downloadCSV(rows.map(b => ({
+    "Training Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
+    "Venue": b.venue, "Type": b.training_type, "Start": b.start_date, "End": b.end_date,
+    "Capacity": b.max_capacity, "Status": b.status,
+  })), `TAPASVI_Trainings_${new Date().toISOString().slice(0,10)}.csv`);
+
+  const printBatches = (rows) => printTable(rows.map(b => ({
+    "Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
+    "Venue": b.venue, "Dates": `${b.start_date}${b.end_date ? " to " + b.end_date : ""}`,
+    "Capacity": b.max_capacity || "—", "Status": b.status,
+  })), "Training Report");
 
   // ---- TRAINING CRUD ----
   const saveTraining = async (form) => {
@@ -2138,13 +2777,39 @@ export default function App() {
               currentUser={user} beneficiaries={beneficiaries} />
           )}
           {subView === "training-form" && (
-            <TrainingForm editing={editing} onSave={saveTraining} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
+            <BatchTrainingForm editing={activeBatch}
+              onSave={saveBatch}
+              onCancel={() => { setTrainingSubView(null); setActiveBatch(null); setSubView(null); }} />
           )}
           {subView === "employment-form" && (
             <EmploymentForm editing={editing} onSave={saveEmployment} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
           )}
           {subView === "village-form" && (
             <VillageForm editing={editing} onSave={saveVillage} onCancel={() => { setSubView(null); setEditing(null); }} />
+          )}
+
+          {/* Training sub-views */}
+          {view === "training" && trainingSubView === "enroll" && activeBatch && (
+            <EnrollmentScreen
+              batch={activeBatch}
+              beneficiaries={beneficiaries}
+              enrollments={enrollments}
+              onEnroll={enrollBeneficiaries}
+              onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
+          )}
+          {view === "training" && trainingSubView === "attendance" && activeBatch && (
+            <AttendanceScreen
+              batch={activeBatch}
+              enrollments={enrollments}
+              onSaveAttendance={saveAttendance}
+              onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
+          )}
+          {view === "training" && trainingSubView === "certificates" && activeBatch && (
+            <CertificateScreen
+              batch={activeBatch}
+              enrollments={enrollments}
+              onIssueCertificates={saveCertificates}
+              onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
 
           {/* VIEWS */}
@@ -2171,14 +2836,24 @@ export default function App() {
               beneficiary={profileBeneficiary}
               beneficiaries={beneficiaries}
               isAdmin={isAdmin}
+              enrollments={enrollments}
               onClose={() => setProfileBeneficiary(null)} />
           )}
-          {!subView && view === "training" && (
-            <TrainingList training={training} beneficiaries={beneficiaries} isAdmin={isAdmin}
-              onAdd={() => { setEditing(null); setSubView("training-form"); }}
-              onEdit={t => { setEditing(t); setSubView("training-form"); }}
-              onDelete={t => setDeleteTarget({ type: "training", record: t })}
-              onExport={exportTraining} onPrint={printTraining} />
+          {!subView && !trainingSubView && view === "training" && (
+            <TrainingList
+              batches={batches}
+              enrollments={enrollments}
+              beneficiaries={beneficiaries}
+              isAdmin={isAdmin}
+              currentUser={user}
+              onAdd={() => { setActiveBatch(null); setSubView("training-form"); }}
+              onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
+              onDelete={b => setDeleteTarget({ type: "batch", record: b })}
+              onEnroll={b => { setActiveBatch(b); setTrainingSubView("enroll"); }}
+              onAttendance={b => { setActiveBatch(b); setTrainingSubView("attendance"); }}
+              onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
+              onExport={exportBatches}
+              onPrint={printBatches} />
           )}
           {!subView && view === "employment" && (
             <EmploymentList employment={employment} beneficiaries={beneficiaries} isAdmin={isAdmin}
@@ -2279,6 +2954,7 @@ export default function App() {
                 const { type, record } = deleteTarget;
                 if (type === "beneficiary") deleteBeneficiary(record);
                 else if (type === "training") deleteTraining(record);
+                else if (type === "batch") deleteBatch(record);
                 else if (type === "employment") deleteEmployment(record);
                 else if (type === "village") deleteVillage(record);
               }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#F97316", color: "#fff" }}>Delete</button>
