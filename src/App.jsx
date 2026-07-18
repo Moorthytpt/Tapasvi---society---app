@@ -1,3 +1,7 @@
+/* ============================================================
+   TAPASVI NGO Management System — DMS v2.1
+   Training Module integrated
+   ============================================================ */
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
