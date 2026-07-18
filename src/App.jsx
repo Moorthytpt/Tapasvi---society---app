@@ -81,48 +81,46 @@ const LETTERHEAD_HTML = (title, meta = "") => `
     </div>
   </div>`;
 
-const SHARED_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Inter, Arial, sans-serif; color: #111827; background: white; }
-  .header { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid #1E3A8A; margin-bottom: 10px; }
-  .org-info { flex: 1; }
-  .org-name { font-size: 18px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px; }
-  .org-sub { font-size: 9px; color: #374151; margin-top: 2px; }
-  .org-addr { font-size: 8px; color: #6B7280; margin-top: 1px; }
-  .report-info { text-align: right; }
-  .report-title { font-size: 13px; font-weight: 700; color: #1E3A8A; }
-  .report-meta { font-size: 8px; color: #6B7280; margin-top: 2px; }
-  .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }
-`;
+const SHARED_CSS = [
+  "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');",
+  "* { box-sizing: border-box; margin: 0; padding: 0; }",
+  "body { font-family: Inter, Arial, sans-serif; color: #111827; background: white; }",
+  ".header { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid #1E3A8A; margin-bottom: 10px; }",
+  ".org-info { flex: 1; }",
+  ".org-name { font-size: 18px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px; }",
+  ".org-sub { font-size: 9px; color: #374151; margin-top: 2px; }",
+  ".org-addr { font-size: 8px; color: #6B7280; margin-top: 1px; }",
+  ".report-info { text-align: right; }",
+  ".report-title { font-size: 13px; font-weight: 700; color: #1E3A8A; }",
+  ".report-meta { font-size: 8px; color: #6B7280; margin-top: 2px; }",
+  ".footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }",
+].join(" ");
 
 /* ── PDF TYPE 1: Individual Beneficiary Profile (A4 Portrait) ── */
 function pdfIndividual(b) {
   const w = window.open("", "_blank");
   if (!w) return;
   const prog = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
-  w.document.write(`<!DOCTYPE html><html><head>
-    <title>TAPASVI — ${b.name} Profile</title>
-    <style>
-      @page { size: A4 portrait; margin: 12mm 15mm; }
-      ${SHARED_CSS}
-      .profile-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-      .section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #1E3A8A; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; margin-bottom: 10px; }
-      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
-      .field-item { }
-      .field-label { font-size: 7.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-      .field-value { font-size: 10px; font-weight: 600; color: #111827; border-bottom: 1px solid #F3F4F6; padding-bottom: 3px; min-height: 16px; }
-      .reg-id { font-family: monospace; font-size: 14px; font-weight: 900; color: #1E3A8A; background: #EFF6FF; padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; }
-      .program-badge { display: inline-block; background: #DCFCE7; color: #16A34A; font-size: 9px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px; }
-      .photo-placeholder { width: 80px; height: 100px; border: 2px dashed #D1D5DB; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9CA3AF; text-align: center; flex-shrink: 0; }
-      .top-row { display: flex; gap: 16px; align-items: flex-start; }
-      .top-info { flex: 1; }
-      .sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 16px; }
-      .sign-box { border-top: 1px solid #374151; padding-top: 4px; font-size: 8px; color: #374151; text-align: center; }
-      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-    </style>
-  </head><body>
-    ${LETTERHEAD_HTML("Beneficiary Profile", `Registration ID: ${b.beneficiary_id || "—"}`)}
+  const pdfCSS = [
+    SHARED_CSS,
+    "@page { size: A4 portrait; margin: 12mm 15mm; }",
+    ".profile-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-bottom: 12px; }",
+    ".section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #1E3A8A; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; margin-bottom: 10px; }",
+    ".field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }",
+    ".field-item { }",
+    ".field-label { font-size: 7.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }",
+    ".field-value { font-size: 10px; font-weight: 600; color: #111827; border-bottom: 1px solid #F3F4F6; padding-bottom: 3px; min-height: 16px; }",
+    ".reg-id { font-family: monospace; font-size: 14px; font-weight: 900; color: #1E3A8A; background: #EFF6FF; padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; }",
+    ".program-badge { display: inline-block; background: #DCFCE7; color: #16A34A; font-size: 9px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px; }",
+    ".photo-placeholder { width: 80px; height: 100px; border: 2px dashed #D1D5DB; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9CA3AF; text-align: center; flex-shrink: 0; }",
+    ".top-row { display: flex; gap: 16px; align-items: flex-start; }",
+    ".top-info { flex: 1; }",
+    ".sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 16px; }",
+    ".sign-box { border-top: 1px solid #374151; padding-top: 4px; font-size: 8px; color: #374151; text-align: center; }",
+    "@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
+  ].join(" ");
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI — " + b.name + " Profile</title><style>" + pdfCSS + "</style></head><body>
+    ${LETTERHEAD_HTML("Beneficiary Profile", "Registration ID: " + (b.beneficiary_id || "—"))}
 
     <div class="profile-card">
       <div class="top-row">
@@ -175,7 +173,7 @@ function pdfIndividual(b) {
         <div class="field-item"><div class="field-label">SHG Member</div><div class="field-value">${b.shg || "No"}</div></div>
         <div class="field-item"><div class="field-label">Field Worker</div><div class="field-value">${b.field_worker_name || "—"}</div></div>
       </div>
-      ${b.notes ? `<div style="margin-top:8px"><div class="field-label">Notes</div><div style="font-size:9px;color:#374151;margin-top:3px;padding:6px;background:#F9FAFB;border-radius:4px;">${b.notes}</div></div>` : ""}
+      ${b.notes ? '<div style="margin-top:8px"><div class="field-label">Notes</div><div style="font-size:9px;color:#374151;margin-top:3px;padding:6px;background:#F9FAFB;border-radius:4px;">' + b.notes + '</div></div>' : ""}
     </div>
 
     <div class="sign-section">
@@ -199,59 +197,30 @@ function printTable(rows, title, cols) {
   const w = window.open("", "_blank");
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  w.document.write(`<!DOCTYPE html><html><head>
-    <title>TAPASVI — ${title}</title>
-    <style>
-      @page { size: A4 landscape; margin: 10mm 12mm; }
-      ${SHARED_CSS}
-      .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
-      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-      thead tr { background: #1E3A8A; }
-      thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }
-      tbody tr:nth-child(even) { background: #F8FAFF; }
-      tbody tr:nth-child(odd) { background: #FFFFFF; }
-      tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
-      tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
-      .status-registered { color: #1E3A8A; font-weight: 700; }
-      .status-training { color: #D97706; font-weight: 700; }
-      .status-completed { color: #16A34A; font-weight: 700; }
-      .status-dropped { color: #DC2626; font-weight: 700; }
-      @media print {
-        thead { display: table-header-group; }
-        tbody tr { page-break-inside: avoid; }
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      }
-    </style>
-  </head><body>
-    ${LETTERHEAD_HTML(title, `Total Records: ${rows.length}`)}
-    <div class="summary">
-      <span>📋 Total: ${rows.length}</span>
-      ${rows.some(r => r["Status"]) ? `
-        <span>✅ Completed: ${rows.filter(r => r["Status"] === "Completed").length}</span>
-        <span>📚 Training: ${rows.filter(r => r["Status"] === "Training").length}</span>
-        <span>🆕 Registered: ${rows.filter(r => r["Status"] === "Registered").length}</span>
-        <span>❌ Dropped: ${rows.filter(r => r["Status"] === "Dropped").length}</span>
-      ` : ""}
-      ${rows.some(r => r["Gender"]) ? `
-        <span>👩 Women: ${rows.filter(r => r["Gender"] === "Female").length}</span>
-        <span>👨 Men: ${rows.filter(r => r["Gender"] === "Male").length}</span>
-      ` : ""}
-    </div>
-    <table>
-      <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-      <tbody>
-        ${rows.map(r => `<tr>${headers.map(h => {
-          const val = r[h] ?? "";
-          const cls = h === "Status" ? `status-${String(val).toLowerCase()}` : "";
-          return `<td class="${cls}">${val}</td>`;
-        }).join("")}</tr>`).join("")}
-      </tbody>
-    </table>
-    <div class="footer">
-      <span>TAPASVI Database Management System — Confidential | For Official Use Only</span>
-      <span>Printed: ${new Date().toLocaleDateString("en-IN")}</span>
-    </div>
-  </body></html>`);
+  const tableCss = [
+    SHARED_CSS,
+    "@page { size: A4 landscape; margin: 10mm 12mm; }",
+    ".summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }",
+    "table { width: 100%; border-collapse: collapse; margin-top: 4px; }",
+    "thead tr { background: #1E3A8A; }",
+    "thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }",
+    "tbody tr:nth-child(even) { background: #F8FAFF; }",
+    "tbody tr:nth-child(odd) { background: #FFFFFF; }",
+    "tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }",
+    "tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }",
+    ".status-registered { color: #1E3A8A; font-weight: 700; }",
+    ".status-training { color: #D97706; font-weight: 700; }",
+    ".status-completed { color: #16A34A; font-weight: 700; }",
+    ".status-dropped { color: #DC2626; font-weight: 700; }",
+    "@media print { thead { display: table-header-group; } tbody tr { page-break-inside: avoid; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
+  ].join(" ");
+  const summaryHtml = rows.some(r => r["Status"]) ? "<span>Completed: " + rows.filter(r => r["Status"] === "Completed").length + "</span> <span>Training: " + rows.filter(r => r["Status"] === "Training").length + "</span> <span>Registered: " + rows.filter(r => r["Status"] === "Registered").length + "</span> <span>Dropped: " + rows.filter(r => r["Status"] === "Dropped").length + "</span>" : "";
+  const genderHtml = rows.some(r => r["Gender"]) ? "<span>Women: " + rows.filter(r => r["Gender"] === "Female").length + "</span> <span>Men: " + rows.filter(r => r["Gender"] === "Male").length + "</span>" : "";
+  const theadHtml = "<thead><tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr></thead>";
+  const tbodyHtml = "<tbody>" + rows.map(r => "<tr>" + headers.map(h => { const val = r[h] ?? ""; const cls = h === "Status" ? "status-" + String(val).toLowerCase() : ""; return '<td class="' + cls + '">' + val + "</td>"; }).join("") + "</tr>").join("") + "</tbody>";
+  const footerDate = new Date().toLocaleDateString("en-IN");
+  const generatedDate = new Date().toLocaleString("en-IN");
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI — " + title + "</title><style>" + tableCss + "</style></head><body>" + LETTERHEAD_HTML(title, "Total Records: " + rows.length) + '<div class="summary">' + summaryHtml + " " + genderHtml + "</div><table>" + theadHtml + tbodyHtml + "</table>" + '<div class="footer"><span>TAPASVI Database Management System — Confidential | For Official Use Only</span><span>Printed: ' + footerDate + "</span></div></body></html>");
   w.document.close();
   w.focus();
   setTimeout(() => w.print(), 600);
@@ -259,111 +228,41 @@ function printTable(rows, title, cols) {
   const w = window.open("", "_blank");
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Database Management System — ${title}</title><style>
-    @page { size: A4 landscape; margin: 10mm 12mm; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
-
-    /* HEADER / LETTERHEAD */
-    .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }
-    .logo-circle { width: 48px; height: 48px; background: transparent; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .logo-circle svg { width: 36px; height: 36px; }
-    .org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; letter-spacing: 1px; }
-    .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
-    .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
-    .header-right { margin-left: auto; text-align: right; }
-    .report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }
-    .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
-
-    /* SUMMARY BAR */
-    .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
-
-    /* TABLE */
-    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    thead tr { background: #1E3A8A; }
-    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
-    tbody tr:nth-child(even) { background: #F8FAFF; }
-    tbody tr:nth-child(odd) { background: #FFFFFF; }
-    tbody tr:hover { background: #DCFCE7; }
-    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
-    tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
-
-    /* STATUS BADGES */
-    .status-registered { color: #1E3A8A; font-weight: 700; }
-    .status-training { color: #9A6B00; font-weight: 700; }
-    .status-completed { color: #16A34A; font-weight: 700; }
-    .status-dropped { color: #F97316; font-weight: 700; }
-
-    /* FOOTER */
-    .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
-
-    /* PAGE BREAK */
-    @media print {
-      thead { display: table-header-group; }
-      tbody tr { page-break-inside: avoid; }
-    }
-  </style></head><body>
-
-    <!-- LETTERHEAD -->
-    <div class="header">
-      <div class="logo-circle">
-        <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI Logo" style="width:56px;height:56px;object-fit:contain;"/>
-      </div>
-      <div>
-        <div class="org-name">TAPASVI SOCIETY</div>
-        <div class="org-sub">For Rural Development, Social Issues and Health Organization</div>
-        <div class="org-address">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
-      </div>
-      <div class="header-right">
-        <div class="report-title">${title}</div>
-        <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
-        <div class="report-meta">Total Records: ${rows.length}</div>
-      </div>
-    </div>
-
-    <!-- SUMMARY -->
-    <div class="summary">
-      <span>📋 Total: ${rows.length}</span>
-      ${rows.some(r => r["Status"]) ? `
-        <span>✅ Completed: ${rows.filter(r => r["Status"] === "Completed").length}</span>
-        <span>📚 Training: ${rows.filter(r => r["Status"] === "Training").length}</span>
-        <span>🆕 Registered: ${rows.filter(r => r["Status"] === "Registered").length}</span>
-        <span>❌ Dropped: ${rows.filter(r => r["Status"] === "Dropped").length}</span>
-      ` : ""}
-      ${rows.some(r => r["Gender"]) ? `
-        <span>👩 Women: ${rows.filter(r => r["Gender"] === "Female").length}</span>
-        <span>👨 Men: ${rows.filter(r => r["Gender"] === "Male").length}</span>
-      ` : ""}
-    </div>
-
-    <!-- TABLE -->
-    <table>
-      <thead>
-        <tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>
-      </thead>
-      <tbody>
-        ${rows.map((r, i) => `
-          <tr>
-            ${headers.map(h => {
-              const val = r[h] ?? "";
-              let cls = "";
-              if (h === "Status") {
-                cls = `status-${String(val).toLowerCase()}`;
-              }
-              return `<td class="${cls}">${val}</td>`;
-            }).join("")}
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-
-    <!-- FOOTER -->
-    <div class="footer">
-      <span>TAPASVI Database Management System — Confidential &nbsp;|&nbsp; For Official Use Only</span>
-      <span>Page 1 &nbsp;|&nbsp; Printed: ${new Date().toLocaleDateString("en-IN")}</span>
-    </div>
-
-  </body></html>`);
+  const css3 = [
+    "@page { size: A4 landscape; margin: 10mm 12mm; }",
+    "* { box-sizing: border-box; margin: 0; padding: 0; }",
+    "body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }",
+    ".header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }",
+    ".logo-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }",
+    ".org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; }",
+    ".org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }",
+    ".org-address { font-size: 7.5px; color: #666; margin-top: 1px; }",
+    ".header-right { margin-left: auto; text-align: right; }",
+    ".report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }",
+    ".report-meta { font-size: 8px; color: #888; margin-top: 3px; }",
+    ".summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }",
+    "table { width: 100%; border-collapse: collapse; margin-top: 4px; }",
+    "thead tr { background: #1E3A8A; }",
+    "thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }",
+    "tbody tr:nth-child(even) { background: #F8FAFF; }",
+    "tbody tr:nth-child(odd) { background: #FFFFFF; }",
+    "tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }",
+    "tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }",
+    ".status-registered { color: #1E3A8A; font-weight: 700; }",
+    ".status-training { color: #D97706; font-weight: 700; }",
+    ".status-completed { color: #16A34A; font-weight: 700; }",
+    ".status-dropped { color: #DC2626; font-weight: 700; }",
+    ".footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }",
+    "@media print { thead { display: table-header-group; } tbody tr { page-break-inside: avoid; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }",
+  ].join(" ");
+  const th3 = "<thead><tr>" + headers.map(h => "<th>" + h + "</th>").join("") + "</tr></thead>";
+  const tb3 = "<tbody>" + rows.map(r => "<tr>" + headers.map(h => { const val = r[h] ?? ""; const cls = h === "Status" ? "status-" + String(val).toLowerCase() : ""; return '<td class="' + cls + '">' + val + "</td>"; }).join("") + "</tr>").join("") + "</tbody>";
+  const sum3 = rows.some(r => r["Status"]) ? "<span>Completed: " + rows.filter(r => r["Status"] === "Completed").length + "</span> <span>Training: " + rows.filter(r => r["Status"] === "Training").length + "</span>" : "";
+  const gen3 = rows.some(r => r["Gender"]) ? "<span>Women: " + rows.filter(r => r["Gender"] === "Female").length + "</span> <span>Men: " + rows.filter(r => r["Gender"] === "Male").length + "</span>" : "";
+  const logoImg3 = '<img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI" style="width:56px;height:56px;object-fit:contain;"/>';
+  const hdr3 = '<div class="header"><div class="logo-circle">' + logoImg3 + '</div><div><div class="org-name">TAPASVI SOCIETY</div><div class="org-sub">Society for Rural Development, Social Issues and Health Organization</div><div class="org-address">Andhra Pradesh, India</div></div><div class="header-right"><div class="report-title">' + title + '</div><div class="report-meta">Total: ' + rows.length + '</div><div class="report-meta">Generated: ' + new Date().toLocaleString("en-IN") + '</div></div></div>';
+  const ftr3 = '<div class="footer"><span>TAPASVI DMS — Confidential</span><span>Printed: ' + new Date().toLocaleDateString("en-IN") + '</span></div>';
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI — " + title + "</title><style>" + css3 + "</style></head><body>" + hdr3 + '<div class="summary">' + sum3 + " " + gen3 + "</div><table>" + th3 + tb3 + "</table>" + ftr3 + "</body></html>");
   w.document.close();
   w.focus();
   setTimeout(() => w.print(), 500);
