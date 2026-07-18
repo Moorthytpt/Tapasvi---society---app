@@ -2338,7 +2338,7 @@ export default function App() {
         supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
         supabase.from("training").select("*").order("created_at", { ascending: false }),
         supabase.from("batch_trainings").select("*").order("created_at", { ascending: false }),
-        supabase.from("training_enrollments").select("*").order("enrolled_at", { ascending: false }),
+        supabase.from("training_enrollments").select("*").order("created_at", { ascending: false }),
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
@@ -2531,7 +2531,7 @@ export default function App() {
     }
     if (hasError) { showToast("Some updates failed.", "error"); return; }
     // Refresh enrollments
-    const { data } = await supabase.from("training_enrollments").select("*").order("enrolled_at");
+    const { data } = await supabase.from("training_enrollments").select("*").order("created_at");
     if (data) setEnrollments(data);
     await logTrainingAudit("Attendance Updated", `Attendance for ${activeBatch.training_name}`);
     showToast("Attendance saved!");
@@ -2551,7 +2551,7 @@ export default function App() {
         .update({ certificate_status: newStatus, certificate_no: certNo })
         .eq("enrollment_id", e.enrollment_id);
     }
-    const { data } = await supabase.from("training_enrollments").select("*").order("enrolled_at");
+    const { data } = await supabase.from("training_enrollments").select("*").order("created_at");
     if (data) setEnrollments(data);
     await logTrainingAudit("Certificate Issued", `Certificates for ${activeBatch.training_name}`);
     showToast("Certificates updated!");
@@ -2719,7 +2719,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-      <style>{`* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
+      <style>{["* { box-sizing: border-box; }", "@keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }"].join(" ")}</style>
 
       {/* Sidebar (desktop) */}
       <aside className="w-[220px] bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0">
