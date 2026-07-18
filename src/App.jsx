@@ -842,44 +842,61 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <Badge label={p.short} color={p.color} tint={p.tint} />
                       <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#16A34A"} tint={(statusColors[b.status] || "#16A34A") + "18"} />
                     </div>
-                    <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
-                      <span className="font-mono">{b.beneficiary_id}</span>
-                      <span>•</span>
-                      <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
-                      <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
-                      <span>•</span>
-                      <span>📞 {b.phone}</span>
-                      {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
+                    <div className="mt-1 text-[11.5px] text-[#6B7280] space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[11px] text-[#1E3A8A] font-bold">{b.beneficiary_id}</span>
+                        {b.age && <span>{b.age} yrs{b.gender ? `, ${b.gender}` : ""}</span>}
+                        {(b.identity_number || b.aadhaar_number) && (
+                          <span className="text-[10.5px] bg-[#F3F4F6] px-1.5 py-0.5 rounded font-mono">
+                            {isAdmin
+                              ? (b.identity_number || b.aadhaar_number)
+                              : "XXXX " + String(b.identity_number || b.aadhaar_number).slice(-4)}
+                          </span>
+                        )}
+                      </div>
+                      {(b.village || b.mandal) && (
+                        <div className="flex items-center gap-1">
+                          <MapPin size={10} className="shrink-0" />
+                          <span>{[b.village, b.mandal].filter(Boolean).join(", ")}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {b.phone && <span>📞 {b.phone}</span>}
+                        {b.field_worker_name && <span>👤 {b.field_worker_name}</span>}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-1 shrink-0 flex-wrap justify-end">
+                  <div className="flex flex-col gap-1 shrink-0">
                     {onViewProfile && (
                       <button onClick={() => onViewProfile(b)} title="View Profile"
-                        className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF] flex items-center gap-1">
-                        <User size={13} />
-                        <span className="text-[10px] font-bold hidden sm:inline">Profile</span>
+                        className="px-2.5 py-1.5 rounded-lg text-[#1E3A8A] bg-[#EFF6FF] flex items-center gap-1 text-[11px] font-semibold">
+                        <User size={12} /> Profile
                       </button>
                     )}
-                    {onAddPrograms && (
-                      <button onClick={() => onAddPrograms(b)} title="Add to other programs"
-                        className="p-2 rounded-lg text-[#16A34A] hover:bg-[#DCFCE7] flex items-center gap-1">
-                        <Plus size={13} />
-                        <span className="text-[10px] font-bold hidden sm:inline">+ Program</span>
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => pdfIndividual(b)} title="Download PDF"
-                        className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
-                        <Download size={14} />
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]"><Edit2 size={14} /></button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
-                    )}
+                    <div className="flex gap-1">
+                      {onAddPrograms && (
+                        <button onClick={() => onAddPrograms(b)} title="Add to other programs"
+                          className="p-1.5 rounded-lg text-[#16A34A] hover:bg-[#DCFCE7]">
+                          <Plus size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => pdfIndividual(b)} title="PDF"
+                          className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
+                          <Download size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onEdit(b)} className="p-1.5 rounded-lg text-[#6B7280] hover:bg-[#F3F4F6]">
+                          <Edit2 size={14} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onDelete(b)} className="p-1.5 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1200,7 +1217,9 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin })
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">🪪 Identity & Documents</h4>
         <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || (b.identity_type ? b.identity_type : "Aadhaar Card")} />
         <InfoRow label="Document Number" value={
-          b.identity_number
+          isAdmin
+            ? (b.identity_number || b.aadhaar_number || null)
+            : b.identity_number
             ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number)
             : b.aadhaar_number
             ? `XXXX XXXX ${String(b.aadhaar_number).slice(-4)}`
