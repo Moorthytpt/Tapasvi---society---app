@@ -205,8 +205,26 @@ function LoginScreen({ onLogin }) {
       if (!roleData || roleData.role !== "admin") { await supabase.auth.signOut(); setError("Access denied. Admin only."); setLoading(false); return; }
       onLogin({ role: "admin", username: data.user.email, supabaseUser: data.user });
     } else {
-      if (password !== LOGIN_PASSWORDS.fieldworker) { setError("Incorrect password."); setLoading(false); return; }
-      onLogin({ role: "fieldworker", username: username.trim() });
+      // Field Worker: check username + password against app_users table
+      const { data: fwData, error: fwError } = await supabase
+        .from("app_users")
+        .select("id, full_name, role, status, password_hash")
+        .eq("full_name", username.trim())
+        .eq("role", "fieldworker")
+        .single();
+      if (fwError || !fwData) {
+        setError("User not found. Contact your Admin.");
+        setLoading(false); return;
+      }
+      if (fwData.status !== "active") {
+        setError("Your account is inactive. Contact Admin.");
+        setLoading(false); return;
+      }
+      if (!fwData.password_hash || fwData.password_hash !== password) {
+        setError("Incorrect password.");
+        setLoading(false); return;
+      }
+      onLogin({ role: "fieldworker", username: fwData.full_name });
     }
     setLoading(false);
   };
@@ -231,8 +249,10 @@ function LoginScreen({ onLogin }) {
               </button>
             ))}
           </div>
-          <Field label={role === "admin" ? "Email" : "Username"} required>
-            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder={role === "admin" ? "admin@tapasvi.org" : "fieldworker1"} inputMode={role === "admin" ? "email" : "text"} />
+          <Field label={role === "admin" ? "Email" : "Full Name"} required>
+            <Input value={username} onChange={e => setUsername(e.target.value)}
+              placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
+              inputMode={role === "admin" ? "email" : "text"} />
           </Field>
           <Field label="Password" required error={error}>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
@@ -241,7 +261,7 @@ function LoginScreen({ onLogin }) {
             {loading ? "Signing in…" : "Sign In"}
           </button>
           <p className="text-[10.5px] text-[#AAA] text-center mt-3">
-            {role === "admin" ? "Admin: registered email & password" : "Field Worker password: tapasvi"}
+            {role === "admin" ? "Admin: registered email & password" : "Contact Admin for your login credentials"}
           </p>
         </form>
         <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI DMS v2.0 • Secure Access Only</p>
@@ -1118,17 +1138,22 @@ function UserManagement({ currentUser, showToast }) {
 
   const saveUser = async (form) => {
     if (editing) {
-      const { error } = await supabase.from("app_users").update(form).eq("id", editing.id);
+      // Don't overwrite password if left blank during edit
+      const updateData = { ...form };
+      if (!updateData.password_hash || updateData.password_hash.trim() === "") {
+        delete updateData.password_hash;
+      }
+      const { error } = await supabase.from("app_users").update(updateData).eq("id", editing.id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
-      setUsers(us => us.map(u => u.id === editing.id ? { ...u, ...form } : u));
-      await logAudit("UPDATE", `Updated user: ${form.full_name} (${form.email})`);
+      setUsers(us => us.map(u => u.id === editing.id ? { ...u, ...updateData } : u));
+      await logAudit("UPDATE", `Updated user: ${form.full_name}`);
       showToast("User updated successfully.");
     } else {
       const rec = { ...form, created_by: currentUser.username, created_at: new Date().toISOString() };
       const { data, error } = await supabase.from("app_users").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setUsers(us => [data, ...us]);
-      await logAudit("CREATE", `Created user: ${form.full_name} (${form.email})`);
+      await logAudit("CREATE", `Created user: ${form.full_name} (Role: ${form.role})`);
       showToast("User created successfully.");
     }
     await loadAuditLogs();
@@ -1195,7 +1220,7 @@ function UserManagement({ currentUser, showToast }) {
 
   // ── USER FORM ──────────────────────────────────────────────
   if (subView === "form") {
-    const blank = { full_name: "", email: "", role: "fieldworker", phone: "", program: "", village: "", status: "active" };
+    const blank = { full_name: "", email: "", role: "fieldworker", phone: "", program: "", village: "", status: "active", password_hash: "" };
     return <UserForm editing={editing} blank={blank} onSave={saveUser} onCancel={() => { setEditing(null); setSubView("list"); }} />;
   }
 
@@ -1440,8 +1465,11 @@ function UserForm({ editing, blank, onSave, onCancel }) {
   const validate = () => {
     const e = {};
     if (!form.full_name.trim()) e.full_name = "Required";
-    if (!form.email.trim()) e.email = "Required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email format";
+    if (form.role === "admin") {
+      if (!form.email.trim()) e.email = "Required";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email format";
+    }
+    if (form.role === "fieldworker" && !editing && !form.password_hash.trim()) e.password_hash = "Password required";
     if (form.phone && !/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -1466,22 +1494,41 @@ function UserForm({ editing, blank, onSave, onCancel }) {
             <Field label="Full Name" required error={errors.full_name}>
               <Input value={form.full_name} onChange={set("full_name")} placeholder="Enter full name" />
             </Field>
-            <Field label="Email Address" required error={errors.email}>
-              <Input type="email" value={form.email} onChange={set("email")} placeholder="user@tapasvi.org" inputMode="email"
-                readOnly={!!editing} className={editing ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
-            </Field>
             <Field label="Role" required>
               <Select value={form.role} onChange={set("role")} options={[
                 { value: "admin", label: "Admin" },
                 { value: "fieldworker", label: "Field Worker" },
               ]} />
             </Field>
-            <Field label="Status">
-              <Select value={form.status} onChange={set("status")} options={[
-                { value: "active", label: "Active" },
-                { value: "inactive", label: "Inactive" },
-              ]} />
-            </Field>
+            {form.role === "fieldworker" ? (
+              <>
+                <Field label="Password" required={!editing} error={errors.password_hash}
+                  hint={editing ? "Leave blank to keep existing password" : "Set login password for this Field Worker"}>
+                  <input type="password" value={form.password_hash || ""}
+                    onChange={e => setForm(f => ({ ...f, password_hash: e.target.value }))}
+                    className={inputCls} placeholder={editing ? "Leave blank to keep" : "Enter password"} />
+                </Field>
+                <Field label="Status">
+                  <Select value={form.status} onChange={set("status")} options={[
+                    { value: "active", label: "Active" },
+                    { value: "inactive", label: "Inactive" },
+                  ]} />
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="Email Address" required error={errors.email}>
+                  <Input type="email" value={form.email} onChange={set("email")} placeholder="user@tapasvi.org" inputMode="email"
+                    readOnly={!!editing} className={editing ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
+                </Field>
+                <Field label="Status">
+                  <Select value={form.status} onChange={set("status")} options={[
+                    { value: "active", label: "Active" },
+                    { value: "inactive", label: "Inactive" },
+                  ]} />
+                </Field>
+              </>
+            )}
           </div>
 
           <SectionHeader title="Contact & Assignment" color="#1E3A8A" />
@@ -1501,13 +1548,20 @@ function UserForm({ editing, blank, onSave, onCancel }) {
             </Field>
           </div>
 
-          {!editing && (
-            <div className="bg-[#EFF6FF] rounded-xl p-4 mt-2">
-              <p className="text-[12px] font-semibold text-[#1E3A8A] mb-1">ℹ Password Note</p>
+          {form.role === "fieldworker" && (
+            <div className="bg-[#DCFCE7] rounded-xl p-4 mt-2">
+              <p className="text-[12px] font-semibold text-[#16A34A] mb-1">✅ Field Worker Login</p>
               <p className="text-[11.5px] text-[#374151]">
-                Default passwords: <strong>Admin → admin123</strong> | <strong>Field Worker → tapasvi</strong>
+                Full Name + Password తో login చేయగలరు. Admin మాత్రమే password మార్చగలరు.
               </p>
-              <p className="text-[11px] text-[#6B7280] mt-1">Ask the user to change their password after first login.</p>
+            </div>
+          )}
+          {form.role === "admin" && (
+            <div className="bg-[#EFF6FF] rounded-xl p-4 mt-2">
+              <p className="text-[12px] font-semibold text-[#1E3A8A] mb-1">ℹ Admin Login</p>
+              <p className="text-[11.5px] text-[#374151]">
+                Admin Supabase Auth తో login చేస్తారు. Password reset Supabase dashboard లో చేయాలి.
+              </p>
             </div>
           )}
         </div>
@@ -1863,14 +1917,16 @@ export default function App() {
         </div>
       </main>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav - all tabs */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-1">
-        {NAVITEMS.map(item => (
-          <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-            <item.icon size={18} style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }} />
-            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }}>{item.label}</span>
-          </button>
-        ))}
+        {NAVITEMS.map(function(navItem) {
+          return (
+            <button key={navItem.key} onClick={() => goTo(navItem.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
+              <navItem.icon size={17} style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }} />
+              <span className="text-[9px] font-medium" style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }}>{navItem.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* Delete confirm */}
