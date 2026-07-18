@@ -1198,8 +1198,14 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin })
       {/* Identity & Documents */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">🪪 Identity & Documents</h4>
-        <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || b.identity_type} />
-        <InfoRow label="Document Number" value={b.identity_number ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number) : null} />
+        <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || (b.identity_type ? b.identity_type : "Aadhaar Card")} />
+        <InfoRow label="Document Number" value={
+          b.identity_number
+            ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number)
+            : b.aadhaar_number
+            ? `XXXX XXXX ${String(b.aadhaar_number).slice(-4)}`
+            : null
+        } />
         <InfoRow label="Aadhaar Verified" value={b.aadhaar_verified} />
         <InfoRow label="eKYC Status" value={b.ekyc_status} />
         <div className="mt-3 p-3 bg-[#EFF6FF] rounded-lg">
