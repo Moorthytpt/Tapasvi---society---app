@@ -1863,7 +1863,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav - all tabs */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-2">
         NAVITEMS.map
           <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
