@@ -22,9 +22,9 @@ const supabase = createClient(
 const LOGIN_PASSWORDS = { admin: "admin123", fieldworker: "tapasvi" };
 
 const PROGRAMS = [
-  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYD" },
-  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WTE" },
-  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WSR" },
+  { key: "rydeap", label: "RYDEAP", short: "RYDEAP", color: "#1E3A8A", tint: "#EFF6FF", icon: Laptop, idPrefix: "RYDEAP" },
+  { key: "womens", label: "Women's Tailoring & Embroidery", short: "Women's", color: "#F97316", tint: "#FFF7ED", icon: Scissors, idPrefix: "WOMENS" },
+  { key: "waste", label: "Waste Segregation & Recycling", short: "Waste", color: "#16A34A", tint: "#DCFCE7", icon: Leaf, idPrefix: "WASTE" },
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
@@ -46,15 +46,7 @@ function nextId(records, prefix) {
     return m ? parseInt(m[1], 10) : 0;
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
-  return `${prefix}-${String(next).padStart(6, "0")}`;
-}
-
-/* Returns the Program Name label if this Aadhaar Number is registered under RYDEAP or
-   Women's Tailoring & Embroidery (the two mutually-exclusive programs), else null. */
-function findExclusiveRegistration(aadhaarNumber, records) {
-  if (!aadhaarNumber) return null;
-  const match = records.find(r => r.aadhaar_number === aadhaarNumber && ["rydeap", "womens"].includes(r.program));
-  return match ? PROGRAM_MAP[match.program]?.label || null : null;
+  return `${prefix}-${String(next).padStart(4, "0")}`;
 }
 
 function downloadCSV(rows, filename) {
@@ -71,21 +63,214 @@ function downloadCSV(rows, filename) {
   URL.revokeObjectURL(url);
 }
 
-function printTable(rows, title, cols, meta = {}) {
+/* ── LETTERHEAD HTML shared by both PDF types ── */
+const LETTERHEAD_HTML = (title, meta = "") => `
+  <div class="header">
+    <div class="logo-wrap">
+      <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI" style="width:64px;height:64px;object-fit:contain;"/>
+    </div>
+    <div class="org-info">
+      <div class="org-name">TAPASVI SOCIETY</div>
+      <div class="org-sub">Society for Rural Development, Social Issues and Health Organization</div>
+      <div class="org-addr">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
+    </div>
+    <div class="report-info">
+      <div class="report-title">${title}</div>
+      <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
+      ${meta ? `<div class="report-meta">${meta}</div>` : ""}
+    </div>
+  </div>`;
+
+const SHARED_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, Arial, sans-serif; color: #111827; background: white; }
+  .header { display: flex; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 3px solid #1E3A8A; margin-bottom: 10px; }
+  .org-info { flex: 1; }
+  .org-name { font-size: 18px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px; }
+  .org-sub { font-size: 9px; color: #374151; margin-top: 2px; }
+  .org-addr { font-size: 8px; color: #6B7280; margin-top: 1px; }
+  .report-info { text-align: right; }
+  .report-title { font-size: 13px; font-weight: 700; color: #1E3A8A; }
+  .report-meta { font-size: 8px; color: #6B7280; margin-top: 2px; }
+  .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 8px; color: #9CA3AF; }
+`;
+
+/* ── PDF TYPE 1: Individual Beneficiary Profile (A4 Portrait) ── */
+function pdfIndividual(b) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const prog = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>TAPASVI — ${b.name} Profile</title>
+    <style>
+      @page { size: A4 portrait; margin: 12mm 15mm; }
+      ${SHARED_CSS}
+      .profile-card { border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+      .section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #1E3A8A; border-bottom: 1px solid #DBEAFE; padding-bottom: 4px; margin-bottom: 10px; }
+      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+      .field-item { }
+      .field-label { font-size: 7.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+      .field-value { font-size: 10px; font-weight: 600; color: #111827; border-bottom: 1px solid #F3F4F6; padding-bottom: 3px; min-height: 16px; }
+      .reg-id { font-family: monospace; font-size: 14px; font-weight: 900; color: #1E3A8A; background: #EFF6FF; padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; }
+      .program-badge { display: inline-block; background: #DCFCE7; color: #16A34A; font-size: 9px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px; }
+      .photo-placeholder { width: 80px; height: 100px; border: 2px dashed #D1D5DB; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9CA3AF; text-align: center; flex-shrink: 0; }
+      .top-row { display: flex; gap: 16px; align-items: flex-start; }
+      .top-info { flex: 1; }
+      .sign-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 16px; }
+      .sign-box { border-top: 1px solid #374151; padding-top: 4px; font-size: 8px; color: #374151; text-align: center; }
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style>
+  </head><body>
+    ${LETTERHEAD_HTML("Beneficiary Profile", `Registration ID: ${b.beneficiary_id || "—"}`)}
+
+    <div class="profile-card">
+      <div class="top-row">
+        <div class="top-info">
+          <div class="reg-id">${b.beneficiary_id || "—"}
+            <span class="program-badge">${prog[b.program] || b.program || "—"}</span>
+          </div>
+          <div class="field-grid">
+            <div class="field-item">
+              <div class="field-label">Registration Date</div>
+              <div class="field-value">${b.registration_date || b.survey_date || "—"}</div>
+            </div>
+            <div class="field-item">
+              <div class="field-label">Status</div>
+              <div class="field-value">${b.status || "Registered"}</div>
+            </div>
+          </div>
+        </div>
+        <div class="photo-placeholder">Photo<br/>Here</div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Personal Information</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Full Name</div><div class="field-value">${b.name || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Gender</div><div class="field-value">${b.gender || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Age</div><div class="field-value">${b.age ? b.age + " years" : "—"}</div></div>
+        <div class="field-item"><div class="field-label">Mobile Number</div><div class="field-value">${b.phone || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Aadhaar Number</div><div class="field-value">${b.aadhaar_number ? "XXXX XXXX " + String(b.aadhaar_number).slice(-4) : "—"}</div></div>
+        <div class="field-item"><div class="field-label">Education</div><div class="field-value">${b.education || "—"}</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Address</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Village</div><div class="field-value">${b.village || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Mandal</div><div class="field-value">${b.mandal || "—"}</div></div>
+        <div class="field-item"><div class="field-label">District</div><div class="field-value">${b.district || "—"}</div></div>
+        <div class="field-item"><div class="field-label">State</div><div class="field-value">${b.state || "Andhra Pradesh"}</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <div class="section-title">Social Information</div>
+      <div class="field-grid">
+        <div class="field-item"><div class="field-label">Category</div><div class="field-value">${b.category || "—"}</div></div>
+        <div class="field-item"><div class="field-label">Disability</div><div class="field-value">${b.disability || "No"}</div></div>
+        <div class="field-item"><div class="field-label">SHG Member</div><div class="field-value">${b.shg || "No"}</div></div>
+        <div class="field-item"><div class="field-label">Field Worker</div><div class="field-value">${b.field_worker_name || "—"}</div></div>
+      </div>
+      ${b.notes ? `<div style="margin-top:8px"><div class="field-label">Notes</div><div style="font-size:9px;color:#374151;margin-top:3px;padding:6px;background:#F9FAFB;border-radius:4px;">${b.notes}</div></div>` : ""}
+    </div>
+
+    <div class="sign-section">
+      <div class="sign-box">Field Worker Signature</div>
+      <div class="sign-box">Beneficiary Signature / Thumb</div>
+      <div class="sign-box">Authorized Signatory</div>
+    </div>
+
+    <div class="footer">
+      <span>TAPASVI Society — Confidential | For Official Use Only</span>
+      <span>Printed: ${new Date().toLocaleDateString("en-IN")}</span>
+    </div>
+  </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+/* ── PDF TYPE 2: All Beneficiaries List (A4 Landscape) ── */
+function printTable(rows, title, cols) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>TAPASVI — ${title}</title>
+    <style>
+      @page { size: A4 landscape; margin: 10mm 12mm; }
+      ${SHARED_CSS}
+      .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      thead tr { background: #1E3A8A; }
+      thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; border: 1px solid #1730A0; white-space: nowrap; }
+      tbody tr:nth-child(even) { background: #F8FAFF; }
+      tbody tr:nth-child(odd) { background: #FFFFFF; }
+      tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
+      tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
+      .status-registered { color: #1E3A8A; font-weight: 700; }
+      .status-training { color: #D97706; font-weight: 700; }
+      .status-completed { color: #16A34A; font-weight: 700; }
+      .status-dropped { color: #DC2626; font-weight: 700; }
+      @media print {
+        thead { display: table-header-group; }
+        tbody tr { page-break-inside: avoid; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+    </style>
+  </head><body>
+    ${LETTERHEAD_HTML(title, `Total Records: ${rows.length}`)}
+    <div class="summary">
+      <span>📋 Total: ${rows.length}</span>
+      ${rows.some(r => r["Status"]) ? `
+        <span>✅ Completed: ${rows.filter(r => r["Status"] === "Completed").length}</span>
+        <span>📚 Training: ${rows.filter(r => r["Status"] === "Training").length}</span>
+        <span>🆕 Registered: ${rows.filter(r => r["Status"] === "Registered").length}</span>
+        <span>❌ Dropped: ${rows.filter(r => r["Status"] === "Dropped").length}</span>
+      ` : ""}
+      ${rows.some(r => r["Gender"]) ? `
+        <span>👩 Women: ${rows.filter(r => r["Gender"] === "Female").length}</span>
+        <span>👨 Men: ${rows.filter(r => r["Gender"] === "Male").length}</span>
+      ` : ""}
+    </div>
+    <table>
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>${headers.map(h => {
+          const val = r[h] ?? "";
+          const cls = h === "Status" ? `status-${String(val).toLowerCase()}` : "";
+          return `<td class="${cls}">${val}</td>`;
+        }).join("")}</tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="footer">
+      <span>TAPASVI Database Management System — Confidential | For Official Use Only</span>
+      <span>Printed: ${new Date().toLocaleDateString("en-IN")}</span>
+    </div>
+  </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 600);
+}
   const w = window.open("", "_blank");
   if (!w) return;
   const headers = cols || (rows.length ? Object.keys(rows[0]) : []);
   w.document.write(`<!DOCTYPE html><html><head><title>TAPASVI Database Management System — ${title}</title><style>
-    @page { size: A4 landscape; margin: 8mm 8mm; }
+    @page { size: A4 landscape; margin: 10mm 12mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; width: 100%; overflow-x: hidden; }
+    body { font-family: Manrope, Inter, Arial, sans-serif; font-size: 10px; color: #1a1a1a; background: white; }
 
     /* HEADER / LETTERHEAD */
     .header { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #1E3A8A; margin-bottom: 6px; }
     .logo-circle { width: 48px; height: 48px; background: transparent; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .logo-circle svg { width: 36px; height: 36px; }
-    .org-name { font-size: 12.5px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 0.3px; max-width: 380px; line-height: 1.25; }
-    .org-address { font-size: 7.5px; color: #666; margin-top: 2px; }
+    .org-name { font-size: 16px; font-weight: 900; color: #1E3A8A; font-family: Manrope, Arial, sans-serif; letter-spacing: 1px; letter-spacing: 1px; }
+    .org-sub { font-size: 8.5px; color: #444; margin-top: 2px; }
+    .org-address { font-size: 7.5px; color: #666; margin-top: 1px; }
     .header-right { margin-left: auto; text-align: right; }
     .report-title { font-size: 12px; font-weight: 700; color: #1E3A8A; }
     .report-meta { font-size: 8px; color: #888; margin-top: 3px; }
@@ -94,13 +279,13 @@ function printTable(rows, title, cols, meta = {}) {
     .summary { display: flex; gap: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 4px; padding: 5px 10px; margin-bottom: 8px; font-size: 9px; color: #1E3A8A; font-weight: 600; }
 
     /* TABLE */
-    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 4px; }
     thead tr { background: #1E3A8A; }
-    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700; letter-spacing: 0.2px; border: 1px solid #155030; word-wrap: break-word; overflow-wrap: break-word; }
+    thead th { color: white; padding: 5px 6px; text-align: left; font-size: 8.5px; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #155030; white-space: nowrap; }
     tbody tr:nth-child(even) { background: #F8FAFF; }
     tbody tr:nth-child(odd) { background: #FFFFFF; }
     tbody tr:hover { background: #DCFCE7; }
-    tbody td { padding: 4px 6px; font-size: 8px; border: 1px solid #E5E7EB; vertical-align: middle; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; }
+    tbody td { padding: 4px 6px; font-size: 8.5px; border: 1px solid #E5E7EB; vertical-align: middle; }
     tbody td:first-child { font-weight: 700; color: #1E3A8A; font-family: monospace; }
 
     /* STATUS BADGES */
@@ -112,11 +297,10 @@ function printTable(rows, title, cols, meta = {}) {
     /* FOOTER */
     .footer { margin-top: 8px; padding-top: 5px; border-top: 1px solid #E5E7EB; display: flex; justify-content: space-between; font-size: 7.5px; color: #999; }
 
-    /* PAGE BREAK + PAGE NUMBERS */
+    /* PAGE BREAK */
     @media print {
       thead { display: table-header-group; }
       tbody tr { page-break-inside: avoid; }
-      @page { @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 7.5px; color: #999; } }
     }
   </style></head><body>
 
@@ -126,15 +310,13 @@ function printTable(rows, title, cols, meta = {}) {
         <img src="https://tapasvi-society-app-rftz.vercel.app/icon-512.png" alt="TAPASVI Logo" style="width:56px;height:56px;object-fit:contain;"/>
       </div>
       <div>
-        <div class="org-name">TAPASVI Society for Rural Development, Social Issues &amp; Health Organization</div>
+        <div class="org-name">TAPASVI SOCIETY</div>
+        <div class="org-sub">For Rural Development, Social Issues and Health Organization</div>
         <div class="org-address">Andhra Pradesh, India &nbsp;|&nbsp; tapasvi-society-app-rftz.vercel.app</div>
       </div>
       <div class="header-right">
         <div class="report-title">${title}</div>
-        ${meta.programName ? `<div class="report-meta">Program: ${meta.programName}</div>` : ""}
-        ${meta.fieldWorkerName ? `<div class="report-meta">Field Worker: ${meta.fieldWorkerName}</div>` : ""}
         <div class="report-meta">Generated: ${new Date().toLocaleString("en-IN")}</div>
-        ${meta.generatedBy ? `<div class="report-meta">Generated By: ${meta.generatedBy}</div>` : ""}
         <div class="report-meta">Total Records: ${rows.length}</div>
       </div>
     </div>
@@ -313,11 +495,10 @@ function LoginScreen({ onLogin }) {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
       <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6 px-2">
-          <Logo size={90} />
-          <h1 className="mt-3 text-[15px] sm:text-[17px] font-bold text-[#16A34A] text-center leading-snug max-w-[360px] break-words">
-            TAPASVI Society for Rural Development, Social Issues &amp; Health Organization
-          </h1>
+        <div className="flex flex-col items-center mb-6">
+          <Logo size={60} />
+          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
+          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
         </div>
         <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
           <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
@@ -353,14 +534,16 @@ function LoginScreen({ onLogin }) {
    BENEFICIARY FORM
    ============================================================ */
 function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
+  const today = new Date().toISOString().slice(0, 10);
+
   const blank = {
     program: "rydeap",
+    registration_date: today,
     name: "",
     gender: "Female",
     age: "",
     aadhaar_number: "",
     phone: "",
-    house_no: "",
     state: "Andhra Pradesh",
     education: "",
     village: "",
@@ -384,17 +567,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required";
     if (!form.phone.trim()) e.phone = "Required";
     else if (!/^\d{10}$/.test(form.phone)) e.phone = "10 digits required";
-    if (!form.aadhaar_number || !/^\d{12}$/.test(form.aadhaar_number)) {
-      e.aadhaar_number = "Aadhaar number is required and must be exactly 12 digits";
-    } else if (["rydeap", "womens"].includes(form.program)) {
-      // Cross-program exclusivity: a beneficiary can be in only ONE of RYDEAP / Women's Tailoring & Embroidery
-      const dupAadhaar = beneficiaries.find(b =>
-        b.aadhaar_number === form.aadhaar_number &&
-        ["rydeap", "womens"].includes(b.program) &&
-        b.beneficiary_id !== editing?.beneficiary_id
-      );
-      if (dupAadhaar) e.aadhaar_number = "This Aadhaar Number is already registered in another exclusive program (RYDEAP/Women's Tailoring & Embroidery).";
+    else {
+      const dup = beneficiaries.find(b => b.phone === form.phone && b.beneficiary_id !== editing?.beneficiary_id);
+      if (dup) e.phone = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
     }
+    if (form.aadhaar && !/^\d{12}$/.test(form.aadhaar)) e.aadhaar = "Must be exactly 12 digits";
     if (!form.village.trim()) e.village = "Required";
     if (!form.mandal.trim()) e.mandal = "Required";
     if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
@@ -456,8 +633,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* SYSTEM INFORMATION */}
           <SectionHeader title="System Information" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint={editing ? undefined : "Auto-generated"}>
-              <Input value={editing?.beneficiary_id || nextId(beneficiaries, p.idPrefix)} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            <Field label="Registration ID" hint="Auto-generated after save">
+              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+            </Field>
+            <Field label="Registration Date">
+              <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
             </Field>
             <Field label="Program">
               <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
@@ -490,10 +670,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                 inputMode="numeric"
               />
             </Field>
-            <Field label="Aadhaar Number" required error={errors.aadhaar_number} hint="12-digit Aadhaar number">
+            <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar number">
               <Input
-                value={form.aadhaar_number}
-                onChange={e => setForm(f => ({ ...f, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                value={form.aadhaar}
+                onChange={e => setForm(f => ({ ...f, aadhaar: e.target.value.replace(/\D/g, "").slice(0, 12) }))}
                 placeholder="Enter 12-digit Aadhaar"
                 inputMode="numeric"
               />
@@ -520,9 +700,6 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {/* ADDRESS */}
           <SectionHeader title="Address" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="House No">
-              <Input value={form.house_no} onChange={set("house_no")} placeholder="House / door number" />
-            </Field>
             <Field label="Village" required error={errors.village}>
               <Input value={form.village} onChange={set("village")} placeholder="Village name" />
             </Field>
@@ -896,7 +1073,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
-      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q) || b.aadhaar_number?.includes(q));
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   }, [beneficiaries, query, programFilter, statusFilter]);
@@ -913,8 +1090,8 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
             <button onClick={() => onExport(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
               <FileSpreadsheet size={13} /> Export CSV
             </button>
-            <button onClick={() => onPrint(filtered, programFilter !== "all" ? PROGRAM_MAP[programFilter]?.label : null)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
-              <Printer size={13} /> Print
+            <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
+              <Printer size={13} /> List PDF
             </button>
           </div>
         )}
@@ -923,7 +1100,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village, Aadhaar..." className={inputCls + " pl-9 text-[12.5px]"} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
@@ -945,7 +1122,6 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
           {filtered.map(b => {
             const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
             const Icon = p.icon;
-            const exclusiveProgram = findExclusiveRegistration(b.aadhaar_number, beneficiaries);
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
@@ -957,26 +1133,32 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <span className="font-bold text-[13.5px] text-[#111827]">{b.name}</span>
                       <Badge label={p.short} color={p.color} tint={p.tint} />
                       <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#16A34A"} tint={(statusColors[b.status] || "#16A34A") + "18"} />
-                      {exclusiveProgram && <Badge label={`Registered in ${exclusiveProgram}`} color="#1E3A8A" tint="#EFF6FF" />}
                     </div>
                     <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                       <span className="font-mono">{b.beneficiary_id}</span>
                       <span>•</span>
                       <span>{b.age}{b.gender ? `, ${b.gender}` : ""}</span>
                       <span>•</span>
-                      <span><MapPin size={10} className="inline mr-0.5" />{[b.house_no, b.village, b.mandal].filter(Boolean).join(", ")}</span>
+                      <span><MapPin size={10} className="inline mr-0.5" />{b.village}, {b.mandal}</span>
                       <span>•</span>
                       <span>📞 {b.phone}</span>
-                      {b.aadhaar_number && <><span>•</span><span>🆔 {b.aadhaar_number}</span></>}
                       {b.field_worker_name && <><span>•</span><span>👤 {b.field_worker_name}</span></>}
                     </div>
                   </div>
-                  {isAdmin && (
-                    <div className="flex gap-1 shrink-0">
+                  <div className="flex gap-1 shrink-0">
+                    {isAdmin && (
+                      <button onClick={() => pdfIndividual(b)} title="Download PDF Profile"
+                        className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
+                        <Download size={14} />
+                      </button>
+                    )}
+                    {isAdmin && (
                       <button onClick={() => onEdit(b)} className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                    )}
+                    {isAdmin && (
                       <button onClick={() => onDelete(b)} className="p-2 rounded-lg text-[#F97316] hover:bg-[#FFF7ED]"><Trash2 size={14} /></button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1314,46 +1496,45 @@ export default function App() {
 
   // ---- EXPORTS ----
   const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
-    "Registration ID": b.beneficiary_id, "Program Name": PROGRAM_MAP[b.program]?.label || b.program, Name: b.name, Age: b.age, Gender: b.gender,
-    "Aadhaar Number": b.aadhaar_number, Phone: b.phone,
-    Education: b.education, Status: b.status,
-    "Registration Status": findExclusiveRegistration(b.aadhaar_number, beneficiaries) ? `Registered in ${findExclusiveRegistration(b.aadhaar_number, beneficiaries)}` : "—",
-    "House No": b.house_no, Village: b.village, Mandal: b.mandal, District: b.district, State: b.state || "Andhra Pradesh", Category: b.category,
-    "Field Worker": b.field_worker_name,
+    "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
+    Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
+    Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
+    Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
+    "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
 
-  const printBeneficiaries = (rows, programName) => printTable(rows.map(b => ({
-    "Registration ID": b.beneficiary_id,
+  const printBeneficiaries = (rows) => printTable(rows.map(b => ({
+    "ID": b.beneficiary_id,
     "Name": b.name,
-    "Program Name": PROGRAM_MAP[b.program]?.label || b.program,
+    "Program": PROGRAM_MAP[b.program]?.short || b.program,
     "Age": b.age,
     "Gender": b.gender,
-    "Aadhaar Number": b.aadhaar_number || "—",
-    "Registration Status": findExclusiveRegistration(b.aadhaar_number, beneficiaries) ? `Registered in ${findExclusiveRegistration(b.aadhaar_number, beneficiaries)}` : "—",
     "Phone": b.phone,
     "Education": b.education || "—",
+    "Skill": b.skill_interest || "—",
     "Status": b.status || "Registered",
-    "House No": b.house_no || "—",
     "Village": b.village || "—",
     "Mandal": b.mandal || "—",
     "District": b.district || "—",
-    "State": b.state || "Andhra Pradesh",
     "Category": b.category || "—",
+    "Aadhaar ✓": b.aadhaar_verified || "No",
+    "eKYC": b.ekyc_status || "No",
     "Field Worker": b.field_worker_name || "—",
-  })), programName ? `Beneficiary Report — ${programName}` : "Beneficiary Report — All Programs", null, { generatedBy: user?.username, programName });
+    "Survey Date": b.survey_date || "—",
+  })), "Beneficiary Report — All Programs");
 
   const exportTraining = (rows) => downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`);
   const printTraining = (rows) => printTable(rows.map(t => ({
     "Training ID": t.training_id, "Beneficiary ID": t.beneficiary_id, "Course": t.course_name,
     "Trainer": t.trainer_name, "Center": t.center, "Start": t.start_date, "End": t.end_date,
     "Attendance %": t.attendance_pct, "Certificate": t.certificate_issued,
-  })), "Training Report", null, { generatedBy: user?.username });
+  })), "Training Report");
 
   const exportEmployment = (rows) => downloadCSV(rows, `TAPASVI_Employment_${new Date().toISOString().slice(0, 10)}.csv`);
   const printEmployment = (rows) => printTable(rows.map(e => ({
     "Job ID": e.job_id, "Beneficiary ID": e.beneficiary_id, "Type": e.employment_type,
     "Role": e.job_role, "Employer": e.employer, "Income": e.monthly_income, "Status": e.status,
-  })), "Employment Report", null, { generatedBy: user?.username });
+  })), "Employment Report");
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
