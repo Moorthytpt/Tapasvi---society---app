@@ -3,9 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
-  ChevronRight, X, Check, Globe, MapPin, BarChart3, FileSpreadsheet,
-  AlertCircle, Filter, BookOpen, Briefcase, Calendar, TrendingUp,
-  CheckCircle, XCircle, Clock, Award, Home, Settings, ChevronDown, RefreshCw
+  ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
+  AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
+  CheckCircle, XCircle, Clock, Award, RefreshCw
 } from "lucide-react";
 
 /* ============================================================
