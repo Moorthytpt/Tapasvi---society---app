@@ -106,7 +106,83 @@ function printTable(rows, title, cols) {
 /* ============================================================
    UI ATOMS
    ============================================================ */
-/* ── OFFICIAL TAPASVI LOGO ── same SVG used everywhere in the app and in print */
+
+function Logo({ size = 40 }) {
+  return (
+    <img src="/icon-512.png" alt="TAPASVI" width={size} height={size}
+      style={{ objectFit: "contain", display: "block" }} />
+  );
+}
+
+const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20 placeholder:text-[#9CA3AF]";
+const selectCls = inputCls + " appearance-none cursor-pointer";
+
+function Field({ label, required, error, hint, children }) {
+  return (
+    <label className="block mb-4">
+      <span className="block text-[12.5px] font-semibold text-[#111827] mb-1.5 uppercase tracking-wide">
+        {label}{required && <span className="text-red-500 ml-1">*</span>}
+      </span>
+      {hint && <span className="block text-[11px] text-[#888] mb-1.5">{hint}</span>}
+      {children}
+      {error && <span className="block text-[11.5px] text-red-600 mt-1">⚠ {error}</span>}
+    </label>
+  );
+}
+
+function Input({ className, ...props }) {
+  return <input {...props} className={className || inputCls} />;
+}
+
+function Select({ options, placeholder, className, ...props }) {
+  return (
+    <select {...props} className={className || selectCls}>
+      {placeholder && <option value="">{placeholder}</option>}
+      {(options || []).map(o => typeof o === "string"
+        ? <option key={o} value={o}>{o}</option>
+        : <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function Badge({ label, color, tint }) {
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: tint, color }}>{label}</span>;
+}
+
+function StatCard({ icon: Icon, label, value, color, tint, sub }) {
+  return (
+    <div className="rounded-xl bg-white border border-[#E5E7EB] p-4 flex items-center gap-3.5" style={{ borderRadius: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: tint }}>
+        <Icon size={20} style={{ color }} />
+      </div>
+      <div>
+        <p className="text-[22px] font-bold text-[#111827] leading-none">{value}</p>
+        <p className="text-[12px] text-[#6B7280] mt-1">{label}</p>
+        {sub && <p className="text-[11px] text-[#999] mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, type = "success", onDone }) {
+  useEffect(() => { const id = setTimeout(onDone, 3000); return () => clearTimeout(id); }, [onDone]);
+  return (
+    <div className="fixed bottom-20 md:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-[13px] shadow-xl"
+      style={{ background: type === "error" ? "#B71C1C" : "#1E3A8A", color: "#fff", animation: "fadein .2s ease" }}>
+      {type === "error" ? <AlertCircle size={15} /> : <Check size={15} />} {message}
+    </div>
+  );
+}
+
+function SectionHeader({ title, color = "#1E3A8A" }) {
+  return (
+    <div className="flex items-center gap-2 mt-6 mb-3">
+      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+      <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color }}>{title}</span>
+      <div className="flex-1 h-px bg-[#F3F4F6]" />
+    </div>
+  );
+}
 
 /* ============================================================
    LOGIN
@@ -1455,10 +1531,31 @@ function UserForm({ editing, blank, onSave, onCancel }) {
 /* ============================================================
    MAIN APP
    ============================================================ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, fontFamily: "Arial", color: "#111" }}>
+          <h2 style={{ color: "#DC2626" }}>App Error</h2>
+          <pre style={{ background: "#FEF2F2", padding: 16, borderRadius: 8, fontSize: 12, whiteSpace: "pre-wrap" }}>
+            {this.state.error.toString()}
+          </pre>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 16, padding: "8px 16px", background: "#1E3A8A", color: "white", border: "none", borderRadius: 8, cursor: "pointer" }}>
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
-  const [subView, setSubView] = useState(null); // "beneficiary-form" | "training-form" | "employment-form" | "village-form"
+  const [subView, setSubView] = useState(null);
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
