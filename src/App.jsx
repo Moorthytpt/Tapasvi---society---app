@@ -2574,9 +2574,6 @@ export default function App() {
     "Capacity": b.max_capacity || "—", "Status": b.status,
   })), "Training Report");
 
-    showToast("Deleted."); setDeleteTarget(null);
-  };
-
   // ---- TRAINING CRUD ----
   const saveTraining = async (form) => {
     if (editing) {
