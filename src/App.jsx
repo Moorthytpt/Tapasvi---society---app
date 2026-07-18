@@ -2574,7 +2574,7 @@ export default function App() {
 
   const printBatches = (rows) => printTable(rows.map(b => ({
     "Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
-    "Venue": b.venue, "Dates": `${b.start_date}${b.end_date ? " to " + b.end_date : ""}`,
+    "Venue": b.venue, "Dates": b.start_date + (b.end_date ? " to " + b.end_date : ""),
     "Capacity": b.max_capacity || "—", "Status": b.status,
   })), "Training Report");
 
