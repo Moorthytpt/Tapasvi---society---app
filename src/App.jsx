@@ -1864,13 +1864,15 @@ export default function App() {
       </main>
 
       {/* Mobile bottom nav - all tabs */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-2">
-        NAVITEMS.map
-          <button key={item.key} onClick={() => goTo(item.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-            <item.icon size={18} style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }} />
-            <span className="text-[9.5px] font-medium" style={{ color: view === item.key ? "#16A34A" : "#9CA3AF" }}>{item.label}</span>
-          </button>
-        ))}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-1">
+        {NAVITEMS.map(function(navItem) {
+          return (
+            <button key={navItem.key} onClick={() => goTo(navItem.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
+              <navItem.icon size={17} style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }} />
+              <span className="text-[9px] font-medium" style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }}>{navItem.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* Delete confirm */}
