@@ -1615,6 +1615,8 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // Multi-program auto-registration
+  const [multiProgDialog, setMultiProgDialog] = useState(null); // { savedRec, eligible: [{key,label,checked}] }
 
   // Data state
   const [beneficiaries, setBeneficiaries] = useState([]);
@@ -1649,22 +1651,98 @@ export default function App() {
   useEffect(() => { if (user) loadAll(); }, [user, loadAll]);
 
   // ---- BENEFICIARY CRUD ----
+  // ---- ELIGIBILITY ENGINE ----
+  const EDU_ORDER = ["No Formal Education", "Below 5th", "5th Class", "7th Class", "10th Class / SSC", "Intermediate / 12th", "ITI", "Diploma", "Degree / Graduate", "Post Graduate"];
+  const eduLevel = (edu) => EDU_ORDER.indexOf(edu);
+
+  const checkEligibility = (form, savedProgram, currentBeneficiaries) => {
+    const age = parseInt(form.age) || 0;
+    const gender = form.gender;
+    const edu = form.education || "";
+    const phone = form.phone;
+    const eligible = [];
+
+    PROGRAMS.forEach(p => {
+      if (p.key === savedProgram) return; // skip current program
+
+      // Check if already registered (same phone number in this program)
+      const alreadyExists = currentBeneficiaries.find(b =>
+        b.program === p.key && b.phone === phone
+      );
+      if (alreadyExists) return; // already registered, skip
+
+      let isEligible = false;
+      if (p.key === "rydeap") {
+        isEligible = age >= 15 && age <= 35;
+      } else if (p.key === "womens") {
+        isEligible = gender === "Female" && age >= 18 && age <= 45 && eduLevel(edu) >= eduLevel("5th Class");
+      } else if (p.key === "waste") {
+        isEligible = true; // Everyone eligible
+      }
+      if (isEligible) {
+        eligible.push({ key: p.key, label: p.label, short: p.short, color: p.color, tint: p.tint, checked: true });
+      }
+    });
+    return eligible;
+  };
+
   const saveBeneficiary = async (form) => {
     if (editing) {
       const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", editing.beneficiary_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setBeneficiaries(bs => bs.map(b => b.beneficiary_id === editing.beneficiary_id ? { ...b, ...form } : b));
       showToast("Beneficiary updated.");
+      setEditing(null); setSubView(null); setView("beneficiaries");
     } else {
       const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
       const beneficiary_id = nextId(beneficiaries, prefix);
       const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) { showToast("Error: " + error.message, "error"); return; }
-      setBeneficiaries(bs => [rec, ...bs]);
+      const updatedBeneficiaries = [rec, ...beneficiaries];
+      setBeneficiaries(updatedBeneficiaries);
       showToast(`Registered: ${beneficiary_id}`);
+
+      // Check eligibility for other programs
+      const eligible = checkEligibility(form, form.program, updatedBeneficiaries);
+      if (eligible.length > 0) {
+        setMultiProgDialog({ savedRec: rec, eligible });
+        setSubView(null); setEditing(null);
+        // Don't navigate away — show dialog first
+      } else {
+        setEditing(null); setSubView(null); setView("beneficiaries");
+      }
     }
-    setEditing(null); setSubView(null); setView("beneficiaries");
+  };
+
+  const registerAdditionalPrograms = async (selectedKeys) => {
+    if (!multiProgDialog) return;
+    const { savedRec } = multiProgDialog;
+    const results = [];
+    let currentBens = [...beneficiaries];
+
+    for (const key of selectedKeys) {
+      const prefix = PROGRAM_MAP[key]?.idPrefix || "BEN";
+      const beneficiary_id = nextId(currentBens, prefix);
+      const rec = {
+        ...savedRec,
+        program: key,
+        beneficiary_id,
+        status: "Registered",
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from("beneficiaries_v2").insert(rec);
+      if (error) {
+        results.push(`❌ ${PROGRAM_MAP[key]?.short}: ${error.message}`);
+      } else {
+        currentBens = [rec, ...currentBens];
+        results.push(`✅ ${PROGRAM_MAP[key]?.short}: ${beneficiary_id}`);
+      }
+    }
+    setBeneficiaries(currentBens);
+    setMultiProgDialog(null);
+    showToast(`Registered in ${selectedKeys.length} additional program(s).`);
+    setView("beneficiaries");
   };
 
   const deleteBeneficiary = async (b) => {
@@ -1928,6 +2006,61 @@ export default function App() {
           );
         })}
       </nav>
+
+      {/* Multi-Program Auto Registration Dialog */}
+      {multiProgDialog && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-[400px] w-full overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#E5E7EB]" style={{ background: "linear-gradient(135deg, #1E3A8A 0%, #16A34A 100%)" }}>
+              <p className="text-[15px] font-bold text-white">🎯 Eligible for Additional Programs</p>
+              <p className="text-[11.5px] text-white/80 mt-1">This beneficiary qualifies for more TAPASVI programs</p>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-[12px] text-[#6B7280] mb-3">Select programs to auto-register:</p>
+              <div className="space-y-2.5">
+                {multiProgDialog.eligible.map((prog, idx) => {
+                  const PIcon = PROGRAM_MAP[prog.key]?.icon;
+                  return (
+                    <label key={prog.key} className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition"
+                      style={{ borderColor: prog.checked ? prog.color : "#E5E7EB", background: prog.checked ? prog.tint : "white" }}>
+                      <input type="checkbox" checked={prog.checked}
+                        onChange={() => setMultiProgDialog(d => ({
+                          ...d, eligible: d.eligible.map((p, i) => i === idx ? { ...p, checked: !p.checked } : p)
+                        }))}
+                        className="w-4 h-4" />
+                      {PIcon && <PIcon size={18} style={{ color: prog.color }} />}
+                      <div className="flex-1">
+                        <p className="text-[13px] font-semibold" style={{ color: prog.color }}>{prog.short}</p>
+                        <p className="text-[10.5px] text-[#6B7280]">{prog.label}</p>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: prog.color, color: "white" }}>Eligible ✓</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex flex-col gap-2">
+              <div className="flex gap-2">
+                <button onClick={() => {
+                  const selected = multiProgDialog.eligible.filter(p => p.checked).map(p => p.key);
+                  if (selected.length === 0) { showToast("Select at least one program", "error"); return; }
+                  registerAdditionalPrograms(selected);
+                }} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+                  ✅ Register Selected
+                </button>
+                <button onClick={() => registerAdditionalPrograms(multiProgDialog.eligible.map(p => p.key))}
+                  className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>
+                  🚀 Register All
+                </button>
+              </div>
+              <button onClick={() => { setMultiProgDialog(null); setView("beneficiaries"); }}
+                className="w-full rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#6B7280]">
+                Skip — Register Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirm */}
       {deleteTarget && (
