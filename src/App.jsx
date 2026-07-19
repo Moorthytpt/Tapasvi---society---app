@@ -2455,6 +2455,7 @@ export default function App() {
     const { error } = await supabase.from("beneficiaries_v2").delete().eq("beneficiary_id", b.beneficiary_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setBeneficiaries(bs => bs.filter(x => x.beneficiary_id !== b.beneficiary_id));
+  };
 
   // ---- BATCH TRAINING CRUD ----
   const saveBatch = async (form) => {
