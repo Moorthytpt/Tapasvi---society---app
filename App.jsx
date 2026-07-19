@@ -9,7 +9,8 @@ import {
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
   ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
   AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
-  CheckCircle, XCircle, Clock, Award, RefreshCw
+  CheckCircle, XCircle, Clock, Award, RefreshCw, Settings as SettingsIcon,
+  Building2, Palette, Database, ShieldCheck
 } from "lucide-react";
 
 /* ============================================================
@@ -501,7 +502,7 @@ function ChangePasswordScreen({ user, onDone, onCancel }) {
 /* ============================================================
    BENEFICIARY FORM
    ============================================================ */
-function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
+function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries, dynPrograms, dynProgramsLoading, dynProgramsError }) {
   const today = new Date().toISOString().slice(0, 10);
   const blank = {
     program: "rydeap", registration_date: today,
@@ -519,7 +520,33 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
   });
   const [errors, setErrors] = useState({});
-  const [activeProgram, setActiveProgram] = useState(editing?.program || "rydeap");
+
+  // Phase 2: Program dropdown is sourced from the dynamic `programs` table (active only, sorted by display_order).
+  // If that fetch failed or hasn't returned anything yet, fall back to the static PROGRAMS list so registration
+  // never breaks — this keeps old beneficiary records and existing behavior working exactly as before.
+  const usingDynamicPrograms = !dynProgramsLoading && !dynProgramsError && dynPrograms && dynPrograms.length > 0;
+  const resolvedPrograms = useMemo(() => {
+    if (usingDynamicPrograms) {
+      return dynPrograms.map(p => ({
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        idPrefix: p.registration_prefix,
+      }));
+    }
+    return PROGRAMS; // fallback: network error, empty table not yet checked, or still loading
+  }, [usingDynamicPrograms, dynPrograms]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
+  const noActiveProgramsAvailable = !dynProgramsLoading && !dynProgramsError && dynPrograms && dynPrograms.length === 0;
+
+  const [activeProgram, setActiveProgram] = useState(editing?.program || "");
+  // Once the program list resolves, default to the first available program (registration only — editing keeps its own program)
+  useEffect(() => {
+    if (!editing && !activeProgram && resolvedPrograms.length > 0) {
+      setActiveProgram(resolvedPrograms[0].key);
+    }
+  }, [editing, activeProgram, resolvedPrograms]);
+
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
   const identityInfo = IDENTITY_TYPES.find(i => i.value === form.identity_type) || IDENTITY_TYPES[0];
 
@@ -557,7 +584,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     });
   };
 
-  const p = PROGRAM_MAP[activeProgram] || PROGRAMS[0];
+  const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -572,11 +599,23 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
       </div>
 
-      {!editing && (
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {PROGRAMS.map(pr => { const Icon = pr.icon; return (
+      {!editing && dynProgramsLoading && (
+        <div className="flex items-center justify-center gap-2 mb-4 py-6 text-[#6B7280] text-[12.5px]">
+          <RefreshCw size={14} className="animate-spin" /> Loading programs...
+        </div>
+      )}
+
+      {!editing && !dynProgramsLoading && noActiveProgramsAvailable && (
+        <div className="mb-4 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-4 py-3 text-[12.5px] text-[#92400E]">
+          No active programs available. Please ask a Super Admin to activate a program in Settings → Program Management.
+        </div>
+      )}
+
+      {!editing && !dynProgramsLoading && resolvedPrograms.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
             <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
-              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
+              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
               style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
               <Icon size={18} />{pr.short}
             </button>
@@ -584,6 +623,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         </div>
       )}
 
+      {(editing || (!dynProgramsLoading && !noActiveProgramsAvailable)) && (
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
         <div className="p-5">
 
@@ -686,10 +726,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {!editing && <span className="text-[10.5px] text-[#9CA3AF] ml-auto">* ID auto-generated on save</span>}
         </div>
       </form>
+      )}
     </div>
   );
 }
-
 
 function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
   const blank = {
@@ -994,11 +1034,30 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 /* ============================================================
    BENEFICIARY LIST
    ============================================================ */
-function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile }) {
+function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
+
+  // Phase 2 follow-up: filter dropdown + badges must reflect the dynamic program list too,
+  // otherwise beneficiaries registered under a new program (e.g. "Kids education") become unfilterable.
+  // Merge dynamic programs with the static list so nothing is ever missing, and also include any
+  // program key that only exists on actual beneficiary records (safety net for older/edge-case data).
+  const resolvedPrograms = useMemo(() => {
+    const base = (dynPrograms && dynPrograms.length > 0)
+      ? dynPrograms.map(p => ({
+          key: p.key, label: p.program_name, short: p.program_name,
+          color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+          icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        }))
+      : PROGRAMS;
+    const known = new Set(base.map(p => p.key));
+    const extras = [...new Set(beneficiaries.map(b => b.program))].filter(k => k && !known.has(k))
+      .map(k => ({ key: k, label: k, short: k, color: "#6B7280", tint: "#F3F4F6", icon: ClipboardList }));
+    return [...base, ...extras];
+  }, [dynPrograms, beneficiaries]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
   const fieldWorkerOptions = useMemo(() => {
     return [...new Set(beneficiaries.map(b => b.field_worker_name).filter(Boolean))].sort();
@@ -1042,7 +1101,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
-          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+          {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
@@ -1064,7 +1123,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
       ) : (
         <div className="space-y-2.5">
           {filtered.map(b => {
-            const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
+            const p = resolvedProgramMap[b.program] || resolvedPrograms[0] || { color: "#6B7280", tint: "#F3F4F6", short: b.program, icon: ClipboardList };
             const Icon = p.icon;
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
@@ -1204,7 +1263,7 @@ function TrainingDashboard({ batches, enrollments }) {
 }
 
 /* ── BATCH TRAINING FORM ────────────────────────────────────── */
-function BatchTrainingForm({ editing, onSave, onCancel }) {
+function BatchTrainingForm({ editing, onSave, onCancel, dynPrograms }) {
   const blank = {
     training_name: "", program: "rydeap", trainer_name: "", training_type: "Skill Development",
     venue: "", start_date: "", end_date: "", max_capacity: "", description: "", status: "Upcoming",
@@ -1212,6 +1271,30 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  // Phase 3: Program dropdown sourced from the dynamic `programs` table (active only).
+  // Falls back to the static PROGRAMS list if the dynamic fetch hasn't loaded / failed —
+  // keeps existing training records and this form working exactly as before either way.
+  const resolvedPrograms = useMemo(() => {
+    if (dynPrograms && dynPrograms.length > 0) {
+      return dynPrograms.map(p => ({
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+      }));
+    }
+    return PROGRAMS;
+  }, [dynPrograms]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
+
+  // If editing an older record whose program isn't in the active list (e.g. now inactive), keep it selectable
+  // so the existing training record can still be viewed/edited without forcing a change.
+  const programOptions = useMemo(() => {
+    if (editing && editing.program && !resolvedProgramMap[editing.program]) {
+      return [{ value: editing.program, label: `${editing.program} (inactive)` }, ...resolvedPrograms.map(p => ({ value: p.key, label: p.short }))];
+    }
+    return resolvedPrograms.map(p => ({ value: p.key, label: p.short }));
+  }, [resolvedPrograms, resolvedProgramMap, editing]);
 
   const validate = () => {
     const e = {};
@@ -1225,7 +1308,7 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
   };
 
   const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
-  const p = PROGRAM_MAP[form.program] || PROGRAMS[0];
+  const p = resolvedProgramMap[form.program] || PROGRAM_MAP[form.program] || resolvedPrograms[0] || PROGRAMS[0];
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -1247,7 +1330,7 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
             </div>
             <Field label="Program" required>
               <Select value={form.program} onChange={set("program")}
-                options={PROGRAMS.map(p => ({ value: p.key, label: p.short }))} />
+                options={programOptions} />
             </Field>
             <Field label="Training Type">
               <Select value={form.training_type} onChange={set("training_type")} options={TRAINING_TYPES} />
@@ -1525,12 +1608,30 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint }) {
+  onExport, onPrint, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const PER_PAGE = 10;
+
+  // Phase 3: program color/icon/label for filters and cards come from the dynamic `programs` table.
+  // Falls back to the static PROGRAMS list if the dynamic fetch hasn't loaded / failed, and always
+  // includes any program key still referenced by existing training records so nothing goes missing.
+  const resolvedPrograms = useMemo(() => {
+    const base = (dynPrograms && dynPrograms.length > 0)
+      ? dynPrograms.map(p => ({
+          key: p.key, label: p.program_name, short: p.program_name,
+          color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+          icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        }))
+      : PROGRAMS;
+    const known = new Set(base.map(p => p.key));
+    const extras = [...new Set((batches || []).map(b => b.program))].filter(k => k && !known.has(k))
+      .map(k => ({ key: k, label: k, short: k, color: "#6B7280", tint: "#F3F4F6", icon: ClipboardList }));
+    return [...base, ...extras];
+  }, [dynPrograms, batches]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
   const filtered = useMemo(() => {
     let r = batches || [];
@@ -1587,7 +1688,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
         </div>
         <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
-          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+          {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
         </select>
         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
@@ -1607,7 +1708,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       ) : (
         <div className="space-y-3">
           {paginated.map(batch => {
-            const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+            const p = resolvedProgramMap[batch.program] || resolvedPrograms[0] || { color: "#6B7280", tint: "#F3F4F6", short: batch.program, icon: ClipboardList };
             const sc = trainingStatusColor(batch.status);
             const enrollCount = getEnrollCount(batch.batch_id);
             const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
@@ -1616,7 +1717,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                 <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
-                      <BookOpen size={18} style={{ color: p.color }} />
+                      {p.icon ? <p.icon size={18} style={{ color: p.color }} /> : <BookOpen size={18} style={{ color: p.color }} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2601,6 +2702,440 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+/* ============================================================
+   SETTINGS MODULE (V1) — Super Admin only
+   ============================================================ */
+function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
+  const [subView, setSubView] = useState(null); // null | "organization" | "programs"
+
+  const CATEGORIES = [
+    { key: "organization", label: "Organization Settings", desc: "NGO name, logo, registration, contact details", icon: Building2, color: "#1E3A8A", tint: "#EFF6FF", ready: true },
+    { key: "users", label: "User Management", desc: "Manage from the Users tab", icon: Lock, color: "#7C3AED", tint: "#FAF5FF", ready: false, redirectNote: "Users ట్యాబ్ లో మేనేజ్ చేయండి" },
+    { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: true },
+    { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
+    { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
+    { key: "training", label: "Training Settings", desc: "Training types, trainers, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: false },
+    { key: "security", label: "Security", desc: "Password policy, session timeout, audit logs", icon: ShieldCheck, color: "#DC2626", tint: "#FEF2F2", ready: false },
+    { key: "preferences", label: "App Preferences", desc: "Theme, language", icon: Palette, color: "#6366F1", tint: "#EEF2FF", ready: false },
+  ];
+
+  const openCategory = (cat) => {
+    if (!cat.ready) {
+      showToast(cat.redirectNote || "ఇది తర్వాతి అప్‌డేట్‌లో వస్తుంది.", "info");
+      return;
+    }
+    setSubView(cat.key);
+  };
+
+  if (subView === "organization") {
+    return <OrganizationSettings currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
+  }
+  if (subView === "programs") {
+    return <ProgramManagement currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} onBack={() => setSubView(null)} />;
+  }
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h2 className="text-[18px] font-bold text-[#111827]">Settings</h2>
+        <p className="text-[12px] text-[#6B7280]">Super Admin only · V1</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {CATEGORIES.map(cat => (
+          <button key={cat.key} onClick={() => openCategory(cat)}
+            className="text-left bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition relative">
+            {!cat.ready && (
+              <span className="absolute top-3 right-3 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
+                SOON
+              </span>
+            )}
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: cat.tint }}>
+              <cat.icon size={18} style={{ color: cat.color }} />
+            </div>
+            <p className="text-[13px] font-semibold text-[#111827] mb-1">{cat.label}</p>
+            <p className="text-[11px] text-[#6B7280] leading-snug">{cat.desc}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
+  const [form, setForm] = useState(null);
+  const [original, setOriginal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", phone: "", email: "", website: "" };
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("org_settings").select("*").eq("id", 1).single();
+      const loaded = data || BLANK;
+      setForm(loaded);
+      setOriginal(loaded);
+      setLoading(false);
+    })();
+  }, []);
+
+  const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("org_settings").upsert({ ...form, id: 1 });
+    if (error) { showToast("Error: " + error.message, "error"); setSaving(false); return; }
+    // Log only the fields that actually changed
+    const changedFields = Object.keys(form).filter(k => k !== "id" && (original?.[k] || "") !== (form[k] || ""));
+    for (const field of changedFields) {
+      await logAppAudit("UPDATE", "Settings", `Organization Settings — ${field}: "${original?.[field] || ""}" → "${form[field] || ""}"`);
+    }
+    setOriginal(form);
+    showToast("Organization settings saved.");
+    setSaving(false);
+  };
+
+  if (loading || !form) {
+    return (
+      <div className="text-center py-16 text-[#9CA3AF]">
+        <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Organization Settings</h2>
+          <p className="text-[12px] text-[#6B7280]">NGO identity & contact details</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 space-y-1">
+        <Field label="NGO Name">
+          <Input value={form.ngo_name || ""} onChange={set("ngo_name")} placeholder="TAPASVI Society for Rural Development..." />
+        </Field>
+        <Field label="Logo URL" hint="ప్రస్తుతానికి image URL మాత్రమే — direct file upload తర్వాతి అప్‌డేట్‌లో వస్తుంది">
+          <Input value={form.logo_url || ""} onChange={set("logo_url")} placeholder="https://.../logo.png" />
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Registration Number">
+            <Input value={form.registration_number || ""} onChange={set("registration_number")} placeholder="Reg. No." />
+          </Field>
+          <Field label="Phone">
+            <Input value={form.phone || ""} onChange={set("phone")} placeholder="10-digit phone" inputMode="tel" />
+          </Field>
+          <Field label="Email">
+            <Input type="email" value={form.email || ""} onChange={set("email")} placeholder="contact@tapasvi.org" inputMode="email" />
+          </Field>
+          <Field label="Website">
+            <Input value={form.website || ""} onChange={set("website")} placeholder="https://..." />
+          </Field>
+        </div>
+        <Field label="Address">
+          <textarea value={form.address || ""} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+            className={inputCls} rows={3} placeholder="Full address" />
+        </Field>
+      </div>
+
+      <button onClick={save} disabled={saving}
+        className="mt-4 w-full rounded-xl py-3 text-[14px] font-bold text-white"
+        style={{ background: saving ? "#888" : "#1E3A8A" }}>
+        {saving ? "Saving..." : "Save Changes"}
+      </button>
+    </div>
+  );
+}
+
+const PROGRAM_ICON_MAP = {
+  Laptop, Scissors, Leaf, BookOpen, Briefcase, Award, Users, MapPin,
+  ClipboardList, Building2, Database, ShieldCheck, Palette, TrendingUp, BarChart3,
+};
+const PROGRAM_COLOR_PRESETS = ["#1E3A8A", "#F97316", "#16A34A", "#DC2626", "#7C3AED", "#0EA5E9", "#DB2777", "#F59E0B"];
+
+function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
+  const [programs, setPrograms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [subView, setSubView] = useState("list"); // list | form
+  const [editing, setEditing] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("programs").select("*").order("display_order", { ascending: true });
+    if (error) { showToast("Error loading programs: " + error.message, "error"); setLoading(false); return; }
+    setPrograms(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const countFor = (key) => beneficiaries.filter(b => b.program === key).length;
+
+  const filtered = useMemo(() => {
+    let r = programs;
+    if (statusFilter !== "all") r = r.filter(p => p.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(p => p.program_name?.toLowerCase().includes(q) || p.program_code?.toLowerCase().includes(q) || p.registration_prefix?.toLowerCase().includes(q));
+    }
+    return r;
+  }, [programs, query, statusFilter]);
+
+  const toggleStatus = async (p) => {
+    const newStatus = p.status === "active" ? "inactive" : "active";
+    const { error } = await supabase.from("programs").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", p.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setPrograms(ps => ps.map(x => x.id === p.id ? { ...x, status: newStatus } : x));
+    await logAppAudit("STATUS", "Settings", `Program "${p.program_name}" status: ${p.status} → ${newStatus}`);
+    showToast(`Program ${newStatus === "active" ? "activated" : "deactivated"}.`);
+  };
+
+  const archiveProgram = async (p) => {
+    const { error } = await supabase.from("programs").update({ status: "archived", updated_at: new Date().toISOString() }).eq("id", p.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setPrograms(ps => ps.map(x => x.id === p.id ? { ...x, status: "archived" } : x));
+    await logAppAudit("STATUS", "Settings", `Program "${p.program_name}" archived (was ${p.status})`);
+    showToast("Program archived. Existing beneficiary records are unaffected.");
+    setArchiveTarget(null);
+  };
+
+  const saveProgram = async (form) => {
+    const dupName = programs.find(p => p.id !== editing?.id && p.program_name.trim().toLowerCase() === form.program_name.trim().toLowerCase());
+    const dupCode = programs.find(p => p.id !== editing?.id && p.program_code.trim().toLowerCase() === form.program_code.trim().toLowerCase());
+    const dupPrefix = programs.find(p => p.id !== editing?.id && p.registration_prefix.trim().toLowerCase() === form.registration_prefix.trim().toLowerCase());
+    if (dupName) { showToast("Program Name already exists.", "error"); return; }
+    if (dupCode) { showToast("Program Code already exists.", "error"); return; }
+    if (dupPrefix) { showToast("Registration Prefix already exists.", "error"); return; }
+    if (form.registration_prefix.length > 10) { showToast("Prefix must be 10 characters or fewer.", "error"); return; }
+
+    if (editing) {
+      const { error } = await supabase.from("programs").update({ ...form, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPrograms(ps => ps.map(p => p.id === editing.id ? { ...p, ...form } : p));
+      await logAppAudit("UPDATE", "Settings", `Program updated: ${form.program_name} (${form.program_code})`);
+      showToast("Program updated.");
+    } else {
+      const rec = { ...form, key: form.program_code.toLowerCase().replace(/[^a-z0-9]/g, ""), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("programs").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPrograms(ps => [...ps, data]);
+      await logAppAudit("CREATE", "Settings", `Program created: ${form.program_name} (${form.program_code}, prefix ${form.registration_prefix})`);
+      showToast("Program created.");
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  const statusBadge = (status) => {
+    const map = { active: ["#DCFCE7", "#16A34A", "Active"], inactive: ["#F3F4F6", "#6B7280", "Inactive"], archived: ["#FEE2E2", "#DC2626", "Archived"] };
+    const [bg, fg, label] = map[status] || map.inactive;
+    return <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: bg, color: fg }}>{label}</span>;
+  };
+
+  if (subView === "form") {
+    return <ProgramForm editing={editing} onSave={saveProgram} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Program Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{programs.length} programs</p>
+        </div>
+      </div>
+
+      <div className="flex justify-end mb-4">
+        <button onClick={() => { setEditing(null); setSubView("form"); }}
+          className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+          <Plus size={14} /> Add Program
+        </button>
+      </div>
+
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, code, prefix..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No programs found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(p => {
+            const PIcon = PROGRAM_ICON_MAP[p.icon] || ClipboardList;
+            return (
+              <div key={p.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: (p.color || "#1E3A8A") + "18" }}>
+                      <PIcon size={18} style={{ color: p.color || "#1E3A8A" }} />
+                    </div>
+                    <div>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{p.program_name}</p>
+                      <p className="text-[11px] text-[#6B7280]">{p.program_code} · Prefix: {p.registration_prefix} · {countFor(p.key)} beneficiaries</p>
+                    </div>
+                  </div>
+                  {statusBadge(p.status)}
+                </div>
+                {p.description && <p className="text-[11.5px] text-[#6B7280] mt-2">{p.description}</p>}
+                <div className="flex gap-2 mt-3">
+                  {p.status !== "archived" && (
+                    <button onClick={() => toggleStatus(p)}
+                      className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                      {p.status === "active" ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                  <button onClick={() => { setEditing(p); setSubView("form"); }}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">
+                    Edit
+                  </button>
+                  {p.status !== "archived" && (
+                    <button onClick={() => setArchiveTarget(p)}
+                      className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">
+                      Archive
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {archiveTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setArchiveTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Archive Program?</p>
+                <p className="text-[12px] text-[#6B7280]">{archiveTarget.program_name}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">
+              కొత్త రిజిస్ట్రేషన్‌లకు ఇది కనిపించదు. ఇప్పటికే ఉన్న {countFor(archiveTarget.key)} బెనిఫిషియరీ రికార్డులు సురక్షితంగా ఉంటాయి — ఇది వాటిని తీసేయదు.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => archiveProgram(archiveTarget)}
+                className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Archive</button>
+              <button onClick={() => setArchiveTarget(null)}
+                className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgramForm({ editing, onSave, onCancel }) {
+  const [form, setForm] = useState(editing || {
+    program_name: "", program_code: "", registration_prefix: "", description: "",
+    color: PROGRAM_COLOR_PRESETS[0], icon: "ClipboardList", display_order: 0, status: "active",
+  });
+
+  const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const submit = () => {
+    if (!form.program_name.trim()) return;
+    if (!form.program_code.trim()) return;
+    if (!form.registration_prefix.trim()) return;
+    onSave({
+      ...form,
+      program_code: form.program_code.trim().toUpperCase(),
+      registration_prefix: form.registration_prefix.trim().toUpperCase(),
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit Program" : "Add Program"}</h2>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 space-y-1">
+        <Field label="Program Name" required>
+          <Input value={form.program_name} onChange={set("program_name")} placeholder="e.g. Skill Development" />
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Program Code" required hint="Unique, e.g. SKILL">
+            <Input value={form.program_code} onChange={set("program_code")} placeholder="SKILL" />
+          </Field>
+          <Field label="Registration Prefix" required hint="Unique, used in IDs like SKL-0001">
+            <Input value={form.registration_prefix} onChange={set("registration_prefix")} placeholder="SKL" />
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea value={form.description || ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            className={inputCls} rows={2} placeholder="Short description" />
+        </Field>
+        <Field label="Color">
+          <div className="flex gap-2 flex-wrap">
+            {PROGRAM_COLOR_PRESETS.map(c => (
+              <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
+                className="w-8 h-8 rounded-full border-2"
+                style={{ background: c, borderColor: form.color === c ? "#111827" : "transparent" }} />
+            ))}
+          </div>
+        </Field>
+        <Field label="Icon">
+          <div className="flex gap-2 flex-wrap">
+            {Object.keys(PROGRAM_ICON_MAP).map(name => {
+              const IconComp = PROGRAM_ICON_MAP[name];
+              return (
+                <button key={name} type="button" onClick={() => setForm(f => ({ ...f, icon: name }))}
+                  className="w-9 h-9 rounded-lg flex items-center justify-center border"
+                  style={form.icon === name ? { background: (form.color || "#1E3A8A") + "18", borderColor: form.color || "#1E3A8A" } : { borderColor: "#E5E7EB" }}>
+                  <IconComp size={16} style={{ color: form.icon === name ? (form.color || "#1E3A8A") : "#6B7280" }} />
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Display Order">
+            <input type="number" value={form.display_order} onChange={e => setForm(f => ({ ...f, display_order: parseInt(e.target.value) || 0 }))} className={inputCls} />
+          </Field>
+          <Field label="Status">
+            <Select value={form.status} onChange={set("status")} options={[
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ]} />
+          </Field>
+        </div>
+      </div>
+
+      <button onClick={submit} className="mt-4 w-full rounded-xl py-3 text-[14px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+        {editing ? "Save Changes" : "Create Program"}
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
@@ -2616,6 +3151,10 @@ export default function App() {
 
   // Data state
   const [beneficiaries, setBeneficiaries] = useState([]);
+  // Phase 2: dynamic active programs for Beneficiary Registration only (does not affect Dashboard/Training/Employment/Reports)
+  const [dynPrograms, setDynPrograms] = useState([]);
+  const [dynProgramsLoading, setDynProgramsLoading] = useState(true);
+  const [dynProgramsError, setDynProgramsError] = useState(null);
   const [training, setTraining] = useState([]);
   const [batches, setBatches] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
@@ -2666,7 +3205,7 @@ export default function App() {
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
-      if (b.error || t.error || e.error || v.error) throw new Error((b.error || t.error || e.error || v.error).message);
+      if (b.error || t.error || e.error || v.error || bt.error || te.error) throw new Error((b.error || t.error || e.error || v.error || bt.error || te.error).message);
       setBeneficiaries(b.data || []);
       setTraining(t.data || []);
       setEmployment(e.data || []);
@@ -2680,6 +3219,32 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (user) loadAll(); }, [user, loadAll]);
+
+  // Phase 2: load active programs once for Beneficiary Registration — isolated from loadAll so a failure here
+  // never affects Dashboard/Training/Employment/Reports, which continue using the static PROGRAM_MAP.
+  const loadDynPrograms = useCallback(async () => {
+    setDynProgramsLoading(true); setDynProgramsError(null);
+    const { data, error } = await supabase.from("programs").select("*").eq("status", "active").order("display_order", { ascending: true });
+    if (error) { setDynProgramsError(error.message); setDynProgramsLoading(false); return; }
+    setDynPrograms(data || []);
+    setDynProgramsLoading(false);
+  }, []);
+  useEffect(() => { if (user) loadDynPrograms(); }, [user, loadDynPrograms]);
+
+  // Map of active dynamic programs, shaped like the legacy PROGRAM_MAP so Registration code can use it the same way.
+  // Falls back to the static PROGRAM_MAP for any key not found (keeps old data / a failed fetch working).
+  const dynProgramMap = useMemo(() => {
+    const m = {};
+    dynPrograms.forEach(p => {
+      m[p.key] = {
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        idPrefix: p.registration_prefix, status: p.status,
+      };
+    });
+    return m;
+  }, [dynPrograms]);
 
   // ---- BENEFICIARY CRUD ----
   // ---- ELIGIBILITY ENGINE ----
@@ -2742,10 +3307,20 @@ export default function App() {
       showToast("Beneficiary updated.");
       setEditing(null); setSubView(null); setView("beneficiaries");
     } else {
+      // Phase 2 validation: program must exist and be Active (dynamic list is authoritative when available)
+      const progFromDynamic = dynProgramMap[form.program];
+      const progFromStatic = PROGRAM_MAP[form.program];
+      const dynSourceUsable = !dynProgramsError; // if dynamic fetch failed, don't block registration — fall back to static
+      if (dynSourceUsable && dynPrograms.length > 0 && !progFromDynamic && !progFromStatic) {
+        showToast("Selected program is not available or has been deactivated. Please choose an active program.", "error");
+        return;
+      }
+      const resolvedProgram = progFromDynamic || progFromStatic;
+
       const dup = findDuplicateRegistration(form, form.program, beneficiaries);
       if (dup) {
         const replace = window.confirm(
-          `This person is already registered in ${PROGRAM_MAP[form.program]?.label || form.program} as ${dup.beneficiary_id}.\n\nTap OK to update that existing registration instead of creating a duplicate, or Cancel to stop.`
+          `This person is already registered in ${resolvedProgram?.label || form.program} as ${dup.beneficiary_id}.\n\nTap OK to update that existing registration instead of creating a duplicate, or Cancel to stop.`
         );
         if (!replace) { return; }
         const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", dup.beneficiary_id);
@@ -2756,14 +3331,18 @@ export default function App() {
         setEditing(null); setSubView(null); setView("beneficiaries");
         return;
       }
-      const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
+      const prefix = resolvedProgram?.idPrefix || "BEN";
       const beneficiary_id = nextId(beneficiaries, prefix);
+      if (beneficiaries.some(b => b.beneficiary_id === beneficiary_id)) {
+        showToast("Registration ID collision detected — please try saving again.", "error");
+        return;
+      }
       const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       const updatedBeneficiaries = [rec, ...beneficiaries];
       setBeneficiaries(updatedBeneficiaries);
-      await logAppAudit("CREATE", "Beneficiaries", `Registered: ${form.name || beneficiary_id} (${beneficiary_id}, ${PROGRAM_MAP[form.program]?.short || form.program})`);
+      await logAppAudit("CREATE", "Beneficiaries", `Registered: ${form.name || beneficiary_id} (${beneficiary_id}, ${resolvedProgram?.short || form.program})`);
       showToast(`Registered: ${beneficiary_id}`);
 
       // Check eligibility for other programs
@@ -2785,12 +3364,13 @@ export default function App() {
     let currentBens = [...beneficiaries];
 
     for (const key of selectedKeys) {
+      const progInfo = dynProgramMap[key] || PROGRAM_MAP[key];
       const dup = findDuplicateRegistration(savedRec, key, currentBens);
       if (dup) {
-        results.push(`⚠️ ${PROGRAM_MAP[key]?.short}: already registered as ${dup.beneficiary_id}, skipped`);
+        results.push(`⚠️ ${progInfo?.short}: already registered as ${dup.beneficiary_id}, skipped`);
         continue;
       }
-      const prefix = PROGRAM_MAP[key]?.idPrefix || "BEN";
+      const prefix = progInfo?.idPrefix || "BEN";
       const beneficiary_id = nextId(currentBens, prefix);
       const rec = {
         ...savedRec,
@@ -2801,10 +3381,10 @@ export default function App() {
       };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) {
-        results.push(`❌ ${PROGRAM_MAP[key]?.short}: ${error.message}`);
+        results.push(`❌ ${progInfo?.short}: ${error.message}`);
       } else {
         currentBens = [rec, ...currentBens];
-        results.push(`✅ ${PROGRAM_MAP[key]?.short}: ${beneficiary_id}`);
+        results.push(`✅ ${progInfo?.short}: ${beneficiary_id}`);
       }
     }
     setBeneficiaries(currentBens);
@@ -2823,7 +3403,7 @@ export default function App() {
 
   // ---- BATCH TRAINING CRUD ----
   const saveBatch = async (form) => {
-    if (activeBatch && trainingSubView === "batch-form") {
+    if (activeBatch) {
       const { error } = await supabase.from("batch_trainings").update(form).eq("batch_id", activeBatch.batch_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setBatches(bs => bs.map(b => b.batch_id === activeBatch.batch_id ? { ...b, ...form } : b));
@@ -2837,7 +3417,7 @@ export default function App() {
       await logTrainingAudit("Training Created", `Created: ${form.training_name}`);
       showToast("Training created.");
     }
-    setTrainingSubView(null); setActiveBatch(null);
+    setTrainingSubView(null); setActiveBatch(null); setSubView(null);
   };
 
   const deleteBatch = async (batch) => {
@@ -3075,6 +3655,7 @@ export default function App() {
     { key: "employment", label: "Employment", icon: Briefcase },
     ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
     ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
+    ...(isSuperAdmin ? [{ key: "settings", label: "Settings", icon: SettingsIcon }] : []),
   ];
 
   const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); };
@@ -3135,11 +3716,12 @@ export default function App() {
           {/* FORMS */}
           {subView === "beneficiary-form" && (
             <BeneficiaryForm editing={editing} onSave={saveBeneficiary} onCancel={() => { setSubView(null); setEditing(null); }}
-              currentUser={user} beneficiaries={beneficiaries} />
+              currentUser={user} beneficiaries={beneficiaries}
+              dynPrograms={dynPrograms} dynProgramsLoading={dynProgramsLoading} dynProgramsError={dynProgramsError} />
           )}
           {subView === "training-form" && (
             <BatchTrainingForm editing={activeBatch}
-              onSave={saveBatch}
+              onSave={saveBatch} dynPrograms={dynPrograms}
               onCancel={() => { setTrainingSubView(null); setActiveBatch(null); setSubView(null); }} />
           )}
           {subView === "employment-form" && (
@@ -3178,7 +3760,7 @@ export default function App() {
             <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
-            <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
+            <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
@@ -3209,6 +3791,7 @@ export default function App() {
               beneficiaries={beneficiaries}
               isAdmin={isAdmin}
               currentUser={user}
+              dynPrograms={dynPrograms}
               onAdd={() => { setActiveBatch(null); setSubView("training-form"); }}
               onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
               onDelete={b => setDeleteTarget({ type: "batch", record: b })}
@@ -3233,6 +3816,9 @@ export default function App() {
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
+          )}
+          {view === "settings" && isSuperAdmin && (
+            <SettingsHub currentUser={user} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} />
           )}
         </div>
       </main>
