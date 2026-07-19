@@ -1600,11 +1600,20 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
   });
   const overall = Math.round(completion.reduce((sum, s) => sum + (s.pct * s.weight / 100), 0));
 
-  // Other programs this person is registered in
-  const otherPrograms = beneficiaries.filter(x =>
+  // Other programs this person is registered in — one badge per program (latest active only)
+  const otherProgramsRaw = beneficiaries.filter(x =>
     x.beneficiary_id !== b.beneficiary_id &&
-    x.phone === b.phone && x.phone
+    x.phone === b.phone && x.phone &&
+    x.status !== "Archived"
   );
+  const otherProgramsMap = {};
+  otherProgramsRaw.forEach(x => {
+    const existing = otherProgramsMap[x.program];
+    if (!existing || new Date(x.created_at || 0) > new Date(existing.created_at || 0)) {
+      otherProgramsMap[x.program] = x;
+    }
+  });
+  const otherPrograms = Object.values(otherProgramsMap);
 
   const InfoRow = ({ label, value }) => (
     <div className="flex py-2 border-b border-[#F3F4F6] last:border-0">
@@ -2396,6 +2405,20 @@ export default function App() {
     return eligible;
   };
 
+  // Find an existing ACTIVE registration for the same person in the same program
+  const findDuplicateRegistration = (form, program, currentBeneficiaries, excludeId) => {
+    return currentBeneficiaries.find(b =>
+      b.beneficiary_id !== excludeId &&
+      b.program === program &&
+      b.status !== "Archived" &&
+      (
+        (form.identity_number && b.identity_number === form.identity_number) ||
+        (form.aadhaar_number && b.aadhaar_number === form.aadhaar_number) ||
+        (form.phone && b.phone === form.phone)
+      )
+    );
+  };
+
   const saveBeneficiary = async (form) => {
     if (editing) {
       const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", editing.beneficiary_id);
@@ -2404,6 +2427,19 @@ export default function App() {
       showToast("Beneficiary updated.");
       setEditing(null); setSubView(null); setView("beneficiaries");
     } else {
+      const dup = findDuplicateRegistration(form, form.program, beneficiaries);
+      if (dup) {
+        const replace = window.confirm(
+          `This person is already registered in ${PROGRAM_MAP[form.program]?.label || form.program} as ${dup.beneficiary_id}.\n\nTap OK to update that existing registration instead of creating a duplicate, or Cancel to stop.`
+        );
+        if (!replace) { return; }
+        const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", dup.beneficiary_id);
+        if (error) { showToast("Error: " + error.message, "error"); return; }
+        setBeneficiaries(bs => bs.map(b => b.beneficiary_id === dup.beneficiary_id ? { ...b, ...form } : b));
+        showToast(`Updated existing registration: ${dup.beneficiary_id}`);
+        setEditing(null); setSubView(null); setView("beneficiaries");
+        return;
+      }
       const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
       const beneficiary_id = nextId(beneficiaries, prefix);
       const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
@@ -2432,6 +2468,11 @@ export default function App() {
     let currentBens = [...beneficiaries];
 
     for (const key of selectedKeys) {
+      const dup = findDuplicateRegistration(savedRec, key, currentBens);
+      if (dup) {
+        results.push(`⚠️ ${PROGRAM_MAP[key]?.short}: already registered as ${dup.beneficiary_id}, skipped`);
+        continue;
+      }
       const prefix = PROGRAM_MAP[key]?.idPrefix || "BEN";
       const beneficiary_id = nextId(currentBens, prefix);
       const rec = {
