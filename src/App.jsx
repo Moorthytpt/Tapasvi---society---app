@@ -3197,7 +3197,7 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
-      const [b, t, e, v, bt, te] = await Promise.all([
+      const [ben, trn, batchT, enrl, emp, vil] = await Promise.all([
         supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
         supabase.from("training").select("*").order("created_at", { ascending: false }),
         supabase.from("batch_trainings").select("*").order("created_at", { ascending: false }),
@@ -3205,13 +3205,13 @@ export default function App() {
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
-      if (b.error || t.error || e.error || v.error || bt.error || te.error) throw new Error((b.error || t.error || e.error || v.error || bt.error || te.error).message);
-      setBeneficiaries(b.data || []);
-      setTraining(t.data || []);
-      setEmployment(e.data || []);
-      setVillages(v.data || []);
-      setBatches(bt.data || []);
-      setEnrollments(te.data || []);
+      if (ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error) throw new Error((ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error).message);
+      setBeneficiaries(ben.data || []);
+      setTraining(trn.data || []);
+      setEmployment(emp.data || []);
+      setVillages(vil.data || []);
+      setBatches(batchT.data || []);
+      setEnrollments(enrl.data || []);
     } catch (err) {
       setLoadError(err.message);
     }
