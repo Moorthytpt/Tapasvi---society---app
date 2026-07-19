@@ -1371,17 +1371,29 @@ function BatchTrainingForm({ editing, onSave, onCancel, dynPrograms }) {
 }
 
 /* ── ENROLLMENT SCREEN ──────────────────────────────────────── */
-function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose }) {
+function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll, onClose }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(new Set());
 
-  // Only beneficiaries in this program, not already enrolled
+  // Only beneficiaries in this program, not already enrolled here, and not actively enrolled
+  // in another training batch that's still Upcoming/Ongoing (business rule: no duplicate active enrollments).
   const enrolledIds = new Set(enrollments.filter(e => e.batch_id === batch.batch_id).map(e => e.beneficiary_id));
+  const activeElsewhereIds = useMemo(() => {
+    const s = new Set();
+    enrollments.forEach(e => {
+      if ((e.enrollment_status || "Active") !== "Active") return;
+      if (e.batch_id === batch.batch_id) return;
+      const eb = (batches || []).find(b => b.batch_id === e.batch_id);
+      const ebStatus = eb?.status || "Upcoming";
+      if (ebStatus === "Upcoming" || ebStatus === "Ongoing") s.add(e.beneficiary_id);
+    });
+    return s;
+  }, [enrollments, batches, batch.batch_id]);
   const eligible = useMemo(() => {
     return beneficiaries.filter(b =>
-      b.program === batch.program && !enrolledIds.has(b.beneficiary_id)
+      b.program === batch.program && !enrolledIds.has(b.beneficiary_id) && !activeElsewhereIds.has(b.beneficiary_id)
     );
-  }, [beneficiaries, batch, enrolledIds]);
+  }, [beneficiaries, batch, enrolledIds, activeElsewhereIds]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return eligible;
@@ -1426,7 +1438,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose
         {filtered.length === 0 ? (
           <div className="text-center py-12 text-[#9CA3AF]">
             <Users size={24} className="mx-auto mb-2 opacity-40" />
-            <p className="text-[13px]">{eligible.length === 0 ? "All eligible beneficiaries already enrolled." : "No matching beneficiaries."}</p>
+            <p className="text-[13px]">{eligible.length === 0 ? "No beneficiaries available — already enrolled here or actively enrolled in another training." : "No matching beneficiaries."}</p>
           </div>
         ) : (
           <div className="divide-y divide-[#F3F4F6] max-h-[50vh] overflow-y-auto">
@@ -1468,8 +1480,8 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose
 }
 
 /* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
-function AttendanceScreen({ batch, enrollments, onSaveAttendance, onClose }) {
-  const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id);
+function AttendanceScreen({ batch, enrollments, onSaveAttendance, onCancelEnrollment, onClose }) {
+  const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id && (e.enrollment_status || "Active") !== "Cancelled");
   const [attendance, setAttendance] = useState(() => {
     const init = {};
     batchEnrollments.forEach(e => { init[e.enrollment_id] = e.attendance_status || "Present"; });
@@ -1523,6 +1535,13 @@ function AttendanceScreen({ batch, enrollments, onSaveAttendance, onClose }) {
                     </button>
                   ))}
                 </div>
+                {onCancelEnrollment && (
+                  <button type="button" onClick={() => { if (window.confirm(`Cancel ${e.beneficiary_name || e.beneficiary_id}'s enrollment? They'll become available for new enrollments again.`)) onCancelEnrollment(e); }}
+                    title="Cancel Enrollment"
+                    className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -3197,7 +3216,7 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
-      const [b, t, e, v, bt, te] = await Promise.all([
+      const [ben, trn, batchT, enrl, emp, vil] = await Promise.all([
         supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
         supabase.from("training").select("*").order("created_at", { ascending: false }),
         supabase.from("batch_trainings").select("*").order("created_at", { ascending: false }),
@@ -3205,13 +3224,13 @@ export default function App() {
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
-      if (b.error || t.error || e.error || v.error || bt.error || te.error) throw new Error((b.error || t.error || e.error || v.error || bt.error || te.error).message);
-      setBeneficiaries(b.data || []);
-      setTraining(t.data || []);
-      setEmployment(e.data || []);
-      setVillages(v.data || []);
-      setBatches(bt.data || []);
-      setEnrollments(te.data || []);
+      if (ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error) throw new Error((ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error).message);
+      setBeneficiaries(ben.data || []);
+      setTraining(trn.data || []);
+      setEmployment(emp.data || []);
+      setVillages(vil.data || []);
+      setBatches(batchT.data || []);
+      setEnrollments(enrl.data || []);
     } catch (err) {
       setLoadError(err.message);
     }
@@ -3404,10 +3423,21 @@ export default function App() {
   // ---- BATCH TRAINING CRUD ----
   const saveBatch = async (form) => {
     if (activeBatch) {
+      const wasCompleted = activeBatch.status === "Completed";
       const { error } = await supabase.from("batch_trainings").update(form).eq("batch_id", activeBatch.batch_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setBatches(bs => bs.map(b => b.batch_id === activeBatch.batch_id ? { ...b, ...form } : b));
       await logTrainingAudit("Training Updated", `Updated: ${form.training_name}`);
+      // If this batch just became Completed, release its beneficiaries so they're available for new enrollments.
+      if (form.status === "Completed" && !wasCompleted) {
+        const toRelease = enrollments.filter(e => e.batch_id === activeBatch.batch_id && (e.enrollment_status || "Active") === "Active");
+        if (toRelease.length > 0) {
+          const { error: relError } = await supabase.from("training_enrollments").update({ enrollment_status: "Completed" }).eq("batch_id", activeBatch.batch_id).eq("enrollment_status", "Active");
+          if (!relError) {
+            setEnrollments(es => es.map(e => e.batch_id === activeBatch.batch_id && (e.enrollment_status || "Active") === "Active" ? { ...e, enrollment_status: "Completed" } : e));
+          }
+        }
+      }
       showToast("Training updated.");
     } else {
       const rec = { ...form, created_at: new Date().toISOString(), created_by: user.username };
@@ -3428,9 +3458,28 @@ export default function App() {
     showToast("Training deleted."); setDeleteTarget(null);
   };
 
+  // A beneficiary counts as "actively enrolled elsewhere" if they have an enrollment with
+  // enrollment_status === "Active" in a batch that hasn't finished (status is Upcoming/Ongoing).
+  const isActivelyEnrolledElsewhere = (beneficiaryId, excludeBatchId) => {
+    return enrollments.some(e => {
+      if (e.beneficiary_id !== beneficiaryId) return false;
+      if ((e.enrollment_status || "Active") !== "Active") return false;
+      if (excludeBatchId && e.batch_id === excludeBatchId) return false;
+      const eb = batches.find(b => b.batch_id === e.batch_id);
+      const ebStatus = eb?.status || "Upcoming";
+      return ebStatus === "Upcoming" || ebStatus === "Ongoing";
+    });
+  };
+
   const enrollBeneficiaries = async (beneficiaryIds) => {
     if (!activeBatch) return;
-    const recs = beneficiaryIds.map(bid => {
+    const blocked = beneficiaryIds.filter(bid => isActivelyEnrolledElsewhere(bid, activeBatch.batch_id));
+    const allowed = beneficiaryIds.filter(bid => !blocked.includes(bid));
+    if (blocked.length > 0) {
+      showToast(`${blocked.length > 1 ? blocked.length + " beneficiaries are" : "Beneficiary is"} already enrolled in another active training.`, "error");
+    }
+    if (allowed.length === 0) return;
+    const recs = allowed.map(bid => {
       const ben = beneficiaries.find(b => b.beneficiary_id === bid);
       return {
         batch_id: activeBatch.batch_id,
@@ -3441,15 +3490,24 @@ export default function App() {
         attendance_pct: 0,
         certificate_status: "Pending",
         certificate_no: "",
+        enrollment_status: "Active",
         enrolled_at: new Date().toISOString(),
       };
     });
     const { data, error } = await supabase.from("training_enrollments").insert(recs).select();
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setEnrollments(es => [...es, ...(data || [])]);
-    await logTrainingAudit("Enrollment", `Enrolled ${beneficiaryIds.length} in ${activeBatch.training_name}`);
-    showToast(`${beneficiaryIds.length} beneficiaries enrolled!`);
+    await logTrainingAudit("Enrollment", `Enrolled ${allowed.length} in ${activeBatch.training_name}`);
+    showToast(`${allowed.length} beneficiaries enrolled!`);
     setTrainingSubView(null); setActiveBatch(null);
+  };
+
+  const cancelEnrollment = async (enrollment) => {
+    const { error } = await supabase.from("training_enrollments").update({ enrollment_status: "Cancelled" }).eq("enrollment_id", enrollment.enrollment_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setEnrollments(es => es.map(e => e.enrollment_id === enrollment.enrollment_id ? { ...e, enrollment_status: "Cancelled" } : e));
+    await logTrainingAudit("Enrollment Cancelled", `Cancelled enrollment for ${enrollment.beneficiary_name || enrollment.beneficiary_id}`);
+    showToast("Enrollment cancelled. Beneficiary is available for new enrollments again.");
   };
 
   const saveAttendance = async (attendanceMap) => {
@@ -3737,6 +3795,7 @@ export default function App() {
               batch={activeBatch}
               beneficiaries={beneficiaries}
               enrollments={enrollments}
+              batches={batches}
               onEnroll={enrollBeneficiaries}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
@@ -3745,6 +3804,7 @@ export default function App() {
               batch={activeBatch}
               enrollments={enrollments}
               onSaveAttendance={saveAttendance}
+              onCancelEnrollment={cancelEnrollment}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
           {view === "training" && trainingSubView === "certificates" && activeBatch && (
