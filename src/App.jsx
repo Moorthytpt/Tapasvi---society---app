@@ -60,6 +60,25 @@ function nextId(records, prefix) {
   return `${prefix}-${String(next).padStart(4, "0")}`;
 }
 
+// Generates a friendly one-time temporary password, e.g. "Tap@58391"
+function generateTempPassword() {
+  const digits = Math.floor(10000 + Math.random() * 90000);
+  return `Tap@${digits}`;
+}
+
+// Aadhaar visibility per role: Super Admin sees full, Admin sees masked, Field Worker sees neither
+function maskAadhaar(num) {
+  if (!num) return "—";
+  const digits = String(num).replace(/\D/g, "");
+  if (digits.length < 4) return "XXXXXXXX";
+  return "XXXXXXXX" + digits.slice(-4);
+}
+function aadhaarForRole(num, isSuperAdmin, isAdmin) {
+  if (isSuperAdmin) return num || "—";
+  if (isAdmin) return maskAadhaar(num);
+  return null; // Field Worker — never show the number
+}
+
 function downloadCSV(rows, filename) {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
@@ -75,7 +94,7 @@ function downloadCSV(rows, filename) {
 }
 
 /* ── PDF: Individual Profile ── */
-function pdfIndividual(b) {
+function pdfIndividual(b, aadhaarDisplay) {
   var w = window.open("", "_blank");
   if (!w) return;
   var prog = { rydeap: "RYDEAP", womens: "Womens Tailoring", waste: "Waste Management" };
@@ -84,7 +103,7 @@ function pdfIndividual(b) {
     "<p><b>ID:</b> " + (b.beneficiary_id || "") + "</p>",
     "<p><b>Age:</b> " + (b.age || "") + " | <b>Gender:</b> " + (b.gender || "") + "</p>",
     "<p><b>Phone:</b> " + (b.phone || "") + "</p>",
-    "<p><b>Aadhaar Number:</b> " + (b.identity_number || b.aadhaar_number || "") + "</p>",
+    "<p><b>Aadhaar Number:</b> " + (aadhaarDisplay !== undefined ? (aadhaarDisplay || "") : (b.identity_number || b.aadhaar_number || "")) + "</p>",
     "<p><b>Education:</b> " + (b.education || "") + "</p>",
     "<p><b>Village:</b> " + (b.village || "") + " | <b>Mandal:</b> " + (b.mandal || "") + "</p>",
     "<p><b>District:</b> " + (b.district || "") + " | <b>State:</b> " + (b.state || "Andhra Pradesh") + "</p>",
@@ -201,45 +220,82 @@ function SectionHeader({ title, color = "#1E3A8A" }) {
    ============================================================ */
 function LoginScreen({ onLogin }) {
   const [role, setRole] = useState("admin");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => localStorage.getItem("tapasvi_remember_user") || "");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(() => !!localStorage.getItem("tapasvi_remember_user"));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
     if (!username.trim() || !password) { setError("Please enter username and password."); return; }
     setLoading(true); setError("");
+
+    if (remember) localStorage.setItem("tapasvi_remember_user", username.trim());
+    else localStorage.removeItem("tapasvi_remember_user");
+
     if (role === "admin") {
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
-      if (authError || !data.user) { setError("Invalid email or password."); setLoading(false); return; }
+      if (authError || !data.user) {
+        await supabase.from("audit_logs").insert({ user_email: username.trim(), action: "LOGIN_FAILED", module: "Auth", details: "Invalid email or password (Admin login attempt)", created_at: new Date().toISOString() });
+        setError("Invalid email or password."); setLoading(false); return;
+      }
       const { data: roleData } = await supabase.from("user_roles").select("role").eq("id", data.user.id).single();
-      if (!roleData || roleData.role !== "admin") { await supabase.auth.signOut(); setError("Access denied. Admin only."); setLoading(false); return; }
-      onLogin({ role: "admin", username: data.user.email, supabaseUser: data.user });
+      if (!roleData || (roleData.role !== "admin" && roleData.role !== "super_admin")) {
+        await supabase.from("audit_logs").insert({ user_email: data.user.email, action: "LOGIN_FAILED", module: "Auth", details: "Access denied — not an admin role", created_at: new Date().toISOString() });
+        await supabase.auth.signOut(); setError("Access denied. Admin only."); setLoading(false); return;
+      }
+      await supabase.from("app_users").update({ last_login: new Date().toISOString() }).eq("email", data.user.email);
+      await supabase.from("audit_logs").insert({ user_email: data.user.email, action: "LOGIN", module: "Auth", details: `Logged in as ${roleData.role === "super_admin" ? "Super Admin" : "Admin"}`, created_at: new Date().toISOString() });
+      onLogin({ role: roleData.role, username: data.user.email, supabaseUser: data.user });
     } else {
       // Field Worker: check username + password against app_users table
       const { data: fwData, error: fwError } = await supabase
         .from("app_users")
-        .select("id, full_name, role, status, password_hash")
+        .select("id, full_name, role, status, password_hash, must_change_password")
         .eq("full_name", username.trim())
         .eq("role", "fieldworker")
         .single();
       if (fwError || !fwData) {
+        await supabase.from("audit_logs").insert({ user_email: username.trim(), action: "LOGIN_FAILED", module: "Auth", details: "Field Worker not found", created_at: new Date().toISOString() });
         setError("User not found. Contact your Admin.");
         setLoading(false); return;
       }
       if (fwData.status !== "active") {
-        setError("Your account is inactive. Contact Admin.");
+        const statusMsg = fwData.status === "suspended" ? "Your account has been suspended. Contact Admin." : "Your account is inactive. Contact Admin.";
+        await supabase.from("audit_logs").insert({ user_email: fwData.full_name, action: "LOGIN_FAILED", module: "Auth", details: `Login attempt while account ${fwData.status}`, created_at: new Date().toISOString() });
+        setError(statusMsg);
         setLoading(false); return;
       }
       if (!fwData.password_hash || fwData.password_hash !== password) {
+        await supabase.from("audit_logs").insert({ user_email: fwData.full_name, action: "LOGIN_FAILED", module: "Auth", details: "Incorrect password", created_at: new Date().toISOString() });
         setError("Incorrect password.");
         setLoading(false); return;
       }
-      onLogin({ role: "fieldworker", username: fwData.full_name });
+      await supabase.from("app_users").update({ last_login: new Date().toISOString() }).eq("id", fwData.id);
+      await supabase.from("audit_logs").insert({ user_email: fwData.full_name, action: "LOGIN", module: "Auth", details: "Logged in as Field Worker", created_at: new Date().toISOString() });
+      onLogin({ role: "fieldworker", username: fwData.full_name, mustChangePassword: !!fwData.must_change_password, userId: fwData.id });
     }
     setLoading(false);
   };
+
+  if (showForgot) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
+        <div className="w-full max-w-[400px] bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
+          <p className="text-[14px] font-bold text-[#111827] mb-3">Forgot Password</p>
+          <p className="text-[12.5px] text-[#374151] leading-relaxed mb-4">
+            For security, only a <b>Super Admin</b> can reset your password. Please contact your Super Admin — they will set a new temporary password for you, and you'll be asked to change it on your next login.
+          </p>
+          <button onClick={() => setShowForgot(false)} className="w-full rounded-lg py-2.5 text-[13px] font-semibold" style={{ background: "#1E3A8A", color: "#fff" }}>
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
@@ -267,9 +323,25 @@ function LoginScreen({ onLogin }) {
               inputMode={role === "admin" ? "email" : "text"} />
           </Field>
           <Field label="Password" required error={error}>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
+            <div className="relative">
+              <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                className={inputCls} placeholder="••••••••" style={{ paddingRight: 42 }} />
+              <button type="button" onClick={() => setShowPassword(s => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#6B7280] px-1.5">
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </Field>
-          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-1" style={{ background: loading ? "#888" : "#1E3A8A", color: "#fff" }}>
+          <div className="flex items-center justify-between mt-1 mb-1">
+            <label className="flex items-center gap-1.5 text-[12px] text-[#374151]">
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+              Remember Me
+            </label>
+            <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-medium" style={{ color: "#1E3A8A" }}>
+              Forgot Password?
+            </button>
+          </div>
+          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-2" style={{ background: loading ? "#888" : "#1E3A8A", color: "#fff" }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
           <p className="text-[10.5px] text-[#AAA] text-center mt-3">
@@ -277,6 +349,63 @@ function LoginScreen({ onLogin }) {
           </p>
         </form>
         <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI DMS v2.0 • Secure Access Only</p>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   FORCE CHANGE PASSWORD (first login with temporary password)
+   ============================================================ */
+function ChangePasswordScreen({ user, onDone, onCancel }) {
+  const [tempPassword, setTempPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!tempPassword || !newPassword || !confirmPassword) { setError("Please fill in all fields."); return; }
+    if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { setError("New password and confirmation do not match."); return; }
+    setLoading(true);
+    const { data: fwData, error: fetchError } = await supabase.from("app_users").select("password_hash").eq("id", user.userId).single();
+    if (fetchError || !fwData || fwData.password_hash !== tempPassword) {
+      setError("Temporary password is incorrect."); setLoading(false); return;
+    }
+    const { error: updateError } = await supabase.from("app_users")
+      .update({ password_hash: newPassword, must_change_password: false })
+      .eq("id", user.userId);
+    if (updateError) { setError("Error: " + updateError.message); setLoading(false); return; }
+    await supabase.from("audit_logs").insert({ user_email: user.username, action: "PASSWORD_CHANGED", module: "Auth", details: "Password changed after first login with temporary password", created_at: new Date().toISOString() });
+    setLoading(false);
+    onDone();
+  };
+
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
+      <div className="w-full max-w-[400px]">
+        <div className="flex flex-col items-center mb-6">
+          <Logo size={54} />
+          <h1 className="mt-3 text-[18px] font-bold text-[#111827] text-center">Change Your Password</h1>
+          <p className="text-[12px] text-[#6B7280] text-center mt-1">You're using a temporary password. Please set a new one to continue.</p>
+        </div>
+        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
+          <Field label="Temporary Password" required>
+            <input type="password" value={tempPassword} onChange={e => setTempPassword(e.target.value)} className={inputCls} placeholder="Enter the temporary password" />
+          </Field>
+          <Field label="New Password" required>
+            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputCls} placeholder="At least 6 characters" />
+          </Field>
+          <Field label="Confirm New Password" required error={error}>
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputCls} placeholder="Re-enter new password" />
+          </Field>
+          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-2" style={{ background: loading ? "#888" : "#16A34A", color: "#fff" }}>
+            {loading ? "Updating…" : "Change Password & Continue"}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -775,7 +904,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 /* ============================================================
    BENEFICIARY LIST
    ============================================================ */
-function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile }) {
+function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -851,11 +980,9 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-[11px] text-[#1E3A8A] font-bold">{b.beneficiary_id}</span>
                         {b.age && <span>{b.age} yrs{b.gender ? `, ${b.gender}` : ""}</span>}
-                        {(b.identity_number || b.aadhaar_number) && (
+                        {(b.identity_number || b.aadhaar_number) && aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin) && (
                           <span className="text-[10.5px] bg-[#F3F4F6] px-1.5 py-0.5 rounded font-mono">
-                            {isAdmin
-                              ? (b.identity_number || b.aadhaar_number)
-                              : "XXXX " + String(b.identity_number || b.aadhaar_number).slice(-4)}
+                            {aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin)}
                           </span>
                         )}
                       </div>
@@ -886,7 +1013,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                         </button>
                       )}
                       {isAdmin && (
-                        <button onClick={() => pdfIndividual(b)} title="PDF"
+                        <button onClick={() => (onPrintProfile ? onPrintProfile(b) : pdfIndividual(b))} title="PDF"
                           className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
                           <Download size={14} />
                         </button>
@@ -1580,7 +1707,7 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
 /* ============================================================
    BENEFICIARY PROFILE
    ============================================================ */
-function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, enrollments }) {
+function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, isSuperAdmin, enrollments }) {
   const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
 
   // Calculate profile completion
@@ -1705,15 +1832,7 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">🪪 Identity & Documents</h4>
         <InfoRow label="Primary ID Type" value={IDENTITY_TYPES.find(i => i.value === b.identity_type)?.label || (b.identity_type ? b.identity_type : "Aadhaar Card")} />
-        <InfoRow label="Document Number" value={
-          isAdmin
-            ? (b.identity_number || b.aadhaar_number || null)
-            : b.identity_number
-            ? (b.identity_type === "aadhaar" ? `XXXX XXXX ${String(b.identity_number).slice(-4)}` : b.identity_number)
-            : b.aadhaar_number
-            ? `XXXX XXXX ${String(b.aadhaar_number).slice(-4)}`
-            : null
-        } />
+        <InfoRow label="Document Number" value={aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin)} />
         <InfoRow label="Aadhaar Verified" value={b.aadhaar_verified} />
         <InfoRow label="eKYC Status" value={b.ekyc_status} />
         <div className="mt-3 p-3 bg-[#EFF6FF] rounded-lg">
@@ -1810,12 +1929,14 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
    USER MANAGEMENT MODULE — Admin Only
    ============================================================ */
 function UserManagement({ currentUser, showToast }) {
+  const isSuperAdmin = currentUser.role === "super_admin";
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [subView, setSubView] = useState("list"); // list | form | audit
   const [editing, setEditing] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [tempPasswordModal, setTempPasswordModal] = useState(null); // { full_name, password }
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1830,7 +1951,7 @@ function UserManagement({ currentUser, showToast }) {
   }, []);
 
   const loadAuditLogs = useCallback(async () => {
-    const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100);
+    const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500);
     setAuditLogs(data || []);
   }, []);
 
@@ -1848,21 +1969,34 @@ function UserManagement({ currentUser, showToast }) {
     if (editing) {
       // Don't overwrite password if left blank during edit
       const updateData = { ...form };
+      let issuedTempPassword = null;
       if (!updateData.password_hash || updateData.password_hash.trim() === "") {
         delete updateData.password_hash;
+      } else if (updateData.role === "fieldworker") {
+        // A password was (re)set — treat it as a new temporary password
+        updateData.must_change_password = true;
+        issuedTempPassword = updateData.password_hash;
       }
       const { error } = await supabase.from("app_users").update(updateData).eq("id", editing.id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setUsers(us => us.map(u => u.id === editing.id ? { ...u, ...updateData } : u));
-      await logAudit("UPDATE", `Updated user: ${form.full_name}`);
+      await logAudit(issuedTempPassword ? "PASSWORD_RESET" : "UPDATE", issuedTempPassword ? `Password reset for: ${form.full_name}` : `Updated user: ${form.full_name}`);
       showToast("User updated successfully.");
+      if (issuedTempPassword) setTempPasswordModal({ full_name: form.full_name, password: issuedTempPassword });
     } else {
+      let tempPassword = null;
       const rec = { ...form, created_by: currentUser.username, created_at: new Date().toISOString() };
+      if (form.role === "fieldworker") {
+        tempPassword = (form.password_hash && form.password_hash.trim()) || generateTempPassword();
+        rec.password_hash = tempPassword;
+        rec.must_change_password = true;
+      }
       const { data, error } = await supabase.from("app_users").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setUsers(us => [data, ...us]);
       await logAudit("CREATE", `Created user: ${form.full_name} (Role: ${form.role})`);
       showToast("User created successfully.");
+      if (tempPassword) setTempPasswordModal({ full_name: form.full_name, password: tempPassword });
     }
     await loadAuditLogs();
     setEditing(null); setSubView("list");
@@ -1893,10 +2027,12 @@ function UserManagement({ currentUser, showToast }) {
       "Village": u.village || "—", "Status": u.status,
       "Created At": new Date(u.created_at).toLocaleDateString("en-IN"),
     }));
+    logAudit("EXPORT", `Exported ${rows.length} user record(s) (CSV)`);
     downloadCSV(rows, `TAPASVI_Users_${new Date().toISOString().slice(0,10)}.csv`);
   };
 
   const printUsersPDF = () => {
+    logAudit("PRINT", `Printed ${filtered.length} user record(s)`);
     printTable(filtered.map(u => ({
       "Name": u.full_name, "Email": u.email, "Role": u.role,
       "Phone": u.phone || "—", "Program": u.program || "—",
@@ -1906,7 +2042,7 @@ function UserManagement({ currentUser, showToast }) {
   };
 
   const filtered = useMemo(() => {
-    let r = users;
+    let r = isSuperAdmin ? users : users.filter(u => u.role === "fieldworker");
     if (roleFilter !== "all") r = r.filter(u => u.role === roleFilter);
     if (statusFilter !== "all") r = r.filter(u => u.status === statusFilter);
     if (query.trim()) {
@@ -1914,7 +2050,7 @@ function UserManagement({ currentUser, showToast }) {
       r = r.filter(u => u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phone?.includes(q) || u.village?.toLowerCase().includes(q));
     }
     return r;
-  }, [users, query, roleFilter, statusFilter]);
+  }, [users, query, roleFilter, statusFilter, isSuperAdmin]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * PER_PAGE;
@@ -1923,13 +2059,13 @@ function UserManagement({ currentUser, showToast }) {
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
 
-  const roleColor = { admin: "#1E3A8A", fieldworker: "#16A34A" };
-  const roleLabel = { admin: "Admin", fieldworker: "Field Worker" };
+  const roleColor = { super_admin: "#7C3AED", admin: "#1E3A8A", fieldworker: "#16A34A" };
+  const roleLabel = { super_admin: "Super Admin", admin: "Admin", fieldworker: "Field Worker" };
 
   // ── USER FORM ──────────────────────────────────────────────
   if (subView === "form") {
     const blank = { full_name: "", email: "", role: "fieldworker", phone: "", program: "", village: "", status: "active", password_hash: "" };
-    return <UserForm editing={editing} blank={blank} onSave={saveUser} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+    return <UserForm editing={isSuperAdmin ? editing : null} blank={blank} isSuperAdmin={isSuperAdmin} onSave={saveUser} onCancel={() => { setEditing(null); setSubView("list"); }} />;
   }
 
   // ── AUDIT LOG VIEW ─────────────────────────────────────────
@@ -1949,27 +2085,33 @@ function UserManagement({ currentUser, showToast }) {
               <tr style={{ background: "#1E3A8A" }}>
                 <th className="text-left px-4 py-3 text-white font-semibold">Date & Time</th>
                 <th className="text-left px-4 py-3 text-white font-semibold">Action</th>
+                <th className="text-left px-4 py-3 text-white font-semibold">Module</th>
                 <th className="text-left px-4 py-3 text-white font-semibold">By</th>
                 <th className="text-left px-4 py-3 text-white font-semibold">Details</th>
               </tr>
             </thead>
             <tbody>
-              {auditLogs.map((log, i) => (
-                <tr key={log.id} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFF]"}>
-                  <td className="px-4 py-3 text-[#6B7280] whitespace-nowrap">{new Date(log.created_at).toLocaleString("en-IN")}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                      style={{
-                        background: log.action === "CREATE" ? "#DCFCE7" : log.action === "DELETE" ? "#FEE2E2" : log.action === "STATUS" ? "#FFF7ED" : "#EFF6FF",
-                        color: log.action === "CREATE" ? "#16A34A" : log.action === "DELETE" ? "#DC2626" : log.action === "STATUS" ? "#F97316" : "#1E3A8A"
-                      }}>{log.action}</span>
-                  </td>
-                  <td className="px-4 py-3 text-[#374151] font-medium">{log.user_email}</td>
-                  <td className="px-4 py-3 text-[#6B7280]">{log.details}</td>
-                </tr>
-              ))}
+              {auditLogs.map((log, i) => {
+                const styles = {
+                  CREATE: ["#DCFCE7", "#16A34A"], DELETE: ["#FEE2E2", "#DC2626"], STATUS: ["#FFF7ED", "#F97316"],
+                  UPDATE: ["#EFF6FF", "#1E3A8A"], LOGIN: ["#F0FDF4", "#16A34A"], LOGIN_FAILED: ["#FEE2E2", "#DC2626"],
+                  EXPORT: ["#FAF5FF", "#7C3AED"], PRINT: ["#FAF5FF", "#7C3AED"],
+                };
+                const [bg, fg] = styles[log.action] || ["#EFF6FF", "#1E3A8A"];
+                return (
+                  <tr key={log.id} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFF]"}>
+                    <td className="px-4 py-3 text-[#6B7280] whitespace-nowrap">{new Date(log.created_at).toLocaleString("en-IN")}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: bg, color: fg }}>{log.action}</span>
+                    </td>
+                    <td className="px-4 py-3 text-[#6B7280]">{log.module || "—"}</td>
+                    <td className="px-4 py-3 text-[#374151] font-medium">{log.user_email}</td>
+                    <td className="px-4 py-3 text-[#6B7280]">{log.details}</td>
+                  </tr>
+                );
+              })}
               {auditLogs.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-[#9CA3AF]">No audit logs yet.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-[#9CA3AF]">No audit logs yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -1981,51 +2123,75 @@ function UserManagement({ currentUser, showToast }) {
   // ── USER LIST ──────────────────────────────────────────────
   return (
     <div>
+      {tempPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl p-5 max-w-[380px] w-full shadow-xl">
+            <p className="text-[15px] font-bold text-[#111827] mb-1">✅ Temporary Password</p>
+            <p className="text-[12px] text-[#6B7280] mb-3">Share this securely with <b>{tempPasswordModal.full_name}</b>. It will only be shown once — they must change it on first login.</p>
+            <div className="flex items-center justify-between bg-[#F3F4F6] rounded-lg px-3 py-2.5 mb-4">
+              <span className="font-mono text-[15px] font-bold text-[#1E3A8A]">{tempPasswordModal.password}</span>
+              <button onClick={() => { navigator.clipboard?.writeText(tempPasswordModal.password); showToast("Copied to clipboard."); }}
+                className="text-[11px] font-semibold px-2 py-1 rounded border border-[#E5E7EB]">Copy</button>
+            </div>
+            <button onClick={() => setTempPasswordModal(null)} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">User Management</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} users · Admin only</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">{isSuperAdmin ? "User Management" : "Field Workers"}</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} {isSuperAdmin ? "users" : "field workers"} · {isSuperAdmin ? "Super Admin" : "Admin"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setSubView("audit")}
-            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
-            <Clock size={13} /> Audit Logs
-          </button>
-          <button onClick={exportUsersCSV}
-            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
-            <FileSpreadsheet size={13} /> CSV
-          </button>
-          <button onClick={printUsersPDF}
-            className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
-            <Printer size={13} /> PDF
-          </button>
+          {isSuperAdmin && (
+            <button onClick={() => setSubView("audit")}
+              className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+              <Clock size={13} /> Audit Logs
+            </button>
+          )}
+          {isSuperAdmin && (
+            <button onClick={exportUsersCSV}
+              className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+              <FileSpreadsheet size={13} /> CSV
+            </button>
+          )}
+          {isSuperAdmin && (
+            <button onClick={printUsersPDF}
+              className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] hover:bg-[#F3F4F6]">
+              <Printer size={13} /> PDF
+            </button>
+          )}
           <button onClick={() => { setEditing(null); setSubView("form"); }}
             className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold"
             style={{ background: "#1E3A8A", color: "#fff" }}>
-            <Plus size={14} /> Add User
+            <Plus size={14} /> {isSuperAdmin ? "Add User" : "Add Field Worker"}
           </button>
         </div>
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        {[
-          { label: "Total Users", value: users.length, color: "#1E3A8A", tint: "#EFF6FF" },
-          { label: "Active", value: users.filter(u => u.status === "active").length, color: "#16A34A", tint: "#DCFCE7" },
-          { label: "Admins", value: users.filter(u => u.role === "admin").length, color: "#F97316", tint: "#FFF7ED" },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: s.tint }}>
-              <Users size={16} style={{ color: s.color }} />
+      {isSuperAdmin && (
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          {[
+            { label: "Total Users", value: users.length, color: "#1E3A8A", tint: "#EFF6FF" },
+            { label: "Active", value: users.filter(u => u.status === "active").length, color: "#16A34A", tint: "#DCFCE7" },
+            { label: "Admins", value: users.filter(u => u.role === "admin" || u.role === "super_admin").length, color: "#F97316", tint: "#FFF7ED" },
+          ].map(s => (
+            <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-3 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: s.tint }}>
+                <Users size={16} style={{ color: s.color }} />
+              </div>
+              <div>
+                <p className="text-[18px] font-bold text-[#111827]">{s.value}</p>
+                <p className="text-[11px] text-[#6B7280]">{s.label}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[18px] font-bold text-[#111827]">{s.value}</p>
-              <p className="text-[11px] text-[#6B7280]">{s.label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-4 flex-wrap">
@@ -2035,15 +2201,19 @@ function UserManagement({ currentUser, showToast }) {
             placeholder="Search name, email, phone, village..."
             className={inputCls + " pl-9 text-[12.5px]"} />
         </div>
-        <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
-          <option value="all">All Roles</option>
-          <option value="admin">Admin</option>
-          <option value="fieldworker">Field Worker</option>
-        </select>
+        {isSuperAdmin && (
+          <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
+            <option value="all">All Roles</option>
+            <option value="super_admin">Super Admin</option>
+            <option value="admin">Admin</option>
+            <option value="fieldworker">Field Worker</option>
+          </select>
+        )}
         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
+          <option value="suspended">Suspended</option>
         </select>
         <button onClick={() => { setQuery(""); setRoleFilter("all"); setStatusFilter("all"); setPage(1); }}
           className="flex items-center gap-1.5 rounded-xl border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#6B7280] hover:bg-[#F3F4F6]">
@@ -2063,7 +2233,7 @@ function UserManagement({ currentUser, showToast }) {
           <p className="text-[13px]">No users found.</p>
           <button onClick={() => { setEditing(null); setSubView("form"); }}
             className="mt-3 rounded-xl px-4 py-2 text-[12px] font-bold text-white"
-            style={{ background: "#1E3A8A" }}>Add First User</button>
+            style={{ background: "#1E3A8A" }}>{isSuperAdmin ? "Add First User" : "Add First Field Worker"}</button>
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -2084,8 +2254,11 @@ function UserManagement({ currentUser, showToast }) {
                       {roleLabel[u.role] || u.role}
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
-                      style={{ background: u.status === "active" ? "#DCFCE7" : "#F3F4F6", color: u.status === "active" ? "#16A34A" : "#6B7280" }}>
-                      {u.status === "active" ? "Active" : "Inactive"}
+                      style={{
+                        background: u.status === "active" ? "#DCFCE7" : u.status === "suspended" ? "#FEE2E2" : "#F3F4F6",
+                        color: u.status === "active" ? "#16A34A" : u.status === "suspended" ? "#DC2626" : "#6B7280"
+                      }}>
+                      {u.status === "active" ? "Active" : u.status === "suspended" ? "Suspended" : "Inactive"}
                     </span>
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
@@ -2095,20 +2268,24 @@ function UserManagement({ currentUser, showToast }) {
                     {u.village && <><span>•</span><span><MapPin size={10} className="inline" /> {u.village}</span></>}
                     <span>•</span>
                     <span>📅 {new Date(u.created_at).toLocaleDateString("en-IN")}</span>
+                    <span>•</span>
+                    <span>🕓 Last login: {u.last_login ? new Date(u.last_login).toLocaleString("en-IN") : "Never"}</span>
                   </div>
                 </div>
-                <div className="flex gap-1 shrink-0">
-                  <button onClick={() => toggleStatus(u)} title={u.status === "active" ? "Deactivate" : "Activate"}
-                    className="p-2 rounded-lg hover:bg-[#F3F4F6]">
-                    {u.status === "active"
-                      ? <CheckCircle size={15} className="text-[#16A34A]" />
-                      : <XCircle size={15} className="text-[#9CA3AF]" />}
-                  </button>
-                  <button onClick={() => { setEditing(u); setSubView("form"); }}
-                    className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
-                  <button onClick={() => setDeleteTarget(u)}
-                    className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]"><Trash2 size={14} /></button>
-                </div>
+                {isSuperAdmin && (
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => toggleStatus(u)} title={u.status === "active" ? "Deactivate" : "Activate"}
+                      className="p-2 rounded-lg hover:bg-[#F3F4F6]">
+                      {u.status === "active"
+                        ? <CheckCircle size={15} className="text-[#16A34A]" />
+                        : <XCircle size={15} className="text-[#9CA3AF]" />}
+                    </button>
+                    <button onClick={() => { setEditing(u); setSubView("form"); }}
+                      className="p-2 rounded-lg text-[#1E3A8A] hover:bg-[#EFF6FF]"><Edit2 size={14} /></button>
+                    <button onClick={() => setDeleteTarget(u)}
+                      className="p-2 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]"><Trash2 size={14} /></button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -2165,7 +2342,7 @@ function UserManagement({ currentUser, showToast }) {
 }
 
 /* ── USER FORM COMPONENT ──────────────────────────────────── */
-function UserForm({ editing, blank, onSave, onCancel }) {
+function UserForm({ editing, blank, isSuperAdmin, onSave, onCancel }) {
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
@@ -2173,11 +2350,11 @@ function UserForm({ editing, blank, onSave, onCancel }) {
   const validate = () => {
     const e = {};
     if (!form.full_name.trim()) e.full_name = "Required";
-    if (form.role === "admin") {
+    if (form.role === "admin" || form.role === "super_admin") {
       if (!form.email.trim()) e.email = "Required";
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email format";
     }
-    if (form.role === "fieldworker" && !editing && !form.password_hash.trim()) e.password_hash = "Password required";
+    // Password is optional on create — left blank, a temporary password is auto-generated.
     if (form.phone && !/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -2203,23 +2380,29 @@ function UserForm({ editing, blank, onSave, onCancel }) {
               <Input value={form.full_name} onChange={set("full_name")} placeholder="Enter full name" />
             </Field>
             <Field label="Role" required>
-              <Select value={form.role} onChange={set("role")} options={[
-                { value: "admin", label: "Admin" },
-                { value: "fieldworker", label: "Field Worker" },
-              ]} />
+              {isSuperAdmin ? (
+                <Select value={form.role} onChange={set("role")} options={[
+                  { value: "super_admin", label: "Super Admin" },
+                  { value: "admin", label: "Admin" },
+                  { value: "fieldworker", label: "Field Worker" },
+                ]} />
+              ) : (
+                <input value="Field Worker" disabled className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+              )}
             </Field>
             {form.role === "fieldworker" ? (
               <>
-                <Field label="Password" required={!editing} error={errors.password_hash}
-                  hint={editing ? "Leave blank to keep existing password" : "Set login password for this Field Worker"}>
+                <Field label="Password" error={errors.password_hash}
+                  hint={editing ? "Leave blank to keep existing password. Entering a new one resets it as a temporary password." : "Leave blank to auto-generate a temporary password"}>
                   <input type="password" value={form.password_hash || ""}
                     onChange={e => setForm(f => ({ ...f, password_hash: e.target.value }))}
-                    className={inputCls} placeholder={editing ? "Leave blank to keep" : "Enter password"} />
+                    className={inputCls} placeholder={editing ? "Leave blank to keep" : "Auto-generated if blank"} />
                 </Field>
                 <Field label="Status">
                   <Select value={form.status} onChange={set("status")} options={[
                     { value: "active", label: "Active" },
                     { value: "inactive", label: "Inactive" },
+                    { value: "suspended", label: "Suspended" },
                   ]} />
                 </Field>
               </>
@@ -2233,6 +2416,7 @@ function UserForm({ editing, blank, onSave, onCancel }) {
                   <Select value={form.status} onChange={set("status")} options={[
                     { value: "active", label: "Active" },
                     { value: "inactive", label: "Inactive" },
+                    { value: "suspended", label: "Suspended" },
                   ]} />
                 </Field>
               </>
@@ -2264,11 +2448,11 @@ function UserForm({ editing, blank, onSave, onCancel }) {
               </p>
             </div>
           )}
-          {form.role === "admin" && (
+          {(form.role === "admin" || form.role === "super_admin") && (
             <div className="bg-[#EFF6FF] rounded-xl p-4 mt-2">
-              <p className="text-[12px] font-semibold text-[#1E3A8A] mb-1">ℹ Admin Login</p>
+              <p className="text-[12px] font-semibold text-[#1E3A8A] mb-1">ℹ {form.role === "super_admin" ? "Super Admin" : "Admin"} Login</p>
               <p className="text-[11.5px] text-[#374151]">
-                Admin Supabase Auth తో login చేస్తారు. Password reset Supabase dashboard లో చేయాలి.
+                {form.role === "super_admin" ? "Super Admin" : "Admin"} Supabase Auth తో login చేస్తారు. ఈ ఫారమ్ కేవలం డైరెక్టరీ ఎంట్రీ మాత్రమే క్రియేట్ చేస్తుంది — నిజంగా లాగిన్ చేయాలంటే Supabase Dashboard లో Auth user క్రియేట్ చేసి, user_roles టేబుల్ లో role = '{form.role}' ఇన్సర్ట్ చేయాలి.
               </p>
             </div>
           )}
@@ -2337,9 +2521,32 @@ export default function App() {
   const [employment, setEmployment] = useState([]);
   const [villages, setVillages] = useState([]);
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "super_admin";
 
   const showToast = (message, type = "success") => setToast({ message, type });
+
+  const logAppAudit = async (action, module, details) => {
+    if (!user) return;
+    await supabase.from("audit_logs").insert({
+      user_email: user.username,
+      action, module, details,
+      created_at: new Date().toISOString()
+    });
+  };
+
+  const handleLogout = async () => {
+    await logAppAudit("LOGOUT", "Auth", `Logged out (${isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"})`);
+    try {
+      if (user?.role === "fieldworker") {
+        await supabase.from("app_users").update({ last_logout: new Date().toISOString() }).eq("id", user.userId);
+      } else {
+        await supabase.from("app_users").update({ last_logout: new Date().toISOString() }).eq("email", user.username);
+        await supabase.auth.signOut();
+      }
+    } catch (e) { /* best-effort — proceed to log out locally regardless */ }
+    setUser(null);
+  };
 
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError(null);
@@ -2424,6 +2631,7 @@ export default function App() {
       const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", editing.beneficiary_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setBeneficiaries(bs => bs.map(b => b.beneficiary_id === editing.beneficiary_id ? { ...b, ...form } : b));
+      await logAppAudit("UPDATE", "Beneficiaries", `Updated: ${form.name || editing.beneficiary_id} (${editing.beneficiary_id})`);
       showToast("Beneficiary updated.");
       setEditing(null); setSubView(null); setView("beneficiaries");
     } else {
@@ -2436,6 +2644,7 @@ export default function App() {
         const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", dup.beneficiary_id);
         if (error) { showToast("Error: " + error.message, "error"); return; }
         setBeneficiaries(bs => bs.map(b => b.beneficiary_id === dup.beneficiary_id ? { ...b, ...form } : b));
+        await logAppAudit("UPDATE", "Beneficiaries", `Updated existing registration (duplicate merge): ${dup.beneficiary_id}`);
         showToast(`Updated existing registration: ${dup.beneficiary_id}`);
         setEditing(null); setSubView(null); setView("beneficiaries");
         return;
@@ -2447,6 +2656,7 @@ export default function App() {
       if (error) { showToast("Error: " + error.message, "error"); return; }
       const updatedBeneficiaries = [rec, ...beneficiaries];
       setBeneficiaries(updatedBeneficiaries);
+      await logAppAudit("CREATE", "Beneficiaries", `Registered: ${form.name || beneficiary_id} (${beneficiary_id}, ${PROGRAM_MAP[form.program]?.short || form.program})`);
       showToast(`Registered: ${beneficiary_id}`);
 
       // Check eligibility for other programs
@@ -2492,6 +2702,7 @@ export default function App() {
     }
     setBeneficiaries(currentBens);
     setMultiProgDialog(null);
+    await logAppAudit("CREATE", "Beneficiaries", `Additional programs for ${savedRec.name || savedRec.beneficiary_id}: ${results.join("; ")}`);
     showToast(`Registered in ${selectedKeys.length} additional program(s).`);
     setView("beneficiaries");
   };
@@ -2500,6 +2711,7 @@ export default function App() {
     const { error } = await supabase.from("beneficiaries_v2").delete().eq("beneficiary_id", b.beneficiary_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setBeneficiaries(bs => bs.filter(x => x.beneficiary_id !== b.beneficiary_id));
+    await logAppAudit("DELETE", "Beneficiaries", `Deleted: ${b.name || b.beneficiary_id} (${b.beneficiary_id})`);
   };
 
   // ---- BATCH TRAINING CRUD ----
@@ -2609,17 +2821,17 @@ export default function App() {
     });
   };
 
-  const exportBatches = (rows) => downloadCSV(rows.map(b => ({
+  const exportBatches = (rows) => { logAppAudit("EXPORT", "Training", `Exported ${rows.length} training batch record(s) (CSV)`); downloadCSV(rows.map(b => ({
     "Training Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
     "Venue": b.venue, "Type": b.training_type, "Start": b.start_date, "End": b.end_date,
     "Capacity": b.max_capacity, "Status": b.status,
-  })), `TAPASVI_Trainings_${new Date().toISOString().slice(0,10)}.csv`);
+  })), `TAPASVI_Trainings_${new Date().toISOString().slice(0,10)}.csv`); };
 
-  const printBatches = (rows) => printTable(rows.map(b => ({
+  const printBatches = (rows) => { logAppAudit("PRINT", "Training", `Printed ${rows.length} training batch record(s)`); printTable(rows.map(b => ({
     "Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
     "Venue": b.venue, "Dates": `${b.start_date}${b.end_date ? " to " + b.end_date : ""}`,
     "Capacity": b.max_capacity || "—", "Status": b.status,
-  })), "Training Report");
+  })), "Training Report"); };
 
   // ---- TRAINING CRUD ----
   const saveTraining = async (form) => {
@@ -2627,11 +2839,13 @@ export default function App() {
       const { error } = await supabase.from("training").update(form).eq("training_id", editing.training_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setTraining(ts => ts.map(t => t.training_id === editing.training_id ? { ...t, ...form } : t));
+      await logAppAudit("UPDATE", "Training", `Updated training record: ${editing.training_id}`);
     } else {
       const rec = { ...form, created_at: new Date().toISOString() };
       const { data, error } = await supabase.from("training").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setTraining(ts => [data, ...ts]);
+      await logAppAudit("CREATE", "Training", `Created training record: ${data.training_id}`);
     }
     showToast("Training record saved."); setEditing(null); setSubView(null);
   };
@@ -2640,6 +2854,7 @@ export default function App() {
     const { error } = await supabase.from("training").delete().eq("training_id", t.training_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setTraining(ts => ts.filter(x => x.training_id !== t.training_id));
+    await logAppAudit("DELETE", "Training", `Deleted training record: ${t.training_id}`);
     showToast("Deleted."); setDeleteTarget(null);
   };
 
@@ -2649,11 +2864,13 @@ export default function App() {
       const { error } = await supabase.from("employment").update(form).eq("job_id", editing.job_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setEmployment(es => es.map(e => e.job_id === editing.job_id ? { ...e, ...form } : e));
+      await logAppAudit("UPDATE", "Employment", `Updated employment record: ${editing.job_id}`);
     } else {
       const rec = { ...form, created_at: new Date().toISOString() };
       const { data, error } = await supabase.from("employment").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setEmployment(es => [data, ...es]);
+      await logAppAudit("CREATE", "Employment", `Created employment record: ${data.job_id}`);
     }
     showToast("Employment record saved."); setEditing(null); setSubView(null);
   };
@@ -2662,6 +2879,7 @@ export default function App() {
     const { error } = await supabase.from("employment").delete().eq("job_id", e.job_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setEmployment(es => es.filter(x => x.job_id !== e.job_id));
+    await logAppAudit("DELETE", "Employment", `Deleted employment record: ${e.job_id}`);
     showToast("Deleted."); setDeleteTarget(null);
   };
 
@@ -2671,10 +2889,12 @@ export default function App() {
       const { error } = await supabase.from("village_master").update(form).eq("village_id", editing.village_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setVillages(vs => vs.map(v => v.village_id === editing.village_id ? { ...v, ...form } : v));
+      await logAppAudit("UPDATE", "Villages", `Updated village: ${editing.village_name || editing.village_id}`);
     } else {
       const { data, error } = await supabase.from("village_master").insert(form).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setVillages(vs => [...vs, data].sort((a, b) => a.village_name.localeCompare(b.village_name)));
+      await logAppAudit("CREATE", "Villages", `Added village: ${data.village_name || data.village_id}`);
     }
     showToast("Village saved."); setEditing(null); setSubView(null);
   };
@@ -2683,19 +2903,20 @@ export default function App() {
     const { error } = await supabase.from("village_master").delete().eq("village_id", v.village_id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setVillages(vs => vs.filter(x => x.village_id !== v.village_id));
+    await logAppAudit("DELETE", "Villages", `Deleted village: ${v.village_name || v.village_id}`);
     showToast("Deleted."); setDeleteTarget(null);
   };
 
   // ---- EXPORTS ----
-  const exportBeneficiaries = (rows) => downloadCSV(rows.map(b => ({
+  const exportBeneficiaries = (rows) => { logAppAudit("EXPORT", "Beneficiaries", `Exported ${rows.length} beneficiary record(s) (CSV)`); downloadCSV(rows.map(b => ({
     "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
     Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
     Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
     Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
-  })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`);
+  })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`); };
 
-  const printBeneficiaries = (rows) => printTable(rows.map(b => ({
+  const printBeneficiaries = (rows) => { logAppAudit("PRINT", "Beneficiaries", `Printed ${rows.length} beneficiary record(s)`); printTable(rows.map(b => ({
     "ID": b.beneficiary_id,
     "Name": b.name,
     "Program": PROGRAM_MAP[b.program]?.short || b.program,
@@ -2709,27 +2930,28 @@ export default function App() {
     "Mandal": b.mandal || "—",
     "District": b.district || "—",
     "Category": b.category || "—",
-    "Aadhaar No": b.identity_number || b.aadhaar_number || "—",
+    "Aadhaar No": aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin) || "—",
     "Aadhaar ✓": b.aadhaar_verified || "No",
     "eKYC": b.ekyc_status || "No",
     "Field Worker": b.field_worker_name || "—",
     "Survey Date": b.survey_date || "—",
-  })), "Beneficiary Report — All Programs");
+  })), "Beneficiary Report — All Programs"); };
 
-  const exportTraining = (rows) => downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`);
-  const printTraining = (rows) => printTable(rows.map(t => ({
+  const exportTraining = (rows) => { logAppAudit("EXPORT", "Training", `Exported ${rows.length} training record(s) (CSV)`); downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`); };
+  const printTraining = (rows) => { logAppAudit("PRINT", "Training", `Printed ${rows.length} training record(s)`); printTable(rows.map(t => ({
     "Training ID": t.training_id, "Beneficiary ID": t.beneficiary_id, "Course": t.course_name,
     "Trainer": t.trainer_name, "Center": t.center, "Start": t.start_date, "End": t.end_date,
     "Attendance %": t.attendance_pct, "Certificate": t.certificate_issued,
-  })), "Training Report");
+  })), "Training Report"); };
 
-  const exportEmployment = (rows) => downloadCSV(rows, `TAPASVI_Employment_${new Date().toISOString().slice(0, 10)}.csv`);
-  const printEmployment = (rows) => printTable(rows.map(e => ({
+  const exportEmployment = (rows) => { logAppAudit("EXPORT", "Employment", `Exported ${rows.length} employment record(s) (CSV)`); downloadCSV(rows, `TAPASVI_Employment_${new Date().toISOString().slice(0, 10)}.csv`); };
+  const printEmployment = (rows) => { logAppAudit("PRINT", "Employment", `Printed ${rows.length} employment record(s)`); printTable(rows.map(e => ({
     "Job ID": e.job_id, "Beneficiary ID": e.beneficiary_id, "Type": e.employment_type,
     "Role": e.job_role, "Employer": e.employer, "Income": e.monthly_income, "Status": e.status,
-  })), "Employment Report");
+  })), "Employment Report"); };
 
   if (!user) return <LoginScreen onLogin={setUser} />;
+  if (user.mustChangePassword) return <ChangePasswordScreen user={user} onDone={() => setUser(u => ({ ...u, mustChangePassword: false }))} />;
 
   if (loading) return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC]">
@@ -2771,7 +2993,7 @@ export default function App() {
           <Logo size={30} />
           <div>
             <p className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
-            <p className="text-[10px] text-[#999]">{isAdmin ? "Admin" : "Field Worker"}</p>
+            <p className="text-[10px] text-[#999]">{isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"}</p>
           </div>
         </div>
         <nav className="flex-1 px-3 py-3 space-y-0.5">
@@ -2787,7 +3009,7 @@ export default function App() {
           <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
             <RefreshCw size={15} /> Refresh Data
           </button>
-          <button onClick={() => setUser(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition">
+          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition">
             <LogOut size={15} /> Sign Out
           </button>
         </div>
@@ -2799,7 +3021,7 @@ export default function App() {
           <Logo size={24} />
           <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
         </div>
-        <button onClick={() => setUser(null)} className="p-1.5"><LogOut size={16} className="text-[#F97316]" /></button>
+        <button onClick={handleLogout} className="p-1.5"><LogOut size={16} className="text-[#F97316]" /></button>
       </div>
 
       {/* Main content */}
@@ -2860,10 +3082,11 @@ export default function App() {
             <Dashboard beneficiaries={beneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
-            <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin}
+            <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
+              onPrintProfile={b => { logAppAudit("PRINT", "Beneficiaries", `Printed profile: ${b.name || b.beneficiary_id} (${b.beneficiary_id})`); pdfIndividual(b, aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin)); }}
               onViewProfile={b => setProfileBeneficiary(b)}
               onAddPrograms={b => {
                 const eligible = checkEligibility(b, b.program, beneficiaries);
@@ -2879,6 +3102,7 @@ export default function App() {
               beneficiary={profileBeneficiary}
               beneficiaries={beneficiaries}
               isAdmin={isAdmin}
+              isSuperAdmin={isSuperAdmin}
               enrollments={enrollments}
               onClose={() => setProfileBeneficiary(null)} />
           )}
