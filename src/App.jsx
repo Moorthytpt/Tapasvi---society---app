@@ -2605,13 +2605,13 @@ class ErrorBoundary extends React.Component {
 /* ============================================================
    SETTINGS MODULE (V1) — Super Admin only
    ============================================================ */
-function SettingsHub({ currentUser, showToast, logAppAudit }) {
-  const [subView, setSubView] = useState(null); // null | "organization"
+function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
+  const [subView, setSubView] = useState(null); // null | "organization" | "programs"
 
   const CATEGORIES = [
     { key: "organization", label: "Organization Settings", desc: "NGO name, logo, registration, contact details", icon: Building2, color: "#1E3A8A", tint: "#EFF6FF", ready: true },
     { key: "users", label: "User Management", desc: "Manage from the Users tab", icon: Lock, color: "#7C3AED", tint: "#FAF5FF", ready: false, redirectNote: "Users ట్యాబ్ లో మేనేజ్ చేయండి" },
-    { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: false },
+    { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: true },
     { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
     { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
     { key: "training", label: "Training Settings", desc: "Training types, trainers, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: false },
@@ -2629,6 +2629,9 @@ function SettingsHub({ currentUser, showToast, logAppAudit }) {
 
   if (subView === "organization") {
     return <OrganizationSettings currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
+  }
+  if (subView === "programs") {
+    return <ProgramManagement currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} onBack={() => setSubView(null)} />;
   }
 
   return (
@@ -2742,6 +2745,291 @@ function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
         className="mt-4 w-full rounded-xl py-3 text-[14px] font-bold text-white"
         style={{ background: saving ? "#888" : "#1E3A8A" }}>
         {saving ? "Saving..." : "Save Changes"}
+      </button>
+    </div>
+  );
+}
+
+const PROGRAM_ICON_MAP = {
+  Laptop, Scissors, Leaf, BookOpen, Briefcase, Award, Users, MapPin,
+  ClipboardList, Building2, Database, ShieldCheck, Palette, TrendingUp, BarChart3,
+};
+const PROGRAM_COLOR_PRESETS = ["#1E3A8A", "#F97316", "#16A34A", "#DC2626", "#7C3AED", "#0EA5E9", "#DB2777", "#F59E0B"];
+
+function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
+  const [programs, setPrograms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [subView, setSubView] = useState("list"); // list | form
+  const [editing, setEditing] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("programs").select("*").order("display_order", { ascending: true });
+    setPrograms(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const countFor = (key) => beneficiaries.filter(b => b.program === key).length;
+
+  const filtered = useMemo(() => {
+    let r = programs;
+    if (statusFilter !== "all") r = r.filter(p => p.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(p => p.program_name?.toLowerCase().includes(q) || p.program_code?.toLowerCase().includes(q) || p.registration_prefix?.toLowerCase().includes(q));
+    }
+    return r;
+  }, [programs, query, statusFilter]);
+
+  const toggleStatus = async (p) => {
+    const newStatus = p.status === "active" ? "inactive" : "active";
+    const { error } = await supabase.from("programs").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", p.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setPrograms(ps => ps.map(x => x.id === p.id ? { ...x, status: newStatus } : x));
+    await logAppAudit("STATUS", "Settings", `Program "${p.program_name}" status: ${p.status} → ${newStatus}`);
+    showToast(`Program ${newStatus === "active" ? "activated" : "deactivated"}.`);
+  };
+
+  const archiveProgram = async (p) => {
+    const { error } = await supabase.from("programs").update({ status: "archived", updated_at: new Date().toISOString() }).eq("id", p.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setPrograms(ps => ps.map(x => x.id === p.id ? { ...x, status: "archived" } : x));
+    await logAppAudit("STATUS", "Settings", `Program "${p.program_name}" archived (was ${p.status})`);
+    showToast("Program archived. Existing beneficiary records are unaffected.");
+    setArchiveTarget(null);
+  };
+
+  const saveProgram = async (form) => {
+    const dupName = programs.find(p => p.id !== editing?.id && p.program_name.trim().toLowerCase() === form.program_name.trim().toLowerCase());
+    const dupCode = programs.find(p => p.id !== editing?.id && p.program_code.trim().toLowerCase() === form.program_code.trim().toLowerCase());
+    const dupPrefix = programs.find(p => p.id !== editing?.id && p.registration_prefix.trim().toLowerCase() === form.registration_prefix.trim().toLowerCase());
+    if (dupName) { showToast("Program Name already exists.", "error"); return; }
+    if (dupCode) { showToast("Program Code already exists.", "error"); return; }
+    if (dupPrefix) { showToast("Registration Prefix already exists.", "error"); return; }
+    if (form.registration_prefix.length > 10) { showToast("Prefix must be 10 characters or fewer.", "error"); return; }
+
+    if (editing) {
+      const { error } = await supabase.from("programs").update({ ...form, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPrograms(ps => ps.map(p => p.id === editing.id ? { ...p, ...form } : p));
+      await logAppAudit("UPDATE", "Settings", `Program updated: ${form.program_name} (${form.program_code})`);
+      showToast("Program updated.");
+    } else {
+      const rec = { ...form, key: form.program_code.toLowerCase().replace(/[^a-z0-9]/g, ""), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("programs").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPrograms(ps => [...ps, data]);
+      await logAppAudit("CREATE", "Settings", `Program created: ${form.program_name} (${form.program_code}, prefix ${form.registration_prefix})`);
+      showToast("Program created.");
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  const statusBadge = (status) => {
+    const map = { active: ["#DCFCE7", "#16A34A", "Active"], inactive: ["#F3F4F6", "#6B7280", "Inactive"], archived: ["#FEE2E2", "#DC2626", "Archived"] };
+    const [bg, fg, label] = map[status] || map.inactive;
+    return <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: bg, color: fg }}>{label}</span>;
+  };
+
+  if (subView === "form") {
+    return <ProgramForm editing={editing} onSave={saveProgram} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Program Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{programs.length} programs</p>
+        </div>
+      </div>
+
+      <div className="flex justify-end mb-4">
+        <button onClick={() => { setEditing(null); setSubView("form"); }}
+          className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+          <Plus size={14} /> Add Program
+        </button>
+      </div>
+
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, code, prefix..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No programs found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(p => {
+            const PIcon = PROGRAM_ICON_MAP[p.icon] || ClipboardList;
+            return (
+              <div key={p.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: (p.color || "#1E3A8A") + "18" }}>
+                      <PIcon size={18} style={{ color: p.color || "#1E3A8A" }} />
+                    </div>
+                    <div>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{p.program_name}</p>
+                      <p className="text-[11px] text-[#6B7280]">{p.program_code} · Prefix: {p.registration_prefix} · {countFor(p.key)} beneficiaries</p>
+                    </div>
+                  </div>
+                  {statusBadge(p.status)}
+                </div>
+                {p.description && <p className="text-[11.5px] text-[#6B7280] mt-2">{p.description}</p>}
+                <div className="flex gap-2 mt-3">
+                  {p.status !== "archived" && (
+                    <button onClick={() => toggleStatus(p)}
+                      className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                      {p.status === "active" ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                  <button onClick={() => { setEditing(p); setSubView("form"); }}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">
+                    Edit
+                  </button>
+                  {p.status !== "archived" && (
+                    <button onClick={() => setArchiveTarget(p)}
+                      className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">
+                      Archive
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {archiveTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setArchiveTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Archive Program?</p>
+                <p className="text-[12px] text-[#6B7280]">{archiveTarget.program_name}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">
+              కొత్త రిజిస్ట్రేషన్‌లకు ఇది కనిపించదు. ఇప్పటికే ఉన్న {countFor(archiveTarget.key)} బెనిఫిషియరీ రికార్డులు సురక్షితంగా ఉంటాయి — ఇది వాటిని తీసేయదు.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => archiveProgram(archiveTarget)}
+                className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Archive</button>
+              <button onClick={() => setArchiveTarget(null)}
+                className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgramForm({ editing, onSave, onCancel }) {
+  const [form, setForm] = useState(editing || {
+    program_name: "", program_code: "", registration_prefix: "", description: "",
+    color: PROGRAM_COLOR_PRESETS[0], icon: "ClipboardList", display_order: 0, status: "active",
+  });
+
+  const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const submit = () => {
+    if (!form.program_name.trim()) return;
+    if (!form.program_code.trim()) return;
+    if (!form.registration_prefix.trim()) return;
+    onSave({
+      ...form,
+      program_code: form.program_code.trim().toUpperCase(),
+      registration_prefix: form.registration_prefix.trim().toUpperCase(),
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit Program" : "Add Program"}</h2>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 space-y-1">
+        <Field label="Program Name" required>
+          <Input value={form.program_name} onChange={set("program_name")} placeholder="e.g. Skill Development" />
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Program Code" required hint="Unique, e.g. SKILL">
+            <Input value={form.program_code} onChange={set("program_code")} placeholder="SKILL" />
+          </Field>
+          <Field label="Registration Prefix" required hint="Unique, used in IDs like SKL-0001">
+            <Input value={form.registration_prefix} onChange={set("registration_prefix")} placeholder="SKL" />
+          </Field>
+        </div>
+        <Field label="Description">
+          <textarea value={form.description || ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            className={inputCls} rows={2} placeholder="Short description" />
+        </Field>
+        <Field label="Color">
+          <div className="flex gap-2 flex-wrap">
+            {PROGRAM_COLOR_PRESETS.map(c => (
+              <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
+                className="w-8 h-8 rounded-full border-2"
+                style={{ background: c, borderColor: form.color === c ? "#111827" : "transparent" }} />
+            ))}
+          </div>
+        </Field>
+        <Field label="Icon">
+          <div className="flex gap-2 flex-wrap">
+            {Object.keys(PROGRAM_ICON_MAP).map(name => {
+              const IconComp = PROGRAM_ICON_MAP[name];
+              return (
+                <button key={name} type="button" onClick={() => setForm(f => ({ ...f, icon: name }))}
+                  className="w-9 h-9 rounded-lg flex items-center justify-center border"
+                  style={form.icon === name ? { background: (form.color || "#1E3A8A") + "18", borderColor: form.color || "#1E3A8A" } : { borderColor: "#E5E7EB" }}>
+                  <IconComp size={16} style={{ color: form.icon === name ? (form.color || "#1E3A8A") : "#6B7280" }} />
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Display Order">
+            <input type="number" value={form.display_order} onChange={e => setForm(f => ({ ...f, display_order: parseInt(e.target.value) || 0 }))} className={inputCls} />
+          </Field>
+          <Field label="Status">
+            <Select value={form.status} onChange={set("status")} options={[
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ]} />
+          </Field>
+        </div>
+      </div>
+
+      <button onClick={submit} className="mt-4 w-full rounded-xl py-3 text-[14px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+        {editing ? "Save Changes" : "Create Program"}
       </button>
     </div>
   );
@@ -3382,7 +3670,7 @@ export default function App() {
             <UserManagement currentUser={user} showToast={showToast} />
           )}
           {view === "settings" && isSuperAdmin && (
-            <SettingsHub currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+            <SettingsHub currentUser={user} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} />
           )}
         </div>
       </main>
