@@ -2523,6 +2523,10 @@ export default function App() {
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
+  // Field Workers only see beneficiaries they themselves registered — not other Field Workers' data
+  const visibleBeneficiaries = user?.role === "fieldworker"
+    ? beneficiaries.filter(b => b.field_worker_name === user.username)
+    : beneficiaries;
 
   const showToast = (message, type = "success") => setToast({ message, type });
 
@@ -3079,10 +3083,10 @@ export default function App() {
 
           {/* VIEWS */}
           {!subView && view === "dashboard" && (
-            <Dashboard beneficiaries={beneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
+            <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
-            <BeneficiaryList beneficiaries={beneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
+            <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
@@ -3100,7 +3104,7 @@ export default function App() {
           {!subView && view === "beneficiaries" && profileBeneficiary && (
             <BeneficiaryProfile
               beneficiary={profileBeneficiary}
-              beneficiaries={beneficiaries}
+              beneficiaries={visibleBeneficiaries}
               isAdmin={isAdmin}
               isSuperAdmin={isSuperAdmin}
               enrollments={enrollments}
