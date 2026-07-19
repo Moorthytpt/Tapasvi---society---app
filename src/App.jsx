@@ -1,7 +1,4 @@
-/* ============================================================
-   TAPASVI NGO Management System — DMS v2.1
-   Training Module integrated
-   ============================================================ */
+// TAPASVI DMS v2.1 - Training Module
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -503,7 +500,7 @@ function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Beneficiary" required error={errors.beneficiary_id}>
             <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
-              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: `${b.beneficiary_id} — ${b.name}` }))}
+              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: b.beneficiary_id + " — " + b.name }))}
               placeholder="Select beneficiary" />
           </Field>
           <Field label="Course Name" required error={errors.course_name}>
@@ -569,7 +566,7 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Beneficiary" required error={errors.beneficiary_id}>
             <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
-              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: `${b.beneficiary_id} — ${b.name}` }))}
+              options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: b.beneficiary_id + " — " + b.name }))}
               placeholder="Select beneficiary" />
           </Field>
           <Field label="Employment Type">
@@ -695,9 +692,9 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#16A34A" tint="#DCFCE7" />
-        <StatCard icon={Award} label="Trained" value={trained} color="#1E3A8A" tint="#EFF6FF" sub={`${certIssued} certificates issued`} />
-        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F97316" tint="#FFF7ED" sub={`${employmentRate}% rate`} />
-        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F97316" tint="#FFF7ED" />
+        <StatCard icon={Award} label="Trained" value={trained} color="#1E3A8A" tint="#EFF6FF" sub={certIssued + " certificates issued"} />
+        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F97316" tint="#FFF7ED" sub={employmentRate + "% rate"} />
+        <StatCard icon={TrendingUp} label="Completion Rate" value={completionRate + "%"} color="#F97316" tint="#FFF7ED" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
@@ -708,7 +705,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
             {[["Women", women, "#F97316"], ["Youth (M)", youth, "#1E3A8A"]].map(([label, count, color]) => (
               <div key={label} className="flex flex-col items-center gap-2 flex-1">
                 <span className="text-[16px] font-bold text-[#111827]">{count}</span>
-                <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
+                <div className="w-full rounded-t-lg" style={{ height: Math.max(8, (count / Math.max(1, total)) * 80) + "px", background: color }} />
                 <span className="text-[11px] text-[#6B7280]">{label}</span>
               </div>
             ))}
@@ -730,7 +727,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
                     <span className="text-[12px] font-bold" style={{ color: p.color }}>{byProgram[p.key] || 0}</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${total ? ((byProgram[p.key] || 0) / total) * 100 : 0}%`, background: p.color }} />
+                    <div className="h-full rounded-full" style={{ width: (total ? ((byProgram[p.key] || 0) / total) * 100 : 0) + "%", background: p.color }} />
                   </div>
                 </div>
               </div>
@@ -759,7 +756,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
               <div key={v} className="flex items-center gap-3 py-1.5">
                 <span className="text-[12px] text-[#111827] w-28 shrink-0 truncate">{v}</span>
                 <div className="flex-1 h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
-                  <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${(c / maxVillage) * 100}%` }} />
+                  <div className="h-full rounded-full bg-[#16A34A]" style={{ width: ((c / maxVillage) * 100) + "%" }} />
                 </div>
                 <span className="text-[12px] font-bold text-[#111827] w-6 text-right">{c}</span>
               </div>
@@ -836,7 +833,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
             const Icon = p.icon;
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
+                <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: "4px solid " + p.color }}>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
                     <Icon size={16} style={{ color: p.color }} />
                   </div>
@@ -849,7 +846,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, onEdit, onDelete, onExport, o
                     <div className="mt-1 text-[11.5px] text-[#6B7280] space-y-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-[11px] text-[#1E3A8A] font-bold">{b.beneficiary_id}</span>
-                        {b.age && <span>{b.age} yrs{b.gender ? `, ${b.gender}` : ""}</span>}
+                        {b.age && <span>{b.age} yrs{b.gender ? ", " + b.gender : ""}</span>}
                         {(b.identity_number || b.aadhaar_number) && (
                           <span className="text-[10.5px] bg-[#F3F4F6] px-1.5 py-0.5 rounded font-mono">
                             {isAdmin
@@ -1129,7 +1126,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-[#111827]">{b.name}</p>
                     <p className="text-[11px] text-[#6B7280]">
-                      {b.beneficiary_id} · {b.village || "—"} · {b.age ? `${b.age} yrs` : "—"} · {b.education || "—"}
+                      {b.beneficiary_id} · {b.village || "—"} · {b.age ? b.age + " yrs" : "—"} · {b.education || "—"}
                     </p>
                   </div>
                   <Badge label={b.status || "Registered"} color="#16A34A" tint="#DCFCE7" />
@@ -1145,7 +1142,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, onEnroll, onClose
             disabled={selected.size === 0}
             className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white disabled:opacity-40"
             style={{ background: "#1E3A8A" }}>
-            Enroll {selected.size > 0 ? `${selected.size} Beneficiaries` : ""}
+            Enroll {selected.size > 0 ? selected.size + " Beneficiaries" : ""}
           </button>
           <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
         </div>
@@ -1383,7 +1380,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
             const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
             return (
               <div key={batch.batch_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
-                <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
+                <div className="px-4 py-4" style={{ borderLeft: "4px solid " + p.color }}>
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
                       <BookOpen size={18} style={{ color: p.color }} />
@@ -1397,7 +1394,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                       <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11.5px] text-[#6B7280]">
                         <span>👤 {batch.trainer_name}</span>
                         <span>📍 {batch.venue}</span>
-                        <span>📅 {batch.start_date}{batch.end_date ? ` → ${batch.end_date}` : ""}</span>
+                        <span>📅 {batch.start_date}{batch.end_date ? " → " + batch.end_date : ""}</span>
                         <span>👥 {capacity} participants</span>
                         {batch.training_type && <span>📚 {batch.training_type}</span>}
                       </div>
@@ -1636,7 +1633,7 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
-          <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
+          <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? b.age + " years" : "—"} · {b.gender || "—"}</p>
           <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
           <div className="flex items-center gap-2 mt-2">
             <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1E3A8A"} tint={(statusColors[b.status] || "#1E3A8A") + "18"} />
@@ -1655,13 +1652,13 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
         </div>
         <div className="h-2.5 bg-[#F3F4F6] rounded-full overflow-hidden mb-4">
           <div className="h-full rounded-full transition-all"
-            style={{ width: `${overall}%`, background: overall >= 70 ? "#16A34A" : overall >= 40 ? "#F97316" : "#DC2626" }} />
+            style={{ width: overall + "%", background: overall >= 70 ? "#16A34A" : overall >= 40 ? "#F97316" : "#DC2626" }} />
         </div>
         <div className="grid grid-cols-3 gap-2">
           {completion.map(s => (
             <div key={s.name} className="text-center">
               <div className="h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden mb-1">
-                <div className="h-full rounded-full bg-[#1E3A8A]" style={{ width: `${s.pct}%` }} />
+                <div className="h-full rounded-full bg-[#1E3A8A]" style={{ width: s.pct + "%" }} />
               </div>
               <p className="text-[10px] text-[#6B7280]">{s.name}</p>
               <p className="text-[11px] font-bold text-[#111827]">{s.pct}%</p>
@@ -1674,7 +1671,7 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">👤 Personal & Contact</h4>
         <InfoRow label="Full Name" value={b.name} />
-        <InfoRow label="Age" value={b.age ? `${b.age} years` : null} />
+        <InfoRow label="Age" value={b.age ? b.age + " years" : null} />
         <InfoRow label="Gender" value={b.gender} />
         <InfoRow label="Mobile" value={b.phone} />
         <InfoRow label="Category" value={b.category} />
@@ -1760,7 +1757,7 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, e
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
                     <div className="flex gap-2">
-                      {e.attendance_pct > 0 && <Badge label={`${e.attendance_pct}% Attendance`} color="#1E3A8A" tint="#EFF6FF" />}
+                      {e.attendance_pct > 0 && <Badge label={e.attendance_pct + "% Attendance"} color="#1E3A8A" tint="#EFF6FF" />}
                       {e.certificate_status === "Issued" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
                     </div>
                   </div>
@@ -2060,7 +2057,7 @@ function UserManagement({ currentUser, showToast }) {
           {paginated.map(u => (
             <div key={u.id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition">
               <div className="flex items-center gap-3 px-4 py-3.5"
-                style={{ borderLeft: `4px solid ${u.status === "active" ? (roleColor[u.role] || "#1E3A8A") : "#D1D5DB"}` }}>
+                style={{ borderLeft: "4px solid " + (u.status === "active" ? (roleColor[u.role] || "#1E3A8A") : "#D1D5DB") }}>
                 {/* Avatar */}
                 <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[14px] text-white shrink-0"
                   style={{ background: u.status === "active" ? (roleColor[u.role] || "#1E3A8A") : "#9CA3AF" }}>
@@ -2570,7 +2567,7 @@ export default function App() {
     "Training Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
     "Venue": b.venue, "Type": b.training_type, "Start": b.start_date, "End": b.end_date,
     "Capacity": b.max_capacity, "Status": b.status,
-  })), `TAPASVI_Trainings_${new Date().toISOString().slice(0,10)}.csv`);
+  })), "TAPASVI_Trainings_" + new Date().toISOString().slice(0,10) + ".csv");
 
   const printBatches = (rows) => printTable(rows.map(b => ({
     "Name": b.training_name, "Program": b.program, "Trainer": b.trainer_name,
@@ -2719,7 +2716,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-      <style>{["* { box-sizing: border-box; }", "@keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }"].join(" ")}</style>
+      <style dangerouslySetInnerHTML={{__html: "* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }"}} />
 
       {/* Sidebar (desktop) */}
       <aside className="w-[220px] bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0">
@@ -2951,11 +2948,11 @@ export default function App() {
             <div className="flex gap-2">
               <button onClick={() => {
                 const { type, record } = deleteTarget;
-                if (type === "beneficiary") deleteBeneficiary(record);
-                else if (type === "training") deleteTraining(record);
-                else if (type === "batch") deleteBatch(record);
-                else if (type === "employment") deleteEmployment(record);
-                else if (type === "village") deleteVillage(record);
+                if (type === "beneficiary") { deleteBeneficiary(record); }
+                else if (type === "training") { deleteTraining(record); }
+                else if (type === "batch") { deleteBatch(record); }
+                else if (type === "employment") { deleteEmployment(record); }
+                else if (type === "village") { deleteVillage(record); }
               }} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold" style={{ background: "#F97316", color: "#fff" }}>Delete</button>
               <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-lg border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
             </div>
