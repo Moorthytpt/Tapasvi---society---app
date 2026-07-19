@@ -502,7 +502,7 @@ function ChangePasswordScreen({ user, onDone, onCancel }) {
 /* ============================================================
    BENEFICIARY FORM
    ============================================================ */
-function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries }) {
+function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries, dynPrograms, dynProgramsLoading, dynProgramsError }) {
   const today = new Date().toISOString().slice(0, 10);
   const blank = {
     program: "rydeap", registration_date: today,
@@ -520,7 +520,33 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
   });
   const [errors, setErrors] = useState({});
-  const [activeProgram, setActiveProgram] = useState(editing?.program || "rydeap");
+
+  // Phase 2: Program dropdown is sourced from the dynamic `programs` table (active only, sorted by display_order).
+  // If that fetch failed or hasn't returned anything yet, fall back to the static PROGRAMS list so registration
+  // never breaks — this keeps old beneficiary records and existing behavior working exactly as before.
+  const usingDynamicPrograms = !dynProgramsLoading && !dynProgramsError && dynPrograms && dynPrograms.length > 0;
+  const resolvedPrograms = useMemo(() => {
+    if (usingDynamicPrograms) {
+      return dynPrograms.map(p => ({
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        idPrefix: p.registration_prefix,
+      }));
+    }
+    return PROGRAMS; // fallback: network error, empty table not yet checked, or still loading
+  }, [usingDynamicPrograms, dynPrograms]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
+  const noActiveProgramsAvailable = !dynProgramsLoading && !dynProgramsError && dynPrograms && dynPrograms.length === 0;
+
+  const [activeProgram, setActiveProgram] = useState(editing?.program || "");
+  // Once the program list resolves, default to the first available program (registration only — editing keeps its own program)
+  useEffect(() => {
+    if (!editing && !activeProgram && resolvedPrograms.length > 0) {
+      setActiveProgram(resolvedPrograms[0].key);
+    }
+  }, [editing, activeProgram, resolvedPrograms]);
+
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
   const identityInfo = IDENTITY_TYPES.find(i => i.value === form.identity_type) || IDENTITY_TYPES[0];
 
@@ -558,7 +584,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     });
   };
 
-  const p = PROGRAM_MAP[activeProgram] || PROGRAMS[0];
+  const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -573,11 +599,23 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
       </div>
 
-      {!editing && (
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {PROGRAMS.map(pr => { const Icon = pr.icon; return (
+      {!editing && dynProgramsLoading && (
+        <div className="flex items-center justify-center gap-2 mb-4 py-6 text-[#6B7280] text-[12.5px]">
+          <RefreshCw size={14} className="animate-spin" /> Loading programs...
+        </div>
+      )}
+
+      {!editing && !dynProgramsLoading && noActiveProgramsAvailable && (
+        <div className="mb-4 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-4 py-3 text-[12.5px] text-[#92400E]">
+          No active programs available. Please ask a Super Admin to activate a program in Settings → Program Management.
+        </div>
+      )}
+
+      {!editing && !dynProgramsLoading && resolvedPrograms.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
             <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
-              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-2 text-[11.5px] font-semibold transition"
+              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
               style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
               <Icon size={18} />{pr.short}
             </button>
@@ -585,6 +623,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         </div>
       )}
 
+      {(editing || (!dynProgramsLoading && !noActiveProgramsAvailable)) && (
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
         <div className="p-5">
 
@@ -687,10 +726,10 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
           {!editing && <span className="text-[10.5px] text-[#9CA3AF] ml-auto">* ID auto-generated on save</span>}
         </div>
       </form>
+      )}
     </div>
   );
 }
-
 
 function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
   const blank = {
@@ -3051,6 +3090,10 @@ export default function App() {
 
   // Data state
   const [beneficiaries, setBeneficiaries] = useState([]);
+  // Phase 2: dynamic active programs for Beneficiary Registration only (does not affect Dashboard/Training/Employment/Reports)
+  const [dynPrograms, setDynPrograms] = useState([]);
+  const [dynProgramsLoading, setDynProgramsLoading] = useState(true);
+  const [dynProgramsError, setDynProgramsError] = useState(null);
   const [training, setTraining] = useState([]);
   const [batches, setBatches] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
@@ -3116,6 +3159,32 @@ export default function App() {
 
   useEffect(() => { if (user) loadAll(); }, [user, loadAll]);
 
+  // Phase 2: load active programs once for Beneficiary Registration — isolated from loadAll so a failure here
+  // never affects Dashboard/Training/Employment/Reports, which continue using the static PROGRAM_MAP.
+  const loadDynPrograms = useCallback(async () => {
+    setDynProgramsLoading(true); setDynProgramsError(null);
+    const { data, error } = await supabase.from("programs").select("*").eq("status", "active").order("display_order", { ascending: true });
+    if (error) { setDynProgramsError(error.message); setDynProgramsLoading(false); return; }
+    setDynPrograms(data || []);
+    setDynProgramsLoading(false);
+  }, []);
+  useEffect(() => { if (user) loadDynPrograms(); }, [user, loadDynPrograms]);
+
+  // Map of active dynamic programs, shaped like the legacy PROGRAM_MAP so Registration code can use it the same way.
+  // Falls back to the static PROGRAM_MAP for any key not found (keeps old data / a failed fetch working).
+  const dynProgramMap = useMemo(() => {
+    const m = {};
+    dynPrograms.forEach(p => {
+      m[p.key] = {
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        idPrefix: p.registration_prefix, status: p.status,
+      };
+    });
+    return m;
+  }, [dynPrograms]);
+
   // ---- BENEFICIARY CRUD ----
   // ---- ELIGIBILITY ENGINE ----
   const EDU_ORDER = ["No Formal Education", "Below 5th", "5th Class", "7th Class", "10th Class / SSC", "Intermediate / 12th", "ITI", "Diploma", "Degree / Graduate", "Post Graduate"];
@@ -3177,10 +3246,20 @@ export default function App() {
       showToast("Beneficiary updated.");
       setEditing(null); setSubView(null); setView("beneficiaries");
     } else {
+      // Phase 2 validation: program must exist and be Active (dynamic list is authoritative when available)
+      const progFromDynamic = dynProgramMap[form.program];
+      const progFromStatic = PROGRAM_MAP[form.program];
+      const dynSourceUsable = !dynProgramsError; // if dynamic fetch failed, don't block registration — fall back to static
+      if (dynSourceUsable && dynPrograms.length > 0 && !progFromDynamic && !progFromStatic) {
+        showToast("Selected program is not available or has been deactivated. Please choose an active program.", "error");
+        return;
+      }
+      const resolvedProgram = progFromDynamic || progFromStatic;
+
       const dup = findDuplicateRegistration(form, form.program, beneficiaries);
       if (dup) {
         const replace = window.confirm(
-          `This person is already registered in ${PROGRAM_MAP[form.program]?.label || form.program} as ${dup.beneficiary_id}.\n\nTap OK to update that existing registration instead of creating a duplicate, or Cancel to stop.`
+          `This person is already registered in ${resolvedProgram?.label || form.program} as ${dup.beneficiary_id}.\n\nTap OK to update that existing registration instead of creating a duplicate, or Cancel to stop.`
         );
         if (!replace) { return; }
         const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", dup.beneficiary_id);
@@ -3191,14 +3270,18 @@ export default function App() {
         setEditing(null); setSubView(null); setView("beneficiaries");
         return;
       }
-      const prefix = PROGRAM_MAP[form.program]?.idPrefix || "BEN";
+      const prefix = resolvedProgram?.idPrefix || "BEN";
       const beneficiary_id = nextId(beneficiaries, prefix);
+      if (beneficiaries.some(b => b.beneficiary_id === beneficiary_id)) {
+        showToast("Registration ID collision detected — please try saving again.", "error");
+        return;
+      }
       const rec = { ...form, beneficiary_id, created_at: new Date().toISOString() };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       const updatedBeneficiaries = [rec, ...beneficiaries];
       setBeneficiaries(updatedBeneficiaries);
-      await logAppAudit("CREATE", "Beneficiaries", `Registered: ${form.name || beneficiary_id} (${beneficiary_id}, ${PROGRAM_MAP[form.program]?.short || form.program})`);
+      await logAppAudit("CREATE", "Beneficiaries", `Registered: ${form.name || beneficiary_id} (${beneficiary_id}, ${resolvedProgram?.short || form.program})`);
       showToast(`Registered: ${beneficiary_id}`);
 
       // Check eligibility for other programs
@@ -3220,12 +3303,13 @@ export default function App() {
     let currentBens = [...beneficiaries];
 
     for (const key of selectedKeys) {
+      const progInfo = dynProgramMap[key] || PROGRAM_MAP[key];
       const dup = findDuplicateRegistration(savedRec, key, currentBens);
       if (dup) {
-        results.push(`⚠️ ${PROGRAM_MAP[key]?.short}: already registered as ${dup.beneficiary_id}, skipped`);
+        results.push(`⚠️ ${progInfo?.short}: already registered as ${dup.beneficiary_id}, skipped`);
         continue;
       }
-      const prefix = PROGRAM_MAP[key]?.idPrefix || "BEN";
+      const prefix = progInfo?.idPrefix || "BEN";
       const beneficiary_id = nextId(currentBens, prefix);
       const rec = {
         ...savedRec,
@@ -3236,10 +3320,10 @@ export default function App() {
       };
       const { error } = await supabase.from("beneficiaries_v2").insert(rec);
       if (error) {
-        results.push(`❌ ${PROGRAM_MAP[key]?.short}: ${error.message}`);
+        results.push(`❌ ${progInfo?.short}: ${error.message}`);
       } else {
         currentBens = [rec, ...currentBens];
-        results.push(`✅ ${PROGRAM_MAP[key]?.short}: ${beneficiary_id}`);
+        results.push(`✅ ${progInfo?.short}: ${beneficiary_id}`);
       }
     }
     setBeneficiaries(currentBens);
@@ -3571,7 +3655,8 @@ export default function App() {
           {/* FORMS */}
           {subView === "beneficiary-form" && (
             <BeneficiaryForm editing={editing} onSave={saveBeneficiary} onCancel={() => { setSubView(null); setEditing(null); }}
-              currentUser={user} beneficiaries={beneficiaries} />
+              currentUser={user} beneficiaries={beneficiaries}
+              dynPrograms={dynPrograms} dynProgramsLoading={dynProgramsLoading} dynProgramsError={dynProgramsError} />
           )}
           {subView === "training-form" && (
             <BatchTrainingForm editing={activeBatch}
