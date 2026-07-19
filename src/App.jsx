@@ -2767,7 +2767,8 @@ function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries,
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from("programs").select("*").order("display_order", { ascending: true });
+    const { data, error } = await supabase.from("programs").select("*").order("display_order", { ascending: true });
+    if (error) { showToast("Error loading programs: " + error.message, "error"); setLoading(false); return; }
     setPrograms(data || []);
     setLoading(false);
   };
