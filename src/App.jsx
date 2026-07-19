@@ -1034,11 +1034,30 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 /* ============================================================
    BENEFICIARY LIST
    ============================================================ */
-function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile }) {
+function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
+
+  // Phase 2 follow-up: filter dropdown + badges must reflect the dynamic program list too,
+  // otherwise beneficiaries registered under a new program (e.g. "Kids education") become unfilterable.
+  // Merge dynamic programs with the static list so nothing is ever missing, and also include any
+  // program key that only exists on actual beneficiary records (safety net for older/edge-case data).
+  const resolvedPrograms = useMemo(() => {
+    const base = (dynPrograms && dynPrograms.length > 0)
+      ? dynPrograms.map(p => ({
+          key: p.key, label: p.program_name, short: p.program_name,
+          color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+          icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        }))
+      : PROGRAMS;
+    const known = new Set(base.map(p => p.key));
+    const extras = [...new Set(beneficiaries.map(b => b.program))].filter(k => k && !known.has(k))
+      .map(k => ({ key: k, label: k, short: k, color: "#6B7280", tint: "#F3F4F6", icon: ClipboardList }));
+    return [...base, ...extras];
+  }, [dynPrograms, beneficiaries]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
   const fieldWorkerOptions = useMemo(() => {
     return [...new Set(beneficiaries.map(b => b.field_worker_name).filter(Boolean))].sort();
@@ -1082,7 +1101,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
         </div>
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
-          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+          {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
@@ -1104,7 +1123,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
       ) : (
         <div className="space-y-2.5">
           {filtered.map(b => {
-            const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
+            const p = resolvedProgramMap[b.program] || resolvedPrograms[0] || { color: "#6B7280", tint: "#F3F4F6", short: b.program, icon: ClipboardList };
             const Icon = p.icon;
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
@@ -3699,7 +3718,7 @@ export default function App() {
             <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
-            <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
+            <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
