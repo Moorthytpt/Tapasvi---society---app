@@ -3205,7 +3205,7 @@ export default function App() {
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
-      if (b.error || t.error || e.error || v.error) throw new Error((b.error || t.error || e.error || v.error).message);
+      if (b.error || t.error || e.error || v.error || bt.error || te.error) throw new Error((b.error || t.error || e.error || v.error || bt.error || te.error).message);
       setBeneficiaries(b.data || []);
       setTraining(t.data || []);
       setEmployment(e.data || []);
