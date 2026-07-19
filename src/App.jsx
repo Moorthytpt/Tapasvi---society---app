@@ -3403,7 +3403,7 @@ export default function App() {
 
   // ---- BATCH TRAINING CRUD ----
   const saveBatch = async (form) => {
-    if (activeBatch && trainingSubView === "batch-form") {
+    if (activeBatch) {
       const { error } = await supabase.from("batch_trainings").update(form).eq("batch_id", activeBatch.batch_id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setBatches(bs => bs.map(b => b.batch_id === activeBatch.batch_id ? { ...b, ...form } : b));
@@ -3417,7 +3417,7 @@ export default function App() {
       await logTrainingAudit("Training Created", `Created: ${form.training_name}`);
       showToast("Training created.");
     }
-    setTrainingSubView(null); setActiveBatch(null);
+    setTrainingSubView(null); setActiveBatch(null); setSubView(null);
   };
 
   const deleteBatch = async (batch) => {
