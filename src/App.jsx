@@ -1263,7 +1263,7 @@ function TrainingDashboard({ batches, enrollments }) {
 }
 
 /* ── BATCH TRAINING FORM ────────────────────────────────────── */
-function BatchTrainingForm({ editing, onSave, onCancel }) {
+function BatchTrainingForm({ editing, onSave, onCancel, dynPrograms }) {
   const blank = {
     training_name: "", program: "rydeap", trainer_name: "", training_type: "Skill Development",
     venue: "", start_date: "", end_date: "", max_capacity: "", description: "", status: "Upcoming",
@@ -1271,6 +1271,30 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
   const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  // Phase 3: Program dropdown sourced from the dynamic `programs` table (active only).
+  // Falls back to the static PROGRAMS list if the dynamic fetch hasn't loaded / failed —
+  // keeps existing training records and this form working exactly as before either way.
+  const resolvedPrograms = useMemo(() => {
+    if (dynPrograms && dynPrograms.length > 0) {
+      return dynPrograms.map(p => ({
+        key: p.key, label: p.program_name, short: p.program_name,
+        color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+        icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+      }));
+    }
+    return PROGRAMS;
+  }, [dynPrograms]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
+
+  // If editing an older record whose program isn't in the active list (e.g. now inactive), keep it selectable
+  // so the existing training record can still be viewed/edited without forcing a change.
+  const programOptions = useMemo(() => {
+    if (editing && editing.program && !resolvedProgramMap[editing.program]) {
+      return [{ value: editing.program, label: `${editing.program} (inactive)` }, ...resolvedPrograms.map(p => ({ value: p.key, label: p.short }))];
+    }
+    return resolvedPrograms.map(p => ({ value: p.key, label: p.short }));
+  }, [resolvedPrograms, resolvedProgramMap, editing]);
 
   const validate = () => {
     const e = {};
@@ -1284,7 +1308,7 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
   };
 
   const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
-  const p = PROGRAM_MAP[form.program] || PROGRAMS[0];
+  const p = resolvedProgramMap[form.program] || PROGRAM_MAP[form.program] || resolvedPrograms[0] || PROGRAMS[0];
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -1306,7 +1330,7 @@ function BatchTrainingForm({ editing, onSave, onCancel }) {
             </div>
             <Field label="Program" required>
               <Select value={form.program} onChange={set("program")}
-                options={PROGRAMS.map(p => ({ value: p.key, label: p.short }))} />
+                options={programOptions} />
             </Field>
             <Field label="Training Type">
               <Select value={form.training_type} onChange={set("training_type")} options={TRAINING_TYPES} />
@@ -1584,12 +1608,30 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint }) {
+  onExport, onPrint, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const PER_PAGE = 10;
+
+  // Phase 3: program color/icon/label for filters and cards come from the dynamic `programs` table.
+  // Falls back to the static PROGRAMS list if the dynamic fetch hasn't loaded / failed, and always
+  // includes any program key still referenced by existing training records so nothing goes missing.
+  const resolvedPrograms = useMemo(() => {
+    const base = (dynPrograms && dynPrograms.length > 0)
+      ? dynPrograms.map(p => ({
+          key: p.key, label: p.program_name, short: p.program_name,
+          color: p.color || "#1E3A8A", tint: (p.color || "#1E3A8A") + "18",
+          icon: PROGRAM_ICON_MAP[p.icon] || ClipboardList,
+        }))
+      : PROGRAMS;
+    const known = new Set(base.map(p => p.key));
+    const extras = [...new Set((batches || []).map(b => b.program))].filter(k => k && !known.has(k))
+      .map(k => ({ key: k, label: k, short: k, color: "#6B7280", tint: "#F3F4F6", icon: ClipboardList }));
+    return [...base, ...extras];
+  }, [dynPrograms, batches]);
+  const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
   const filtered = useMemo(() => {
     let r = batches || [];
@@ -1646,7 +1688,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
         </div>
         <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
-          {PROGRAMS.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+          {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
         </select>
         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
@@ -1666,7 +1708,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       ) : (
         <div className="space-y-3">
           {paginated.map(batch => {
-            const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+            const p = resolvedProgramMap[batch.program] || resolvedPrograms[0] || { color: "#6B7280", tint: "#F3F4F6", short: batch.program, icon: ClipboardList };
             const sc = trainingStatusColor(batch.status);
             const enrollCount = getEnrollCount(batch.batch_id);
             const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
@@ -1675,7 +1717,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                 <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
-                      <BookOpen size={18} style={{ color: p.color }} />
+                      {p.icon ? <p.icon size={18} style={{ color: p.color }} /> : <BookOpen size={18} style={{ color: p.color }} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -3679,7 +3721,7 @@ export default function App() {
           )}
           {subView === "training-form" && (
             <BatchTrainingForm editing={activeBatch}
-              onSave={saveBatch}
+              onSave={saveBatch} dynPrograms={dynPrograms}
               onCancel={() => { setTrainingSubView(null); setActiveBatch(null); setSubView(null); }} />
           )}
           {subView === "employment-form" && (
@@ -3749,6 +3791,7 @@ export default function App() {
               beneficiaries={beneficiaries}
               isAdmin={isAdmin}
               currentUser={user}
+              dynPrograms={dynPrograms}
               onAdd={() => { setActiveBatch(null); setSubView("training-form"); }}
               onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
               onDelete={b => setDeleteTarget({ type: "batch", record: b })}
