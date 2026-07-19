@@ -111,11 +111,18 @@ function pdfIndividual(b, aadhaarDisplay) {
     "<p><b>Field Worker:</b> " + (b.field_worker_name || "") + "</p>",
     "<p><b>Date:</b> " + (b.registration_date || b.survey_date || "") + "</p>",
   ].join("");
-  var css = "body{font-family:Arial,sans-serif;padding:20px;} h2{color:#1E3A8A;} p{margin:6px 0;font-size:13px;}";
-  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI Profile</title><style>" + css + "</style></head><body><h1 style='color:#1E3A8A'>TAPASVI Society</h1>" + lines + "</body></html>");
+  var logoUrl = window.location.origin + "/icon-512.png";
+  var css = "@page{margin:90px 20px 40px 20px;} body{font-family:Arial,sans-serif;padding:0;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 20px;background:#fff;} " +
+    ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
+    ".print-footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#999;padding:6px 20px;border-top:1px solid #ddd;background:#fff;} " +
+    "h2{color:#1E3A8A;} p{margin:6px 0;font-size:13px;}";
+  var headerHtml = "<div class='print-header'><img src='" + logoUrl + "'/><div class='org'>TAPASVI Society</div></div>";
+  var footerHtml = "<div class='print-footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + "</div>";
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI Profile</title><style>" + css + "</style></head><body>" + headerHtml + "<div style='margin-top:8px;'>" + lines + "</div>" + footerHtml + "</body></html>");
   w.document.close();
   w.focus();
-  setTimeout(function(){ w.print(); }, 500);
+  setTimeout(function(){ w.print(); }, 600);
 }
 
 
@@ -123,14 +130,21 @@ function printTable(rows, title, cols) {
   var w = window.open("", "_blank");
   if (!w) return;
   var headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  var css = "body{font-family:Arial,sans-serif;padding:16px;font-size:11px;} h1{color:#1E3A8A;font-size:16px;} table{width:100%;border-collapse:collapse;margin-top:12px;} th{background:#1E3A8A;color:white;padding:5px 7px;text-align:left;font-size:10px;} td{border:1px solid #ddd;padding:4px 7px;} tr:nth-child(even){background:#f9f9f9;} .footer{margin-top:12px;font-size:9px;color:#999;}";
+  var logoUrl = window.location.origin + "/icon-512.png";
+  var css = "@page{margin:90px 16px 50px 16px;} body{font-family:Arial,sans-serif;padding:0;font-size:11px;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 16px;background:#fff;} " +
+    ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} .print-header .sub{font-size:9.5px;color:#6B7280;} " +
+    ".print-footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#999;padding:6px 16px;border-top:1px solid #ddd;background:#fff;} " +
+    "h2{color:#374151;font-size:13px;margin:0 0 6px 0;} table{width:100%;border-collapse:collapse;} th{background:#1E3A8A;color:white;padding:5px 7px;text-align:left;font-size:10px;} " +
+    "td{border:1px solid #ddd;padding:4px 7px;} tr:nth-child(even){background:#f9f9f9;} thead{display:table-header-group;}";
   var thead = "<tr>" + headers.map(function(h){ return "<th>" + h + "</th>"; }).join("") + "</tr>";
   var tbody = rows.map(function(r){ return "<tr>" + headers.map(function(h){ return "<td>" + (r[h] || "") + "</td>"; }).join("") + "</tr>"; }).join("");
-  var footer = "<div class='footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + rows.length + "</div>";
-  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body><h1>TAPASVI Society</h1><h2 style='color:#374151;font-size:13px;'>" + title + "</h2><table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table>" + footer + "</body></html>");
+  var headerHtml = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div class='sub'>" + title + "</div></div></div>";
+  var footerHtml = "<div class='print-footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + rows.length + "</div>";
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body>" + headerHtml + "<div style='margin-top:8px;'><h2>" + title + "</h2><table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table></div>" + footerHtml + "</body></html>");
   w.document.close();
   w.focus();
-  setTimeout(function(){ w.print(); }, 500);
+  setTimeout(function(){ w.print(); }, 600);
 }
 
 
@@ -2917,7 +2931,7 @@ export default function App() {
     Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
     Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
     Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
-    "Field Worker": b.field_worker_name, "Survey Date": b.survey_date,
+    "Field Worker": b.field_worker_name, "Survey Date": b.registration_date || b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`); };
 
   const printBeneficiaries = (rows) => { logAppAudit("PRINT", "Beneficiaries", `Printed ${rows.length} beneficiary record(s)`); printTable(rows.map(b => ({
@@ -2938,7 +2952,7 @@ export default function App() {
     "Aadhaar ✓": b.aadhaar_verified || "No",
     "eKYC": b.ekyc_status || "No",
     "Field Worker": b.field_worker_name || "—",
-    "Survey Date": b.survey_date || "—",
+    "Survey Date": b.registration_date || b.survey_date || "—",
   })), "Beneficiary Report — All Programs"); };
 
   const exportTraining = (rows) => { logAppAudit("EXPORT", "Training", `Exported ${rows.length} training record(s) (CSV)`); downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`); };
