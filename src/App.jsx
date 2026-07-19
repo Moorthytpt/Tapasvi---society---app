@@ -105,7 +105,7 @@ function pdfIndividual(b, aadhaarDisplay) {
     "<p><b>Phone:</b> " + (b.phone || "") + "</p>",
     "<p><b>Aadhaar Number:</b> " + (aadhaarDisplay !== undefined ? (aadhaarDisplay || "") : (b.identity_number || b.aadhaar_number || "")) + "</p>",
     "<p><b>Education:</b> " + (b.education || "") + "</p>",
-    "<p><b>Village:</b> " + (b.village || "") + " | <b>Mandal:</b> " + (b.mandal || "") + "</p>",
+    "<p><b>House No:</b> " + (b.house_no || "—") + " | <b>Village:</b> " + (b.village || "") + " | <b>Mandal:</b> " + (b.mandal || "") + "</p>",
     "<p><b>District:</b> " + (b.district || "") + " | <b>State:</b> " + (b.state || "Andhra Pradesh") + "</p>",
     "<p><b>Category:</b> " + (b.category || "") + " | <b>Disability:</b> " + (b.disability || "No") + "</p>",
     "<p><b>Field Worker:</b> " + (b.field_worker_name || "") + "</p>",
@@ -125,6 +125,79 @@ function pdfIndividual(b, aadhaarDisplay) {
   setTimeout(function(){ w.print(); }, 600);
 }
 
+
+/* ── Rich Beneficiary Report print (logo header, stats bar, full detail table) ── */
+function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
+  var w = window.open("", "_blank");
+  if (!w) return;
+  var logoUrl = window.location.origin + "/icon-512.png";
+  var siteHost = window.location.host;
+  var total = rows.length;
+  var completed = rows.filter(function(b){ return b.status === "Completed"; }).length;
+  var training = rows.filter(function(b){ return b.status === "Training"; }).length;
+  var registered = rows.filter(function(b){ return (b.status || "Registered") === "Registered"; }).length;
+  var dropped = rows.filter(function(b){ return b.status === "Dropped"; }).length;
+  var women = rows.filter(function(b){ return b.gender === "Female"; }).length;
+  var men = rows.filter(function(b){ return b.gender === "Male"; }).length;
+
+  var progMap = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
+  var headers = ["Registration ID","Name","Program","Age","Gender","Aadhaar Number","Registration Status","Phone","Education","Status","House No","Village","Mandal","District","State","Category","Field Worker"];
+  var thead = "<tr>" + headers.map(function(h){ return "<th>" + h + "</th>"; }).join("") + "</tr>";
+  var tbody = rows.map(function(b){
+    var cells = [
+      b.beneficiary_id || "", b.name || "", progMap[b.program] || b.program || "", b.age || "",
+      b.gender || "", (b._aadhaarDisplay !== undefined ? (b._aadhaarDisplay || "—") : (b.identity_number || b.aadhaar_number || "—")),
+      "Registered in " + (progMap[b.program] || b.program || ""),
+      b.phone || "", b.education || "—", b.status || "Registered", b.house_no || "—",
+      b.village || "—", b.mandal || "—", b.district || "—", b.state || "Andhra Pradesh",
+      b.category || "—", b.field_worker_name || "—"
+    ];
+    return "<tr>" + cells.map(function(c){ return "<td>" + c + "</td>"; }).join("") + "</tr>";
+  }).join("");
+
+  var css = "@page{margin:150px 20px 50px 20px;} body{font-family:Arial,sans-serif;padding:0;font-size:10.5px;color:#111827;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:16px 20px 10px 20px;border-bottom:3px solid #1E3A8A;} " +
+    ".ph-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;} " +
+    ".ph-left{display:flex;gap:12px;align-items:center;} .ph-left img{width:50px;height:50px;object-fit:contain;} " +
+    ".org-name{font-size:15px;font-weight:bold;color:#1E3A8A;line-height:1.25;max-width:420px;} " +
+    ".org-sub{font-size:10px;color:#6B7280;margin-top:3px;} " +
+    ".ph-right{text-align:right;} .report-title{font-size:15px;font-weight:bold;color:#1E3A8A;} " +
+    ".report-meta{font-size:9.5px;color:#6B7280;margin-top:2px;} " +
+    ".stats-bar{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:10.5px;color:#374151;font-weight:600;} " +
+    "table{width:100%;border-collapse:collapse;margin-top:4px;} th{background:#1E3A8A;color:#fff;padding:5px 6px;text-align:left;font-size:9px;white-space:nowrap;} " +
+    "td{border:1px solid #ddd;padding:4px 6px;font-size:9.5px;} tr:nth-child(even){background:#f9f9f9;} " +
+    "thead{display:table-header-group;} " +
+    ".print-footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#999;padding:6px 20px;border-top:1px solid #ddd;background:#fff;}";
+
+  var headerHtml =
+    "<div class='print-header'>" +
+      "<div class='ph-row'>" +
+        "<div class='ph-left'><img src='" + logoUrl + "'/><div><div class='org-name'>TAPASVI Society for Rural Development, Social Issues &amp; Health Organization</div>" +
+        "<div class='org-sub'>Andhra Pradesh, India | " + siteHost + "</div></div></div>" +
+        "<div class='ph-right'><div class='report-title'>Beneficiary Report — " + (programLabel || "All Programs") + "</div>" +
+        "<div class='report-meta'>Program: " + (programLabel || "All Programs") + "</div>" +
+        "<div class='report-meta'>Generated: " + new Date().toLocaleString("en-IN") + "</div>" +
+        (generatedByEmail ? "<div class='report-meta'>Generated By: " + generatedByEmail + "</div>" : "") +
+        "<div class='report-meta'>Total Records: " + total + "</div></div>" +
+      "</div>" +
+      "<div class='stats-bar'>" +
+        "<span>📋 Total: " + total + "</span>" +
+        "<span>✅ Completed: " + completed + "</span>" +
+        "<span>📚 Training: " + training + "</span>" +
+        "<span>🆕 Registered: " + registered + "</span>" +
+        "<span>❌ Dropped: " + dropped + "</span>" +
+        "<span>👩 Women: " + women + "</span>" +
+        "<span>👨 Men: " + men + "</span>" +
+      "</div>" +
+    "</div>";
+  var footerHtml = "<div class='print-footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + total + "</div>";
+
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - Beneficiary Report</title><style>" + css + "</style></head><body>" +
+    headerHtml + "<table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table>" + footerHtml + "</body></html>");
+  w.document.close();
+  w.focus();
+  setTimeout(function(){ w.print(); }, 600);
+}
 
 function printTable(rows, title, cols) {
   var w = window.open("", "_blank");
@@ -434,7 +507,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     program: "rydeap", registration_date: today,
     name: "", age: "", gender: "Female", phone: "",
     identity_type: "aadhaar", identity_number: "",
-    education: "", village: "", mandal: "",
+    education: "", house_no: "", village: "", mandal: "",
     district: "Tirupati", state: "Andhra Pradesh",
     category: "BC", disability: "No", shg: "No",
     field_worker_name: "", notes: "",
@@ -570,6 +643,9 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
 
           <SectionHeader title="Address" color={p.color} />
           <div className="grid grid-cols-2 gap-x-4">
+            <Field label="House No">
+              <Input value={form.house_no || ""} onChange={set("house_no")} placeholder="e.g. 4-6" />
+            </Field>
             <Field label="Village" required error={errors.village}>
               <Input value={form.village} onChange={set("village")} placeholder="Village name" />
             </Field>
@@ -1836,6 +1912,7 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       {/* Address */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
         <h4 className="text-[13px] font-bold text-[#111827] mb-3">📍 Address</h4>
+        <InfoRow label="House No" value={b.house_no} />
         <InfoRow label="Village" value={b.village} />
         <InfoRow label="Mandal" value={b.mandal} />
         <InfoRow label="District" value={b.district} />
@@ -2930,30 +3007,17 @@ export default function App() {
     "Beneficiary ID": b.beneficiary_id, Program: b.program, Name: b.name, Age: b.age, Gender: b.gender,
     Phone: b.phone, "Aadhaar Verified": b.aadhaar_verified, "eKYC": b.ekyc_status,
     Education: b.education, "Skill Interest": b.skill_interest, Status: b.status,
-    Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
+    "House No": b.house_no, Village: b.village, Mandal: b.mandal, District: b.district, Category: b.category,
     "Field Worker": b.field_worker_name, "Survey Date": b.registration_date || b.survey_date,
   })), `TAPASVI_Beneficiaries_${new Date().toISOString().slice(0, 10)}.csv`); };
 
-  const printBeneficiaries = (rows) => { logAppAudit("PRINT", "Beneficiaries", `Printed ${rows.length} beneficiary record(s)`); printTable(rows.map(b => ({
-    "ID": b.beneficiary_id,
-    "Name": b.name,
-    "Program": PROGRAM_MAP[b.program]?.short || b.program,
-    "Age": b.age,
-    "Gender": b.gender,
-    "Phone": b.phone,
-    "Education": b.education || "—",
-    "Skill": b.skill_interest || "—",
-    "Status": b.status || "Registered",
-    "Village": b.village || "—",
-    "Mandal": b.mandal || "—",
-    "District": b.district || "—",
-    "Category": b.category || "—",
-    "Aadhaar No": aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin) || "—",
-    "Aadhaar ✓": b.aadhaar_verified || "No",
-    "eKYC": b.ekyc_status || "No",
-    "Field Worker": b.field_worker_name || "—",
-    "Survey Date": b.registration_date || b.survey_date || "—",
-  })), "Beneficiary Report — All Programs"); };
+  const printBeneficiaries = (rows) => {
+    logAppAudit("PRINT", "Beneficiaries", `Printed ${rows.length} beneficiary record(s)`);
+    const uniquePrograms = [...new Set(rows.map(b => b.program))];
+    const programLabel = uniquePrograms.length === 1 ? (PROGRAM_MAP[uniquePrograms[0]]?.label || uniquePrograms[0]) : "All Programs";
+    const rowsWithAadhaar = rows.map(b => ({ ...b, _aadhaarDisplay: aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin) }));
+    printBeneficiaryReport(rowsWithAadhaar, programLabel, user?.username);
+  };
 
   const exportTraining = (rows) => { logAppAudit("EXPORT", "Training", `Exported ${rows.length} training record(s) (CSV)`); downloadCSV(rows, `TAPASVI_Training_${new Date().toISOString().slice(0, 10)}.csv`); };
   const printTraining = (rows) => { logAppAudit("PRINT", "Training", `Printed ${rows.length} training record(s)`); printTable(rows.map(t => ({
