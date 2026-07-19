@@ -9,7 +9,8 @@ import {
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
   ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
   AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
-  CheckCircle, XCircle, Clock, Award, RefreshCw
+  CheckCircle, XCircle, Clock, Award, RefreshCw, Settings as SettingsIcon,
+  Building2, Palette, Database, ShieldCheck
 } from "lucide-react";
 
 /* ============================================================
@@ -998,17 +999,23 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [workerFilter, setWorkerFilter] = useState("all");
+
+  const fieldWorkerOptions = useMemo(() => {
+    return [...new Set(beneficiaries.map(b => b.field_worker_name).filter(Boolean))].sort();
+  }, [beneficiaries]);
 
   const filtered = useMemo(() => {
     let r = beneficiaries;
     if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
+    if (workerFilter !== "all") r = r.filter(b => b.field_worker_name === workerFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
       r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [beneficiaries, query, programFilter, statusFilter]);
+  }, [beneficiaries, query, programFilter, statusFilter, workerFilter]);
 
   return (
     <div>
@@ -1042,6 +1049,12 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
           <option value="all">All Status</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        {isAdmin && fieldWorkerOptions.length > 0 && (
+          <select value={workerFilter} onChange={e => setWorkerFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+            <option value="all">All Field Workers</option>
+            {fieldWorkerOptions.map(w => <option key={w} value={w}>{w}</option>)}
+          </select>
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -2589,6 +2602,151 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+/* ============================================================
+   SETTINGS MODULE (V1) — Super Admin only
+   ============================================================ */
+function SettingsHub({ currentUser, showToast, logAppAudit }) {
+  const [subView, setSubView] = useState(null); // null | "organization"
+
+  const CATEGORIES = [
+    { key: "organization", label: "Organization Settings", desc: "NGO name, logo, registration, contact details", icon: Building2, color: "#1E3A8A", tint: "#EFF6FF", ready: true },
+    { key: "users", label: "User Management", desc: "Manage from the Users tab", icon: Lock, color: "#7C3AED", tint: "#FAF5FF", ready: false, redirectNote: "Users ట్యాబ్ లో మేనేజ్ చేయండి" },
+    { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: false },
+    { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
+    { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
+    { key: "training", label: "Training Settings", desc: "Training types, trainers, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: false },
+    { key: "security", label: "Security", desc: "Password policy, session timeout, audit logs", icon: ShieldCheck, color: "#DC2626", tint: "#FEF2F2", ready: false },
+    { key: "preferences", label: "App Preferences", desc: "Theme, language", icon: Palette, color: "#6366F1", tint: "#EEF2FF", ready: false },
+  ];
+
+  const openCategory = (cat) => {
+    if (!cat.ready) {
+      showToast(cat.redirectNote || "ఇది తర్వాతి అప్‌డేట్‌లో వస్తుంది.", "info");
+      return;
+    }
+    setSubView(cat.key);
+  };
+
+  if (subView === "organization") {
+    return <OrganizationSettings currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
+  }
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h2 className="text-[18px] font-bold text-[#111827]">Settings</h2>
+        <p className="text-[12px] text-[#6B7280]">Super Admin only · V1</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {CATEGORIES.map(cat => (
+          <button key={cat.key} onClick={() => openCategory(cat)}
+            className="text-left bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition relative">
+            {!cat.ready && (
+              <span className="absolute top-3 right-3 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#9CA3AF]">
+                SOON
+              </span>
+            )}
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: cat.tint }}>
+              <cat.icon size={18} style={{ color: cat.color }} />
+            </div>
+            <p className="text-[13px] font-semibold text-[#111827] mb-1">{cat.label}</p>
+            <p className="text-[11px] text-[#6B7280] leading-snug">{cat.desc}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
+  const [form, setForm] = useState(null);
+  const [original, setOriginal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", phone: "", email: "", website: "" };
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("org_settings").select("*").eq("id", 1).single();
+      const loaded = data || BLANK;
+      setForm(loaded);
+      setOriginal(loaded);
+      setLoading(false);
+    })();
+  }, []);
+
+  const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("org_settings").upsert({ ...form, id: 1 });
+    if (error) { showToast("Error: " + error.message, "error"); setSaving(false); return; }
+    // Log only the fields that actually changed
+    const changedFields = Object.keys(form).filter(k => k !== "id" && (original?.[k] || "") !== (form[k] || ""));
+    for (const field of changedFields) {
+      await logAppAudit("UPDATE", "Settings", `Organization Settings — ${field}: "${original?.[field] || ""}" → "${form[field] || ""}"`);
+    }
+    setOriginal(form);
+    showToast("Organization settings saved.");
+    setSaving(false);
+  };
+
+  if (loading || !form) {
+    return (
+      <div className="text-center py-16 text-[#9CA3AF]">
+        <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Organization Settings</h2>
+          <p className="text-[12px] text-[#6B7280]">NGO identity & contact details</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 space-y-1">
+        <Field label="NGO Name">
+          <Input value={form.ngo_name || ""} onChange={set("ngo_name")} placeholder="TAPASVI Society for Rural Development..." />
+        </Field>
+        <Field label="Logo URL" hint="ప్రస్తుతానికి image URL మాత్రమే — direct file upload తర్వాతి అప్‌డేట్‌లో వస్తుంది">
+          <Input value={form.logo_url || ""} onChange={set("logo_url")} placeholder="https://.../logo.png" />
+        </Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Registration Number">
+            <Input value={form.registration_number || ""} onChange={set("registration_number")} placeholder="Reg. No." />
+          </Field>
+          <Field label="Phone">
+            <Input value={form.phone || ""} onChange={set("phone")} placeholder="10-digit phone" inputMode="tel" />
+          </Field>
+          <Field label="Email">
+            <Input type="email" value={form.email || ""} onChange={set("email")} placeholder="contact@tapasvi.org" inputMode="email" />
+          </Field>
+          <Field label="Website">
+            <Input value={form.website || ""} onChange={set("website")} placeholder="https://..." />
+          </Field>
+        </div>
+        <Field label="Address">
+          <textarea value={form.address || ""} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+            className={inputCls} rows={3} placeholder="Full address" />
+        </Field>
+      </div>
+
+      <button onClick={save} disabled={saving}
+        className="mt-4 w-full rounded-xl py-3 text-[14px] font-bold text-white"
+        style={{ background: saving ? "#888" : "#1E3A8A" }}>
+        {saving ? "Saving..." : "Save Changes"}
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
@@ -3014,7 +3172,9 @@ export default function App() {
   const printBeneficiaries = (rows) => {
     logAppAudit("PRINT", "Beneficiaries", `Printed ${rows.length} beneficiary record(s)`);
     const uniquePrograms = [...new Set(rows.map(b => b.program))];
-    const programLabel = uniquePrograms.length === 1 ? (PROGRAM_MAP[uniquePrograms[0]]?.label || uniquePrograms[0]) : "All Programs";
+    const uniqueWorkers = [...new Set(rows.map(b => b.field_worker_name).filter(Boolean))];
+    let programLabel = uniquePrograms.length === 1 ? (PROGRAM_MAP[uniquePrograms[0]]?.label || uniquePrograms[0]) : "All Programs";
+    if (uniqueWorkers.length === 1) programLabel += ` — ${uniqueWorkers[0]}`;
     const rowsWithAadhaar = rows.map(b => ({ ...b, _aadhaarDisplay: aadhaarForRole(b.identity_number || b.aadhaar_number, isSuperAdmin, isAdmin) }));
     printBeneficiaryReport(rowsWithAadhaar, programLabel, user?.username);
   };
@@ -3061,6 +3221,7 @@ export default function App() {
     { key: "employment", label: "Employment", icon: Briefcase },
     ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
     ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
+    ...(isSuperAdmin ? [{ key: "settings", label: "Settings", icon: SettingsIcon }] : []),
   ];
 
   const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); };
@@ -3219,6 +3380,9 @@ export default function App() {
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
+          )}
+          {view === "settings" && isSuperAdmin && (
+            <SettingsHub currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
         </div>
       </main>
