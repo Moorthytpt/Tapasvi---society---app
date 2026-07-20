@@ -1401,6 +1401,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
     return eligible.filter(b =>
       b.name?.toLowerCase().includes(q) ||
       b.beneficiary_id?.toLowerCase().includes(q) ||
+      b.phone?.includes(query.trim()) ||
       b.village?.toLowerCase().includes(q)
     );
   }, [eligible, query]);
@@ -1428,7 +1429,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
             <input value={query} onChange={e => setQuery(e.target.value)}
-              placeholder="Search name, ID, village..."
+              placeholder="Search by ID, mobile, or name..."
               className={inputCls + " pl-9 text-[12.5px]"} />
           </div>
           <button onClick={selectAll} className="px-3 py-2 rounded-lg text-[12px] font-medium text-[#1E3A8A] border border-[#1E3A8A] hover:bg-[#EFF6FF]">All</button>
@@ -1480,9 +1481,13 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
 }
 
 /* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
-function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose }) {
+function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id && (e.enrollment_status || "Active") !== "Cancelled");
+  const batchEnrollments = enrollments.filter(e =>
+    e.batch_id === batch.batch_id &&
+    (e.enrollment_status || "Active") !== "Cancelled" &&
+    (isAdmin || e.enrolled_by === currentUser?.username)
+  );
   const batchRecords = attendanceRecords.filter(r => r.batch_id === batch.batch_id);
 
   const [sessionDate, setSessionDate] = useState(todayStr);
@@ -1594,9 +1599,10 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
                       <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
                       <p className="text-[11px] text-[#6B7280]">
                         {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · {s.present}P / {s.absent}A · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
+                        {e.enrolled_by && <> · Enrolled by {e.enrolled_by}</>}
                       </p>
                     </div>
-                    {onCancelEnrollment && (
+                    {isAdmin && onCancelEnrollment && (
                       <button type="button" onClick={() => { if (window.confirm(`Cancel ${e.beneficiary_name || e.beneficiary_id}'s enrollment? They'll become available for new enrollments again.`)) onCancelEnrollment(e); }}
                         title="Cancel Enrollment"
                         className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2] shrink-0">
@@ -1914,11 +1920,13 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
               )}
             </>
           )}
-          <button onClick={onAdd}
-            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white"
-            style={{ background: "#1E3A8A" }}>
-            <Plus size={14} /> New Training
-          </button>
+          {isAdmin && (
+            <button onClick={onAdd}
+              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white"
+              style={{ background: "#1E3A8A" }}>
+              <Plus size={14} /> New Training
+            </button>
+          )}
         </div>
       </div>
 
@@ -1947,9 +1955,11 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
         <div className="text-center py-16 text-[#9CA3AF]">
           <BookOpen size={30} className="mx-auto mb-3 opacity-40" />
           <p className="text-[13px]">No trainings found.</p>
-          <button onClick={onAdd} className="mt-3 rounded-xl px-4 py-2 text-[12px] font-bold text-white" style={{ background: "#1E3A8A" }}>
-            Create First Training
-          </button>
+          {isAdmin && (
+            <button onClick={onAdd} className="mt-3 rounded-xl px-4 py-2 text-[12px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+              Create First Training
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -1982,11 +1992,13 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                     <div className="flex flex-col gap-1 shrink-0">
                       {/* Action buttons */}
                       <div className="flex gap-1">
-                        <button onClick={() => onEnroll(batch)} title="Enroll Beneficiaries"
-                          className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
-                          style={{ background: "#1E3A8A" }}>
-                          + Enroll
-                        </button>
+                        {batch.status !== "Completed" && batch.status !== "Cancelled" && (
+                          <button onClick={() => onEnroll(batch)} title="Enroll Beneficiaries"
+                            className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#1E3A8A" }}>
+                            + Enroll
+                          </button>
+                        )}
                         <button onClick={() => onAttendance(batch)} title="Mark Attendance"
                           className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
                           style={{ background: "#F97316" }}>
@@ -3658,6 +3670,7 @@ export default function App() {
 
   // ---- BATCH TRAINING CRUD ----
   const saveBatch = async (form) => {
+    if (!isAdmin) { showToast("Only Admin or Super Admin can create or edit training batches.", "error"); return; }
     if (activeBatch) {
       const wasCompleted = activeBatch.status === "Completed";
       const { error } = await supabase.from("batch_trainings").update(form).eq("batch_id", activeBatch.batch_id);
@@ -3709,6 +3722,10 @@ export default function App() {
 
   const enrollBeneficiaries = async (beneficiaryIds) => {
     if (!activeBatch) return;
+    if (activeBatch.status === "Completed" || activeBatch.status === "Cancelled") {
+      showToast("This training is no longer active. Enrollment is closed.", "error");
+      return;
+    }
     const blocked = beneficiaryIds.filter(bid => isActivelyEnrolledElsewhere(bid, activeBatch.batch_id));
     const allowed = beneficiaryIds.filter(bid => !blocked.includes(bid));
     if (blocked.length > 0) {
@@ -3727,6 +3744,7 @@ export default function App() {
         certificate_status: "Pending",
         certificate_no: "",
         enrollment_status: "Active",
+        enrolled_by: user.username,
         enrolled_at: new Date().toISOString(),
       };
     });
@@ -4031,7 +4049,7 @@ export default function App() {
               currentUser={user} beneficiaries={beneficiaries}
               dynPrograms={dynPrograms} dynProgramsLoading={dynProgramsLoading} dynProgramsError={dynProgramsError} />
           )}
-          {subView === "training-form" && (
+          {subView === "training-form" && isAdmin && (
             <BatchTrainingForm editing={activeBatch}
               onSave={saveBatch} dynPrograms={dynPrograms}
               onCancel={() => { setTrainingSubView(null); setActiveBatch(null); setSubView(null); }} />
@@ -4047,7 +4065,7 @@ export default function App() {
           {view === "training" && trainingSubView === "enroll" && activeBatch && (
             <EnrollmentScreen
               batch={activeBatch}
-              beneficiaries={beneficiaries}
+              beneficiaries={visibleBeneficiaries}
               enrollments={enrollments}
               batches={batches}
               onEnroll={enrollBeneficiaries}
@@ -4060,6 +4078,8 @@ export default function App() {
               attendanceRecords={attendanceRecords}
               onSaveDailyAttendance={saveDailyAttendance}
               onCancelEnrollment={cancelEnrollment}
+              currentUser={user}
+              isAdmin={isAdmin}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
           {view === "training" && trainingSubView === "certificates" && activeBatch && (
