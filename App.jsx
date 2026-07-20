@@ -1480,35 +1480,102 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
 }
 
 /* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
-function AttendanceScreen({ batch, enrollments, onSaveAttendance, onCancelEnrollment, onClose }) {
+function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
   const batchEnrollments = enrollments.filter(e => e.batch_id === batch.batch_id && (e.enrollment_status || "Active") !== "Cancelled");
-  const [attendance, setAttendance] = useState(() => {
+  const batchRecords = attendanceRecords.filter(r => r.batch_id === batch.batch_id);
+
+  const [sessionDate, setSessionDate] = useState(todayStr);
+  const [showHistory, setShowHistory] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Marks for the currently-selected session date — pre-filled from existing records if this date was already marked
+  const [marks, setMarks] = useState(() => {
     const init = {};
-    batchEnrollments.forEach(e => { init[e.enrollment_id] = e.attendance_status || "Present"; });
+    batchEnrollments.forEach(e => {
+      const existing = batchRecords.find(r => r.beneficiary_id === e.beneficiary_id && r.session_date === sessionDate);
+      init[e.beneficiary_id] = existing?.status || "Present";
+    });
     return init;
   });
 
-  const statusOptions = ["Present","Absent","Late","Leave"];
-  const statusColors  = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316", Leave: "#6B7280" };
-  const statusTints   = { Present: "#DCFCE7", Absent: "#FEF2F2", Late: "#FFF7ED", Leave: "#F3F4F6" };
+  // Re-initialize marks whenever the session date changes
+  useEffect(() => {
+    const init = {};
+    batchEnrollments.forEach(e => {
+      const existing = batchRecords.find(r => r.beneficiary_id === e.beneficiary_id && r.session_date === sessionDate);
+      init[e.beneficiary_id] = existing?.status || "Present";
+    });
+    setMarks(init);
+    // eslint-disable-next-line
+  }, [sessionDate]);
 
-  const presentCount = Object.values(attendance).filter(s => s === "Present" || s === "Late").length;
-  const total        = batchEnrollments.length;
-  const pct          = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+  const statusOptions = ["Present", "Absent", "Late"];
+  const statusColors = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316" };
+
+  // Auto-calculated per-beneficiary stats from full session history in this batch
+  const statsFor = (beneficiaryId) => {
+    const sessions = batchRecords.filter(r => r.beneficiary_id === beneficiaryId);
+    const total = sessions.length;
+    const present = sessions.filter(r => r.status === "Present" || r.status === "Late").length;
+    const absent = sessions.filter(r => r.status === "Absent").length;
+    const pct = total > 0 ? Math.round((present / total) * 100) : 0;
+    return { total, present, absent, pct };
+  };
+
+  const sessionDates = useMemo(() => [...new Set(batchRecords.map(r => r.session_date))].sort().reverse(), [batchRecords]);
+  const totalSessions = sessionDates.length;
+  const markedToday = batchRecords.filter(r => r.session_date === sessionDate).length;
+
+  const save = async () => {
+    setSaving(true);
+    await onSaveDailyAttendance(batch.batch_id, sessionDate, marks);
+    setSaving(false);
+  };
 
   return (
     <div className="max-w-[720px] mx-auto">
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-4">
         <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
         <div className="flex-1">
           <h2 className="text-[17px] font-bold text-[#111827]">Mark Attendance</h2>
           <p className="text-[12px] text-[#6B7280]">{batch.training_name}</p>
         </div>
         <div className="text-right">
-          <p className="text-[18px] font-black text-[#1E3A8A]">{pct}%</p>
-          <p className="text-[10px] text-[#6B7280]">{presentCount}/{total}</p>
+          <p className="text-[16px] font-black text-[#1E3A8A]">{totalSessions}</p>
+          <p className="text-[10px] text-[#6B7280]">Total Sessions</p>
         </div>
       </div>
+
+      {/* Session date picker */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-[160px]">
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">SESSION DATE</label>
+          <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)}
+            className={inputCls + " text-[13px]"} max={todayStr} />
+        </div>
+        {markedToday > 0 && (
+          <span className="text-[11px] text-[#16A34A] font-semibold flex items-center gap-1"><CheckCircle size={13} /> Already marked — editing</span>
+        )}
+        {sessionDates.length > 0 && (
+          <button type="button" onClick={() => setShowHistory(s => !s)}
+            className="ml-auto text-[11.5px] font-semibold px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[#1E3A8A]">
+            {showHistory ? "Hide" : "View"} History ({sessionDates.length})
+          </button>
+        )}
+      </div>
+
+      {showHistory && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-4 flex flex-wrap gap-2">
+          {sessionDates.map(d => (
+            <button key={d} type="button" onClick={() => { setSessionDate(d); setShowHistory(false); }}
+              className="px-3 py-1.5 rounded-lg text-[11.5px] font-medium"
+              style={d === sessionDate ? { background: "#EFF6FF", color: "#1E3A8A", border: "1px solid #1E3A8A" } : { background: "#F3F4F6", color: "#6B7280" }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
         {batchEnrollments.length === 0 ? (
@@ -1517,41 +1584,48 @@ function AttendanceScreen({ batch, enrollments, onSaveAttendance, onCancelEnroll
             <p className="text-[13px]">No beneficiaries enrolled yet.</p>
           </div>
         ) : (
-          <div className="divide-y divide-[#F3F4F6] max-h-[60vh] overflow-y-auto">
-            {batchEnrollments.map(e => (
-              <div key={e.enrollment_id} className="flex items-center gap-3 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
-                  <p className="text-[11px] text-[#6B7280]">{e.beneficiary_id}</p>
+          <div className="divide-y divide-[#F3F4F6] max-h-[55vh] overflow-y-auto">
+            {batchEnrollments.map(e => {
+              const s = statsFor(e.beneficiary_id);
+              return (
+                <div key={e.enrollment_id} className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
+                      <p className="text-[11px] text-[#6B7280]">
+                        {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · {s.present}P / {s.absent}A · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
+                      </p>
+                    </div>
+                    {onCancelEnrollment && (
+                      <button type="button" onClick={() => { if (window.confirm(`Cancel ${e.beneficiary_name || e.beneficiary_id}'s enrollment? They'll become available for new enrollments again.`)) onCancelEnrollment(e); }}
+                        title="Cancel Enrollment"
+                        className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2] shrink-0">
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    {statusOptions.map(st => (
+                      <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
+                        className="flex-1 py-2 rounded-lg text-[12px] font-bold transition"
+                        style={marks[e.beneficiary_id] === st
+                          ? { background: statusColors[st], color: "white" }
+                          : { background: "#F3F4F6", color: "#6B7280" }}>
+                        {st}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  {statusOptions.map(s => (
-                    <button key={s} onClick={() => setAttendance(a => ({ ...a, [e.enrollment_id]: s }))}
-                      className="px-2 py-1 rounded-lg text-[10.5px] font-semibold transition"
-                      style={attendance[e.enrollment_id] === s
-                        ? { background: statusColors[s], color: "white" }
-                        : { background: "#F3F4F6", color: "#6B7280" }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                {onCancelEnrollment && (
-                  <button type="button" onClick={() => { if (window.confirm(`Cancel ${e.beneficiary_name || e.beneficiary_id}'s enrollment? They'll become available for new enrollments again.`)) onCancelEnrollment(e); }}
-                    title="Cancel Enrollment"
-                    className="p-1.5 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2]">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
-          <button onClick={() => onSaveAttendance(attendance)}
-            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>
-            Save Attendance
+          <button onClick={save} disabled={saving || batchEnrollments.length === 0}
+            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: saving ? "#888" : "#1E3A8A" }}>
+            {saving ? "Saving..." : `Save Attendance — ${sessionDate}`}
           </button>
-          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Close</button>
         </div>
       </div>
     </div>
@@ -1567,7 +1641,7 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
     return init;
   });
 
-  const eligible = batchEnrollments.filter(e => (e.attendance_pct || 0) >= 75);
+  const eligible = batchEnrollments.filter(e => (e.attendance_pct || 0) >= 80);
   const issued   = batchEnrollments.filter(e => e.certificate_status === "Issued").length;
 
   return (
@@ -1581,7 +1655,7 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
       </div>
 
       <div className="bg-[#EFF6FF] rounded-xl border border-[#BFDBFE] p-4 mb-4">
-        <p className="text-[12px] text-[#1E3A8A] font-semibold">ℹ Eligibility: Attendance ≥ 75%</p>
+        <p className="text-[12px] text-[#1E3A8A] font-semibold">ℹ Eligibility: Attendance ≥ 80%</p>
         <p className="text-[11px] text-[#374151] mt-1">{eligible.length} of {batchEnrollments.length} beneficiaries are eligible.</p>
       </div>
 
@@ -1589,13 +1663,13 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
         <div className="divide-y divide-[#F3F4F6] max-h-[55vh] overflow-y-auto">
           {batchEnrollments.map(e => {
             const attPct = e.attendance_pct || 0;
-            const canIssue = attPct >= 75;
+            const canIssue = attPct >= 80;
             const current = certStatus[e.enrollment_id];
             return (
               <div key={e.enrollment_id} className="flex items-center gap-3 px-4 py-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
-                  <p className="text-[11px] text-[#6B7280]">Attendance: {attPct}% {!canIssue && "· Below 75% — not eligible"}</p>
+                  <p className="text-[11px] text-[#6B7280]">Attendance: {attPct}% {!canIssue && "· Below 80% — not eligible"}</p>
                   {e.certificate_no && <p className="text-[10.5px] font-mono text-[#1E3A8A]">{e.certificate_no}</p>}
                 </div>
                 {canIssue ? (
@@ -1623,11 +1697,159 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
   );
 }
 
+/* ── ATTENDANCE REPORT (date-wise / batch-wise / program-wise / beneficiary-wise) ── */
+function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynPrograms, onClose }) {
+  const [programFilter, setProgramFilter] = useState("all");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [beneficiaryQuery, setBeneficiaryQuery] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const resolvedPrograms = useMemo(() => {
+    if (dynPrograms && dynPrograms.length > 0) {
+      return dynPrograms.map(p => ({ key: p.key, short: p.program_name }));
+    }
+    return PROGRAMS;
+  }, [dynPrograms]);
+
+  const batchMap = useMemo(() => Object.fromEntries(batches.map(b => [b.batch_id, b])), [batches]);
+  const beneficiaryMap = useMemo(() => Object.fromEntries(beneficiaries.map(b => [b.beneficiary_id, b])), [beneficiaries]);
+
+  const batchesInProgram = useMemo(() => {
+    if (programFilter === "all") return batches;
+    return batches.filter(b => b.program === programFilter);
+  }, [batches, programFilter]);
+
+  const filtered = useMemo(() => {
+    let r = attendanceRecords;
+    if (programFilter !== "all") r = r.filter(rec => batchMap[rec.batch_id]?.program === programFilter);
+    if (batchFilter !== "all") r = r.filter(rec => rec.batch_id === batchFilter);
+    if (fromDate) r = r.filter(rec => rec.session_date >= fromDate);
+    if (toDate) r = r.filter(rec => rec.session_date <= toDate);
+    if (beneficiaryQuery.trim()) {
+      const q = beneficiaryQuery.toLowerCase();
+      r = r.filter(rec => {
+        const ben = beneficiaryMap[rec.beneficiary_id];
+        return rec.beneficiary_id?.toLowerCase().includes(q) || ben?.name?.toLowerCase().includes(q);
+      });
+    }
+    return [...r].sort((a, b) => (b.session_date || "").localeCompare(a.session_date || ""));
+  }, [attendanceRecords, programFilter, batchFilter, fromDate, toDate, beneficiaryQuery, batchMap, beneficiaryMap]);
+
+  const rowsForExport = () => filtered.map(rec => {
+    const bt = batchMap[rec.batch_id];
+    const ben = beneficiaryMap[rec.beneficiary_id];
+    return {
+      "Date": rec.session_date,
+      "Training": bt?.training_name || rec.batch_id,
+      "Program": PROGRAM_MAP[bt?.program]?.short || bt?.program || "—",
+      "Beneficiary ID": rec.beneficiary_id,
+      "Beneficiary Name": ben?.name || "—",
+      "Status": rec.status,
+      "Marked By": rec.marked_by || "—",
+    };
+  });
+
+  const exportCSV = () => downloadCSV(rowsForExport(), `TAPASVI_Attendance_${new Date().toISOString().slice(0, 10)}.csv`);
+  const exportPDF = () => printTable(rowsForExport(), "Attendance Report");
+
+  const totalPresent = filtered.filter(r => r.status === "Present" || r.status === "Late").length;
+  const totalAbsent = filtered.filter(r => r.status === "Absent").length;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[18px] font-bold text-[#111827]">Attendance Report</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} records · {totalPresent} present · {totalAbsent} absent</p>
+        </div>
+        <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+          <FileSpreadsheet size={13} /> CSV
+        </button>
+        <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+          <Printer size={13} /> PDF
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">PROGRAM</label>
+          <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setBatchFilter("all"); }} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Programs</option>
+            {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">TRAINING BATCH</label>
+          <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Batches</option>
+            {batchesInProgram.map(b => <option key={b.batch_id} value={b.batch_id}>{b.training_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">FROM DATE</label>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className={inputCls + " text-[12.5px]"} />
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">TO DATE</label>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className={inputCls + " text-[12.5px]"} />
+        </div>
+        <div className="col-span-2">
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">BENEFICIARY (NAME OR ID)</label>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+            <input value={beneficiaryQuery} onChange={e => setBeneficiaryQuery(e.target.value)} placeholder="Search beneficiary..." className={inputCls + " pl-9 text-[12.5px]"} />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-[#9CA3AF]">
+            <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
+            <p className="text-[13px]">No attendance records match these filters.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
+            <table className="w-full text-[12px]">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-[#E5E7EB]">
+                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Date</th>
+                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Training</th>
+                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Beneficiary</th>
+                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(rec => {
+                  const bt = batchMap[rec.batch_id];
+                  const ben = beneficiaryMap[rec.beneficiary_id];
+                  const color = rec.status === "Present" ? "#16A34A" : rec.status === "Late" ? "#F97316" : "#DC2626";
+                  const tint = rec.status === "Present" ? "#DCFCE7" : rec.status === "Late" ? "#FFF7ED" : "#FEF2F2";
+                  return (
+                    <tr key={rec.id} className="border-b border-[#F3F4F6]">
+                      <td className="px-3 py-2 whitespace-nowrap">{rec.session_date}</td>
+                      <td className="px-3 py-2">{bt?.training_name || rec.batch_id}</td>
+                      <td className="px-3 py-2">{ben?.name || rec.beneficiary_id} <span className="text-[#9CA3AF]">({rec.beneficiary_id})</span></td>
+                      <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: tint, color }}>{rec.status}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── BATCH TRAINING LIST (replaces old TrainingList) ────────── */
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint, dynPrograms }) {
+  onExport, onPrint, dynPrograms, onAttendanceReport }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1685,6 +1907,11 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
               <button onClick={() => onPrint(filtered)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
                 <Printer size={13} /> PDF
               </button>
+              {onAttendanceReport && (
+                <button onClick={onAttendanceReport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                  <ClipboardList size={13} /> Attendance Report
+                </button>
+              )}
             </>
           )}
           <button onClick={onAdd}
@@ -3177,7 +3404,8 @@ export default function App() {
   const [training, setTraining] = useState([]);
   const [batches, setBatches] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
-  const [trainingSubView, setTrainingSubView] = useState(null); // null|"batch-form"|"enroll"|"attendance"|"certificates"
+  const [attendanceRecords, setAttendanceRecords] = useState([]); // session-based daily attendance
+  const [trainingSubView, setTrainingSubView] = useState(null); // null|"batch-form"|"enroll"|"attendance"|"certificates"|"attendance-report"
   const [activeBatch, setActiveBatch] = useState(null);
   const [employment, setEmployment] = useState([]);
   const [villages, setVillages] = useState([]);
@@ -3249,6 +3477,14 @@ export default function App() {
     setDynProgramsLoading(false);
   }, []);
   useEffect(() => { if (user) loadDynPrograms(); }, [user, loadDynPrograms]);
+
+  // Attendance Management: session-based daily records — isolated loader, same safe pattern as loadDynPrograms.
+  const loadAttendanceRecords = useCallback(async () => {
+    const { data, error } = await supabase.from("attendance_records").select("*").order("session_date", { ascending: false });
+    if (error) { showToast("Error loading attendance history: " + error.message, "error"); return; }
+    setAttendanceRecords(data || []);
+  }, []);
+  useEffect(() => { if (user) loadAttendanceRecords(); }, [user, loadAttendanceRecords]);
 
   // Map of active dynamic programs, shaped like the legacy PROGRAM_MAP so Registration code can use it the same way.
   // Falls back to the static PROGRAM_MAP for any key not found (keeps old data / a failed fetch working).
@@ -3510,32 +3746,50 @@ export default function App() {
     showToast("Enrollment cancelled. Beneficiary is available for new enrollments again.");
   };
 
-  const saveAttendance = async (attendanceMap) => {
-    if (!activeBatch) return;
-    const batchEnrollments = enrollments.filter(e => e.batch_id === activeBatch.batch_id);
-    const updates = batchEnrollments.map(e => ({
-      enrollment_id: e.enrollment_id,
-      attendance_status: attendanceMap[e.enrollment_id] || "Present",
-    }));
-    // Update each enrollment
-    let hasError = false;
-    for (const u of updates) {
-      const presentStatuses = ["Present","Late"];
-      const batchTotal = batchEnrollments.length;
-      const presentCount = updates.filter(x => presentStatuses.includes(x.attendance_status)).length;
-      const pct = batchTotal > 0 ? Math.round((presentCount / batchTotal) * 100) : 0;
-      const { error } = await supabase.from("training_enrollments")
-        .update({ attendance_status: u.attendance_status, attendance_pct: pct })
-        .eq("enrollment_id", u.enrollment_id);
-      if (error) hasError = true;
+  // Attendance Management: one call per session date. Upserts a record per beneficiary for that date,
+  // then recomputes each beneficiary's overall attendance_pct from their FULL session history (not just today).
+  const saveDailyAttendance = async (batchId, sessionDate, marksMap) => {
+    const beneficiaryIds = Object.keys(marksMap);
+    if (beneficiaryIds.length === 0) return;
+    const recs = beneficiaryIds.map(bid => {
+      const enr = enrollments.find(e => e.batch_id === batchId && e.beneficiary_id === bid);
+      return {
+        batch_id: batchId,
+        beneficiary_id: bid,
+        enrollment_id: enr?.enrollment_id || null,
+        session_date: sessionDate,
+        status: marksMap[bid],
+        marked_by: user.username,
+      };
+    });
+    const { data, error } = await supabase.from("attendance_records")
+      .upsert(recs, { onConflict: "batch_id,beneficiary_id,session_date" }).select();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+
+    // Merge the new/updated records into local state (replace same-day rows for this batch, keep the rest)
+    const updatedRecords = [
+      ...attendanceRecords.filter(r => !(r.batch_id === batchId && r.session_date === sessionDate)),
+      ...(data || []),
+    ];
+    setAttendanceRecords(updatedRecords);
+
+    // Recompute attendance_pct per beneficiary from their full history in this batch
+    const presentStatuses = ["Present", "Late"];
+    for (const bid of beneficiaryIds) {
+      const beneficiarySessions = updatedRecords.filter(r => r.batch_id === batchId && r.beneficiary_id === bid);
+      const total = beneficiarySessions.length;
+      const present = beneficiarySessions.filter(r => presentStatuses.includes(r.status)).length;
+      const pct = total > 0 ? Math.round((present / total) * 100) : 0;
+      const enr = enrollments.find(e => e.batch_id === batchId && e.beneficiary_id === bid);
+      if (enr) {
+        await supabase.from("training_enrollments")
+          .update({ attendance_pct: pct, attendance_status: marksMap[bid] })
+          .eq("enrollment_id", enr.enrollment_id);
+        setEnrollments(es => es.map(e => e.enrollment_id === enr.enrollment_id ? { ...e, attendance_pct: pct, attendance_status: marksMap[bid] } : e));
+      }
     }
-    if (hasError) { showToast("Some updates failed.", "error"); return; }
-    // Refresh enrollments
-    const { data } = await supabase.from("training_enrollments").select("*").order("enrolled_at");
-    if (data) setEnrollments(data);
-    await logTrainingAudit("Attendance Updated", `Attendance for ${activeBatch.training_name}`);
-    showToast("Attendance saved!");
-    setTrainingSubView(null); setActiveBatch(null);
+    await logTrainingAudit("Attendance Marked", `${activeBatch?.training_name || batchId}: ${sessionDate} (${beneficiaryIds.length} marked)`);
+    showToast(`Attendance saved for ${sessionDate}.`);
   };
 
   const saveCertificates = async (certStatusMap) => {
@@ -3803,7 +4057,8 @@ export default function App() {
             <AttendanceScreen
               batch={activeBatch}
               enrollments={enrollments}
-              onSaveAttendance={saveAttendance}
+              attendanceRecords={attendanceRecords}
+              onSaveDailyAttendance={saveDailyAttendance}
               onCancelEnrollment={cancelEnrollment}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
@@ -3813,6 +4068,14 @@ export default function App() {
               enrollments={enrollments}
               onIssueCertificates={saveCertificates}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
+          )}
+          {view === "training" && trainingSubView === "attendance-report" && (
+            <AttendanceReport
+              attendanceRecords={attendanceRecords}
+              batches={batches}
+              beneficiaries={beneficiaries}
+              dynPrograms={dynPrograms}
+              onClose={() => setTrainingSubView(null)} />
           )}
 
           {/* VIEWS */}
@@ -3858,6 +4121,7 @@ export default function App() {
               onEnroll={b => { setActiveBatch(b); setTrainingSubView("enroll"); }}
               onAttendance={b => { setActiveBatch(b); setTrainingSubView("attendance"); }}
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
+              onAttendanceReport={() => setTrainingSubView("attendance-report")}
               onExport={exportBatches}
               onPrint={printBatches} />
           )}
