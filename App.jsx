@@ -2464,6 +2464,11 @@ function UserManagement({ currentUser, showToast }) {
         tempPassword = (form.password_hash && form.password_hash.trim()) || generateTempPassword();
         rec.password_hash = tempPassword;
         rec.must_change_password = true;
+        // Field Workers don't use email to log in, but the email column is NOT NULL + UNIQUE —
+        // generate a unique placeholder so it never collides with another Field Worker's row.
+        if (!rec.email || !rec.email.trim()) {
+          rec.email = `fieldworker.${Date.now()}.${Math.floor(Math.random() * 10000)}@noemail.tapasvi.local`;
+        }
       }
       const { data, error } = await supabase.from("app_users").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
