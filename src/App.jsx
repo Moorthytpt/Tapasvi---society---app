@@ -1884,12 +1884,17 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
   }, [dynPrograms, batches]);
   const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
-  // Field Workers only see Training Batches assigned to them. Legacy batches (created before this
-  // feature, with no assigned_field_worker set) remain visible to all Field Workers for backward compatibility.
+  // Field Workers only see Training Batches assigned to them. Super Admin/Admin see everything.
+  // Unassigned trainings and trainings assigned to another Field Worker are hidden — no backward-compat exception.
   const visibleBatches = useMemo(() => {
     if (isAdmin) return batches || [];
-    return (batches || []).filter(b => !b.assigned_field_worker || b.assigned_field_worker === currentUser?.username);
+    return (batches || []).filter(b => b.assigned_field_worker && b.assigned_field_worker === currentUser?.username);
   }, [batches, isAdmin, currentUser]);
+
+  // All aggregate stats (participants, completion rate) must be computed only from enrollments
+  // belonging to the trainings this user can see — not the full unfiltered enrollments list.
+  const visibleBatchIds = useMemo(() => new Set(visibleBatches.map(b => b.batch_id)), [visibleBatches]);
+  const visibleEnrollments = useMemo(() => (enrollments || []).filter(e => visibleBatchIds.has(e.batch_id)), [enrollments, visibleBatchIds]);
 
   const filtered = useMemo(() => {
     let r = visibleBatches;
@@ -1905,7 +1910,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
   const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
 
-  const getEnrollCount = batchId => (enrollments || []).filter(e => e.batch_id === batchId).length;
+  const getEnrollCount = batchId => visibleEnrollments.filter(e => e.batch_id === batchId).length;
 
   return (
     <div>
@@ -1942,7 +1947,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       </div>
 
       {/* Dashboard */}
-      <TrainingDashboard batches={visibleBatches} enrollments={enrollments || []} />
+      <TrainingDashboard batches={visibleBatches} enrollments={visibleEnrollments} />
 
       {/* Filters */}
       <div className="flex gap-3 mb-4 flex-wrap">
@@ -2464,9 +2469,11 @@ function UserManagement({ currentUser, showToast }) {
         tempPassword = (form.password_hash && form.password_hash.trim()) || generateTempPassword();
         rec.password_hash = tempPassword;
         rec.must_change_password = true;
-        // Field Workers don't use email to log in — leave it NULL (not "") so it never collides
-        // with another Field Worker's row under the app_users.email UNIQUE constraint.
-        if (!rec.email || !rec.email.trim()) rec.email = null;
+        // Field Workers don't use email to log in, but the email column is NOT NULL + UNIQUE —
+        // generate a unique placeholder so it never collides with another Field Worker's row.
+        if (!rec.email || !rec.email.trim()) {
+          rec.email = `fieldworker.${Date.now()}.${Math.floor(Math.random() * 10000)}@noemail.tapasvi.local`;
+        }
       }
       const { data, error } = await supabase.from("app_users").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
@@ -3741,8 +3748,8 @@ export default function App() {
       showToast("This training is no longer active. Enrollment is closed.", "error");
       return;
     }
-    if (!isAdmin && activeBatch.assigned_field_worker && activeBatch.assigned_field_worker !== user.username) {
-      showToast("This training is assigned to another Field Worker. You cannot enroll beneficiaries here.", "error");
+    if (!isAdmin && activeBatch.assigned_field_worker !== user.username) {
+      showToast("This training is not assigned to you. You cannot enroll beneficiaries here.", "error");
       return;
     }
     const blocked = beneficiaryIds.filter(bid => isActivelyEnrolledElsewhere(bid, activeBatch.batch_id));
@@ -3788,8 +3795,8 @@ export default function App() {
   const saveDailyAttendance = async (batchId, sessionDate, marksMap) => {
     const beneficiaryIds = Object.keys(marksMap);
     if (beneficiaryIds.length === 0) return;
-    if (!isAdmin && activeBatch?.assigned_field_worker && activeBatch.assigned_field_worker !== user.username) {
-      showToast("This training is assigned to another Field Worker. You cannot mark attendance here.", "error");
+    if (!isAdmin && activeBatch?.assigned_field_worker !== user.username) {
+      showToast("This training is not assigned to you. You cannot mark attendance here.", "error");
       return;
     }
     const recs = beneficiaryIds.map(bid => {
