@@ -1267,6 +1267,7 @@ function BatchTrainingForm({ editing, onSave, onCancel, dynPrograms }) {
   const blank = {
     training_name: "", program: "rydeap", trainer_name: "", training_type: "Skill Development",
     venue: "", start_date: "", end_date: "", max_capacity: "", description: "", status: "Upcoming",
+    assigned_field_worker: "",
   };
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [errors, setErrors] = useState({});
@@ -1337,6 +1338,9 @@ function BatchTrainingForm({ editing, onSave, onCancel, dynPrograms }) {
             </Field>
             <Field label="Trainer Name" required error={errors.trainer_name}>
               <Input value={form.trainer_name} onChange={set("trainer_name")} placeholder="Trainer full name" />
+            </Field>
+            <Field label="Assigned Field Worker" hint="Only this Field Worker can enroll & mark attendance for this training">
+              <Input value={form.assigned_field_worker || ""} onChange={set("assigned_field_worker")} placeholder="Field Worker's full name" />
             </Field>
             <Field label="Venue" required error={errors.venue}>
               <Input value={form.venue} onChange={set("venue")} placeholder="Training center / location" />
@@ -1486,7 +1490,7 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
   const batchEnrollments = enrollments.filter(e =>
     e.batch_id === batch.batch_id &&
     (e.enrollment_status || "Active") !== "Cancelled" &&
-    (isAdmin || e.enrolled_by === currentUser?.username)
+    (isAdmin || !e.enrolled_by || e.enrolled_by === currentUser?.username)
   );
   const batchRecords = attendanceRecords.filter(r => r.batch_id === batch.batch_id);
 
@@ -1880,8 +1884,15 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
   }, [dynPrograms, batches]);
   const resolvedProgramMap = useMemo(() => Object.fromEntries(resolvedPrograms.map(p => [p.key, p])), [resolvedPrograms]);
 
+  // Field Workers only see Training Batches assigned to them. Legacy batches (created before this
+  // feature, with no assigned_field_worker set) remain visible to all Field Workers for backward compatibility.
+  const visibleBatches = useMemo(() => {
+    if (isAdmin) return batches || [];
+    return (batches || []).filter(b => !b.assigned_field_worker || b.assigned_field_worker === currentUser?.username);
+  }, [batches, isAdmin, currentUser]);
+
   const filtered = useMemo(() => {
-    let r = batches || [];
+    let r = visibleBatches;
     if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (query.trim()) {
@@ -1889,7 +1900,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       r = r.filter(b => b.training_name?.toLowerCase().includes(q) || b.trainer_name?.toLowerCase().includes(q) || b.venue?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [batches, query, programFilter, statusFilter]);
+  }, [visibleBatches, query, programFilter, statusFilter]);
 
   const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
@@ -1931,7 +1942,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       </div>
 
       {/* Dashboard */}
-      <TrainingDashboard batches={batches || []} enrollments={enrollments || []} />
+      <TrainingDashboard batches={visibleBatches} enrollments={enrollments || []} />
 
       {/* Filters */}
       <div className="flex gap-3 mb-4 flex-wrap">
@@ -1987,6 +1998,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                         <span>📅 {batch.start_date}{batch.end_date ? ` → ${batch.end_date}` : ""}</span>
                         <span>👥 {capacity} participants</span>
                         {batch.training_type && <span>📚 {batch.training_type}</span>}
+                        {batch.assigned_field_worker && <span>🧑‍💼 {batch.assigned_field_worker}</span>}
                       </div>
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
@@ -3726,6 +3738,10 @@ export default function App() {
       showToast("This training is no longer active. Enrollment is closed.", "error");
       return;
     }
+    if (!isAdmin && activeBatch.assigned_field_worker && activeBatch.assigned_field_worker !== user.username) {
+      showToast("This training is assigned to another Field Worker. You cannot enroll beneficiaries here.", "error");
+      return;
+    }
     const blocked = beneficiaryIds.filter(bid => isActivelyEnrolledElsewhere(bid, activeBatch.batch_id));
     const allowed = beneficiaryIds.filter(bid => !blocked.includes(bid));
     if (blocked.length > 0) {
@@ -3769,6 +3785,10 @@ export default function App() {
   const saveDailyAttendance = async (batchId, sessionDate, marksMap) => {
     const beneficiaryIds = Object.keys(marksMap);
     if (beneficiaryIds.length === 0) return;
+    if (!isAdmin && activeBatch?.assigned_field_worker && activeBatch.assigned_field_worker !== user.username) {
+      showToast("This training is assigned to another Field Worker. You cannot mark attendance here.", "error");
+      return;
+    }
     const recs = beneficiaryIds.map(bid => {
       const enr = enrollments.find(e => e.batch_id === batchId && e.beneficiary_id === bid);
       return {
