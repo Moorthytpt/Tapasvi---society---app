@@ -2464,6 +2464,9 @@ function UserManagement({ currentUser, showToast }) {
         tempPassword = (form.password_hash && form.password_hash.trim()) || generateTempPassword();
         rec.password_hash = tempPassword;
         rec.must_change_password = true;
+        // Field Workers don't use email to log in — leave it NULL (not "") so it never collides
+        // with another Field Worker's row under the app_users.email UNIQUE constraint.
+        if (!rec.email || !rec.email.trim()) rec.email = null;
       }
       const { data, error } = await supabase.from("app_users").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
