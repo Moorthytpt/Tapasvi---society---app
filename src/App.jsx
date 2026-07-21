@@ -1869,7 +1869,7 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint, dynPrograms, onAttendanceReport, onAssessments }) {
+  onExport, onPrint, dynPrograms, onAttendanceReport, onAssessments, onCertificateGeneration }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1947,6 +1947,11 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
               {onAssessments && (
                 <button onClick={onAssessments} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
                   <Award size={13} /> Assessments
+                </button>
+              )}
+              {onCertificateGeneration && (
+                <button onClick={onCertificateGeneration} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                  <CheckCircle size={13} /> Certificate Generation
                 </button>
               )}
             </>
@@ -4000,6 +4005,418 @@ function AssessmentMarksScreen({ assessment, readOnly, beneficiaries, enrollment
   );
 }
 
+/* ============================================================
+   CERTIFICATE GENERATION MODULE
+   Reuses Field / Input / Select / inputCls / selectCls / downloadCSV /
+   showToast / logAppAudit. QR codes rendered via a public QR image API
+   (no new npm dependency needed — consistent with the rest of the app,
+   which has no PDF library and instead uses window.print()).
+   Table used: certificates.
+   ============================================================ */
+function qrImageUrl(data, size) {
+  return "https://api.qrserver.com/v1/create-qr-code/?size=" + (size || 140) + "x" + (size || 140) + "&data=" + encodeURIComponent(data);
+}
+
+async function nextCertificateNumber() {
+  const { data: settings } = await supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle();
+  const prefix = settings?.certificate_prefix || "TAP-";
+  const startNum = Number(settings?.certificate_number_start) || 1;
+  const { data: existing } = await supabase.from("certificates").select("certificate_number").ilike("certificate_number", prefix + "%");
+  let maxNum = startNum - 1;
+  (existing || []).forEach(c => {
+    const n = parseInt(String(c.certificate_number).replace(prefix, ""), 10);
+    if (!isNaN(n) && n > maxNum) maxNum = n;
+  });
+  return { number: prefix + String(maxNum + 1).padStart(6, "0"), settings };
+}
+
+function printCertificate(cert, settings) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const logoUrl = window.location.origin + "/icon-512.png";
+  const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  const css = "@page{margin:0;} body{font-family:Georgia,serif;margin:0;} " +
+    ".sheet{width:100%;min-height:100vh;box-sizing:border-box;padding:36px;border:10px solid #1E3A8A;position:relative;text-align:center;} " +
+    ".sheet:before{content:'';position:absolute;inset:14px;border:2px solid #F97316;} " +
+    ".inner{position:relative;padding:20px;} .logo{width:60px;height:60px;} " +
+    ".org{font-size:20px;font-weight:bold;color:#1E3A8A;margin-top:8px;} " +
+    ".title{font-size:26px;font-weight:bold;color:#111827;margin:22px 0 6px;letter-spacing:1px;} " +
+    ".sub{font-size:13px;color:#6B7280;} .name{font-size:28px;font-weight:bold;color:#1E3A8A;margin:18px 0;border-bottom:2px solid #1E3A8A;display:inline-block;padding:0 20px 6px;} " +
+    ".course{font-size:16px;color:#111827;margin:10px 0;} .meta{font-size:12.5px;color:#374151;margin-top:8px;} " +
+    ".sigrow{display:flex;justify-content:space-between;margin-top:60px;padding:0 40px;} .sig{text-align:center;} .sig .line{border-top:1px solid #111827;width:160px;margin-bottom:6px;} " +
+    ".footer{display:flex;justify-content:space-between;align-items:center;margin-top:30px;padding:0 20px;} .certno{font-size:11px;color:#6B7280;}";
+  const html = "<!DOCTYPE html><html><head><title>Certificate " + cert.certificate_number + "</title><style>" + css + "</style></head><body>" +
+    "<div class='sheet'><div class='inner'>" +
+    "<img class='logo' src='" + logoUrl + "'/><div class='org'>TAPASVI Society</div>" +
+    "<div class='title'>CERTIFICATE OF COMPLETION</div>" +
+    "<div class='sub'>This certificate is proudly presented to</div>" +
+    "<div class='name'>" + (cert.beneficiary_name || "") + "</div>" +
+    "<div class='course'>for successfully completing <b>" + (cert.course || "") + "</b> (" + (cert.batch_label || "") + ")</div>" +
+    "<div class='meta'>Grade: <b>" + (cert.grade || "") + "</b> &nbsp; | &nbsp; Percentage: <b>" + (cert.percentage || "") + "%</b> &nbsp; | &nbsp; Date: <b>" + (cert.certificate_date || "") + "</b></div>" +
+    "<div class='sigrow'>" +
+    "<div class='sig'><div class='line'></div>" + (cert.trainer || "Trainer") + "<br/>Trainer</div>" +
+    "<div class='sig'><div class='line'></div>" + (settings?.signature_name || "Authorized Signatory") + "<br/>" + (settings?.designation || "") + "</div>" +
+    "</div>" +
+    "<div class='footer'><div class='certno'>Certificate No: " + cert.certificate_number + "</div>" +
+    (settings?.enable_qr_code !== false ? "<img src='" + qrImageUrl(qrData, 90) + "' width='90' height='90'/>" : "") +
+    "</div></div></div>" +
+    "</body></html>";
+  w.document.write(html);
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 700);
+}
+
+function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, onClose }) {
+  const [tab, setTab] = useState("issued"); // issued | eligible | verify
+  const [certs, setCerts] = useState([]);
+  const [eligible, setEligible] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState(null);
+  const [query, setQuery] = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [preview, setPreview] = useState(null);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeReason, setRevokeReason] = useState("");
+  const PER_PAGE = 8;
+
+  const loadAll = async () => {
+    setLoading(true);
+    const [{ data: certData, error: certErr }, { data: marks }, { data: records }, { data: settingsData }] = await Promise.all([
+      supabase.from("certificates").select("*").order("generated_at", { ascending: false }),
+      supabase.from("assessment_marks").select("*").eq("result", "Pass").eq("certificate_eligible", "Yes"),
+      supabase.from("assessment_records").select("*"),
+      supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle(),
+    ]);
+    if (certErr) { showToast("Error loading certificates: " + certErr.message, "error"); setLoading(false); return; }
+    setCerts(certData || []);
+    setSettings(settingsData || null);
+    const issuedSet = new Set((certData || []).map(c => c.assessment_id + "::" + c.beneficiary_id));
+    const merged = (marks || []).map(m => {
+      const rec = (records || []).find(r => r.id === m.assessment_id);
+      return rec ? { ...m, assessment: rec } : null;
+    }).filter(m => m && !issuedSet.has(m.assessment_id + "::" + m.beneficiary_id));
+    setEligible(merged);
+    setLoading(false);
+  };
+  useEffect(() => { loadAll(); }, []);
+
+  const courseOptions = useMemo(() => [...new Set(certs.map(c => c.course).filter(Boolean))], [certs]);
+  const batchOptions = useMemo(() => [...new Set(certs.map(c => c.batch_label).filter(Boolean))], [certs]);
+  const trainerOptions = useMemo(() => [...new Set(certs.map(c => c.trainer).filter(Boolean))], [certs]);
+
+  const filteredCerts = useMemo(() => {
+    let r = certs;
+    if (courseFilter !== "all") r = r.filter(c => c.course === courseFilter);
+    if (batchFilter !== "all") r = r.filter(c => c.batch_label === batchFilter);
+    if (trainerFilter !== "all") r = r.filter(c => c.trainer === trainerFilter);
+    if (statusFilter !== "all") r = r.filter(c => c.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(c => (c.certificate_number || "").toLowerCase().includes(q) || (c.beneficiary_name || "").toLowerCase().includes(q) || (c.course || "").toLowerCase().includes(q));
+    }
+    return r;
+  }, [certs, courseFilter, batchFilter, trainerFilter, statusFilter, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCerts.length / PER_PAGE));
+  const paginated = filteredCerts.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const generateCertificate = async (row) => {
+    const dup = certs.find(c => c.assessment_id === row.assessment_id && c.beneficiary_id === row.beneficiary_id);
+    if (dup) { showToast("A certificate already exists for this assessment result.", "error"); return; }
+    const { number, settings: s } = await nextCertificateNumber();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const rec = {
+      certificate_number: number,
+      certificate_date: now.slice(0, 10),
+      assessment_id: row.assessment_id,
+      beneficiary_id: row.beneficiary_id,
+      beneficiary_name: row.beneficiary_name,
+      course: row.assessment.course,
+      batch_id: row.assessment.batch_id,
+      batch_label: row.assessment.batch_label,
+      trainer: row.assessment.trainer,
+      grade: row.grade,
+      percentage: row.percentage,
+      status: "Active",
+      generated_by: who, generated_at: now,
+      reprint_count: 0,
+    };
+    const { data, error } = await supabase.from("certificates").insert(rec).select().single();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => [data, ...cs]);
+    setEligible(es => es.filter(e => !(e.assessment_id === row.assessment_id && e.beneficiary_id === row.beneficiary_id)));
+    await logAppAudit("CREATE", "Certificates", `Certificate generated: ${number} — ${row.beneficiary_name}`);
+    showToast(`Certificate ${number} generated.`);
+    setPreview({ ...data, settingsSnapshot: s });
+    setTab("issued");
+  };
+
+  const doPrint = async (cert, isReprint) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    if (isReprint) {
+      const { error } = await supabase.from("certificates").update({ reprint_count: (cert.reprint_count || 0) + 1, reprinted_by: who, reprinted_at: now }).eq("id", cert.id);
+      if (!error) {
+        setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, reprint_count: (c.reprint_count || 0) + 1, reprinted_by: who, reprinted_at: now } : c));
+        await logAppAudit("REPRINT", "Certificates", `Certificate reprinted: ${cert.certificate_number}`);
+      }
+    } else {
+      const { error } = await supabase.from("certificates").update({ printed_by: who, printed_at: now }).eq("id", cert.id);
+      if (!error) {
+        setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, printed_by: who, printed_at: now } : c));
+        await logAppAudit("PRINT", "Certificates", `Certificate printed: ${cert.certificate_number}`);
+      }
+    }
+    printCertificate(cert, settings);
+  };
+
+  const revokeCertificate = async (cert) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("certificates").update({ status: "Revoked", revoked_by: who, revoked_at: now, revoke_reason: revokeReason || null }).eq("id", cert.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, status: "Revoked", revoked_by: who, revoked_at: now, revoke_reason: revokeReason } : c));
+    await logAppAudit("REVOKE", "Certificates", `Certificate revoked: ${cert.certificate_number}`);
+    showToast("Certificate revoked.");
+    setRevokeTarget(null); setRevokeReason("");
+  };
+
+  if (preview) {
+    return <CertificatePreview cert={preview} settings={settings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} />;
+  }
+  if (tab === "verify") {
+    return <CertificateVerify onBack={() => setTab("issued")} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Certificate Generation</h2>
+          <p className="text-[12px] text-[#6B7280]">{certs.length} issued · {eligible.length} eligible</p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-4 mt-3 flex-wrap">
+        <button onClick={() => setTab("issued")} className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (tab === "issued" ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>Issued Certificates</button>
+        <button onClick={() => setTab("eligible")} className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (tab === "eligible" ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>Eligible Students</button>
+        <button onClick={() => setTab("verify")} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold border border-[#E5E7EB] text-[#374151]">Verify Certificate</button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : tab === "eligible" ? (
+        eligible.length === 0 ? (
+          <div className="text-center py-16 text-[#9CA3AF]">
+            <Award size={28} className="mx-auto mb-3 opacity-40" />
+            <p className="text-[13px]">No new eligible students. Certificates already generated, or no Pass results yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {eligible.map(row => (
+              <div key={row.assessment_id + row.beneficiary_id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                <p className="text-[13.5px] font-semibold text-[#111827]">{row.beneficiary_name}</p>
+                <p className="text-[11px] text-[#6B7280]">{row.assessment.course} · {row.assessment.batch_label} · {row.assessment.trainer} · Grade {row.grade} · {row.percentage}%</p>
+                {isAdmin && (
+                  <button onClick={() => generateCertificate(row)} className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#16A34A" }}>
+                    Generate Certificate
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <>
+          <div className="flex gap-3 mb-3 flex-wrap">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+              <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search certificate #, name, course..." className={inputCls + " pl-9 text-[12.5px]"} />
+            </div>
+          </div>
+          <div className="flex gap-2 mb-4 flex-wrap">
+            <select value={courseFilter} onChange={e => { setCourseFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Courses</option>
+              {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Batches</option>
+              {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+            <select value={trainerFilter} onChange={e => { setTrainerFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Trainers</option>
+              {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Revoked">Revoked</option>
+            </select>
+          </div>
+
+          {filteredCerts.length === 0 ? (
+            <div className="text-center py-16 text-[#9CA3AF]">
+              <Award size={28} className="mx-auto mb-3 opacity-40" />
+              <p className="text-[13px]">No certificates found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {paginated.map(c => (
+                <div key={c.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{c.beneficiary_name} · {c.certificate_number}</p>
+                      <p className="text-[11px] text-[#6B7280]">{c.course} · {c.batch_label} · Grade {c.grade} · {c.percentage}% · {c.certificate_date}</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                      style={{ background: c.status === "Active" ? "#DCFCE7" : "#FEE2E2", color: c.status === "Active" ? "#16A34A" : "#DC2626" }}>
+                      {c.status}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    <button onClick={() => setPreview(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">Preview</button>
+                    <button onClick={() => doPrint(c, !!c.printed_at)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>
+                      {c.printed_at ? "Reprint" : "Print"}
+                    </button>
+                    {isAdmin && c.status === "Active" && (
+                      <button onClick={() => setRevokeTarget(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Revoke</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 mt-5">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Prev</button>
+              <span className="text-[12px] text-[#6B7280]">Page {page} of {totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {revokeTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setRevokeTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Revoke Certificate?</p>
+                <p className="text-[12px] text-[#6B7280]">{revokeTarget.certificate_number} — {revokeTarget.beneficiary_name}</p>
+              </div>
+            </div>
+            <textarea value={revokeReason} onChange={e => setRevokeReason(e.target.value)} rows={2} placeholder="Reason (optional)" className={inputCls + " mb-4"} />
+            <div className="flex gap-2">
+              <button onClick={() => revokeCertificate(revokeTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Revoke</button>
+              <button onClick={() => { setRevokeTarget(null); setRevokeReason(""); }} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CertificatePreview({ cert, settings, onPrint, onClose }) {
+  const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">Certificate Preview</h2>
+      </div>
+      <div className="bg-white rounded-2xl border-4 border-[#1E3A8A] p-6 text-center">
+        <p className="text-[15px] font-bold text-[#1E3A8A]">TAPASVI Society</p>
+        <p className="text-[18px] font-bold text-[#111827] mt-3 tracking-wide">CERTIFICATE OF COMPLETION</p>
+        <p className="text-[12px] text-[#6B7280] mt-2">This certificate is proudly presented to</p>
+        <p className="text-[22px] font-bold text-[#1E3A8A] mt-2 inline-block border-b-2 border-[#1E3A8A] pb-1 px-4">{cert.beneficiary_name}</p>
+        <p className="text-[13px] text-[#111827] mt-3">for successfully completing <b>{cert.course}</b> ({cert.batch_label})</p>
+        <p className="text-[12px] text-[#374151] mt-2">Grade: <b>{cert.grade}</b> &nbsp;|&nbsp; Percentage: <b>{cert.percentage}%</b> &nbsp;|&nbsp; Date: <b>{cert.certificate_date}</b></p>
+        <div className="flex justify-between items-end mt-8 px-2">
+          <div className="text-[11px] text-[#6B7280]">{cert.trainer || "Trainer"}<br /><span className="text-[10px]">Trainer</span></div>
+          <img src={qrImageUrl(qrData, 90)} width={90} height={90} alt="QR" />
+          <div className="text-[11px] text-[#6B7280]">{settings?.signature_name || "Authorized Signatory"}<br /><span className="text-[10px]">{settings?.designation || ""}</span></div>
+        </div>
+        <p className="text-[10.5px] text-[#9CA3AF] mt-4">Certificate No: {cert.certificate_number} {cert.status === "Revoked" && <span className="text-[#DC2626] font-bold"> · REVOKED</span>}</p>
+      </div>
+      <button onClick={onPrint} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>
+        Print / Download PDF
+      </button>
+    </div>
+  );
+}
+
+function CertificateVerify({ onBack }) {
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const verify = async () => {
+    if (!input.trim()) return;
+    setLoading(true); setNotFound(false); setResult(null);
+    const match = input.match(/CERT:([^|]+)/);
+    const certNumber = (match ? match[1] : input).trim();
+    const { data, error } = await supabase.from("certificates").select("*").eq("certificate_number", certNumber).maybeSingle();
+    setLoading(false);
+    if (error || !data) { setNotFound(true); return; }
+    setResult(data);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">Verify Certificate</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+        <Field label="Certificate Number or scanned QR text">
+          <Input value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. TAP-000001" />
+        </Field>
+        <button onClick={verify} disabled={loading} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-3 disabled:opacity-60" style={{ background: "#1E3A8A" }}>
+          {loading ? "Checking..." : "Verify"}
+        </button>
+      </div>
+
+      {notFound && (
+        <div className="mt-4 bg-white rounded-2xl border border-[#FEE2E2] p-4 text-center">
+          <XCircle size={24} className="mx-auto mb-2 text-[#DC2626]" />
+          <p className="text-[13px] font-semibold text-[#DC2626]">Certificate not found.</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <div className="flex items-center gap-2 mb-3">
+            {result.status === "Active" ? <CheckCircle size={20} className="text-[#16A34A]" /> : <XCircle size={20} className="text-[#DC2626]" />}
+            <p className="text-[15px] font-bold" style={{ color: result.status === "Active" ? "#16A34A" : "#DC2626" }}>
+              {result.status === "Active" ? "Valid Certificate" : "Revoked Certificate"}
+            </p>
+          </div>
+          <p className="text-[12.5px] text-[#374151]"><b>Certificate No:</b> {result.certificate_number}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Beneficiary:</b> {result.beneficiary_name}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Course:</b> {result.course}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Issue Date:</b> {result.certificate_date}</p>
+          {result.status === "Revoked" && <p className="text-[12.5px] text-[#DC2626] mt-1"><b>Revoked:</b> {result.revoked_at?.slice(0, 10)}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5002,6 +5419,14 @@ export default function App() {
               logAppAudit={logAppAudit}
               onClose={() => setTrainingSubView(null)} />
           )}
+          {view === "training" && trainingSubView === "certificate-generation" && (
+            <CertificateManagement
+              isAdmin={isAdmin}
+              currentUser={user}
+              showToast={showToast}
+              logAppAudit={logAppAudit}
+              onClose={() => setTrainingSubView(null)} />
+          )}
 
           {/* VIEWS */}
           {!subView && view === "dashboard" && (
@@ -5048,6 +5473,7 @@ export default function App() {
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
               onAttendanceReport={() => setTrainingSubView("attendance-report")}
               onAssessments={() => setTrainingSubView("assessment-management")}
+              onCertificateGeneration={() => setTrainingSubView("certificate-generation")}
               onExport={exportBatches}
               onPrint={printBatches} />
           )}
