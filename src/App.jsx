@@ -4035,35 +4035,63 @@ function printCertificate(cert, settings) {
   if (!w) return;
   const logoUrl = window.location.origin + "/icon-512.png";
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
-  const css = "@page{margin:0;} body{font-family:Georgia,serif;margin:0;} " +
-    ".sheet{width:100%;min-height:100vh;box-sizing:border-box;padding:36px;border:10px solid #1E3A8A;position:relative;text-align:center;} " +
-    ".sheet:before{content:'';position:absolute;inset:14px;border:2px solid #F97316;} " +
-    ".inner{position:relative;padding:20px;} .logo{width:60px;height:60px;} " +
-    ".org{font-size:20px;font-weight:bold;color:#1E3A8A;margin-top:8px;} " +
-    ".title{font-size:26px;font-weight:bold;color:#111827;margin:22px 0 6px;letter-spacing:1px;} " +
-    ".sub{font-size:13px;color:#6B7280;} .name{font-size:28px;font-weight:bold;color:#1E3A8A;margin:18px 0;border-bottom:2px solid #1E3A8A;display:inline-block;padding:0 20px 6px;} " +
-    ".course{font-size:16px;color:#111827;margin:10px 0;} .meta{font-size:12.5px;color:#374151;margin-top:8px;} " +
-    ".sigrow{display:flex;justify-content:space-between;margin-top:60px;padding:0 40px;} .sig{text-align:center;} .sig .line{border-top:1px solid #111827;width:160px;margin-bottom:6px;} " +
-    ".footer{display:flex;justify-content:space-between;align-items:center;margin-top:30px;padding:0 20px;} .certno{font-size:11px;color:#6B7280;}";
+  const css = "@page{size:landscape;margin:0;} " +
+    "*{box-sizing:border-box;} body{margin:0;font-family:'Lato',Arial,sans-serif;background:#fff;}" +
+    "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&family=Lato:wght@400;700&display=swap');" +
+    ".sheet{width:100vw;height:100vh;position:relative;padding:26px;background:linear-gradient(#fdfbf5,#fdfbf5);}" +
+    ".frame{position:relative;width:100%;height:100%;border:3px solid #1E3A8A;padding:10px;}" +
+    ".frame:before{content:'';position:absolute;inset:8px;border:1.5px solid #C9A227;}" +
+    ".corner{position:absolute;width:26px;height:26px;border:2px solid #C9A227;}" +
+    ".corner.tl{top:16px;left:16px;border-right:none;border-bottom:none;} .corner.tr{top:16px;right:16px;border-left:none;border-bottom:none;}" +
+    ".corner.bl{bottom:16px;left:16px;border-right:none;border-top:none;} .corner.br{bottom:16px;right:16px;border-left:none;border-top:none;}" +
+    ".watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:120px;color:#1E3A8A;opacity:0.045;letter-spacing:6px;transform:rotate(-18deg);pointer-events:none;}" +
+    ".content{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:18px 60px;}" +
+    ".logo{width:56px;height:56px;object-fit:contain;} .org{font-size:15px;font-weight:700;color:#1E3A8A;letter-spacing:2px;margin-top:6px;text-transform:uppercase;}" +
+    ".org-sub{font-size:9.5px;color:#9CA3AF;letter-spacing:1px;}" +
+    ".title{font-family:'Playfair Display',serif;font-size:34px;font-weight:700;color:#111827;margin:18px 0 2px;letter-spacing:1px;}" +
+    ".rule{width:90px;height:2px;background:#C9A227;margin:8px auto 16px;}" +
+    ".sub{font-size:12.5px;color:#6B7280;font-style:italic;}" +
+    ".name{font-family:'Great Vibes',cursive;font-size:44px;color:#1E3A8A;margin:6px 0 4px;line-height:1;}" +
+    ".course{font-size:14.5px;color:#111827;margin:8px 0 4px;max-width:640px;}" +
+    ".badges{display:flex;gap:10px;margin:10px 0 4px;} .badge{border:1px solid #E5E7EB;border-radius:20px;padding:4px 14px;font-size:11px;color:#374151;background:#F9FAFB;}" +
+    ".badge b{color:#1E3A8A;}" +
+    ".sigrow{display:flex;align-items:flex-end;justify-content:space-between;width:100%;max-width:620px;margin-top:34px;}" +
+    ".sig{text-align:center;flex:1;} .sig .line{border-top:1px solid #9CA3AF;width:150px;margin:0 auto 6px;}" +
+    ".sig .nm{font-size:12px;font-weight:700;color:#111827;} .sig .role{font-size:9.5px;color:#9CA3AF;}" +
+    ".seal{width:66px;height:66px;border-radius:50%;border:2px solid #C9A227;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#C9A227;font-size:8px;font-weight:700;letter-spacing:1px;margin:0 18px;}" +
+    ".seal .star{font-size:16px;line-height:1;}" +
+    ".footer{position:absolute;bottom:26px;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:0 60px;}" +
+    ".certno{font-size:9.5px;color:#9CA3AF;letter-spacing:0.5px;}";
   const html = "<!DOCTYPE html><html><head><title>Certificate " + cert.certificate_number + "</title><style>" + css + "</style></head><body>" +
-    "<div class='sheet'><div class='inner'>" +
-    "<img class='logo' src='" + logoUrl + "'/><div class='org'>TAPASVI Society</div>" +
-    "<div class='title'>CERTIFICATE OF COMPLETION</div>" +
-    "<div class='sub'>This certificate is proudly presented to</div>" +
+    "<div class='sheet'><div class='frame'>" +
+    "<div class='corner tl'></div><div class='corner tr'></div><div class='corner bl'></div><div class='corner br'></div>" +
+    "<div class='watermark'>TAPASVI</div>" +
+    "<div class='content'>" +
+    "<img class='logo' src='" + logoUrl + "'/>" +
+    "<div class='org'>TAPASVI Society</div><div class='org-sub'>Society for Rural Development, Social Issues &amp; Health</div>" +
+    "<div class='title'>Certificate of Completion</div><div class='rule'></div>" +
+    "<div class='sub'>This is to certify that</div>" +
     "<div class='name'>" + (cert.beneficiary_name || "") + "</div>" +
-    "<div class='course'>for successfully completing <b>" + (cert.course || "") + "</b> (" + (cert.batch_label || "") + ")</div>" +
-    "<div class='meta'>Grade: <b>" + (cert.grade || "") + "</b> &nbsp; | &nbsp; Percentage: <b>" + (cert.percentage || "") + "%</b> &nbsp; | &nbsp; Date: <b>" + (cert.certificate_date || "") + "</b></div>" +
-    "<div class='sigrow'>" +
-    "<div class='sig'><div class='line'></div>" + (cert.trainer || "Trainer") + "<br/>Trainer</div>" +
-    "<div class='sig'><div class='line'></div>" + (settings?.signature_name || "Authorized Signatory") + "<br/>" + (settings?.designation || "") + "</div>" +
+    "<div class='course'>has successfully completed the <b>" + (cert.course || "") + "</b> training programme conducted at <b>" + (cert.batch_label || "") + "</b></div>" +
+    "<div class='badges'>" +
+    "<div class='badge'>Grade&nbsp;<b>" + (cert.grade || "") + "</b></div>" +
+    "<div class='badge'>Score&nbsp;<b>" + (cert.percentage || "") + "%</b></div>" +
+    "<div class='badge'>Date&nbsp;<b>" + (cert.certificate_date || "") + "</b></div>" +
     "</div>" +
-    "<div class='footer'><div class='certno'>Certificate No: " + cert.certificate_number + "</div>" +
-    (settings?.enable_qr_code !== false ? "<img src='" + qrImageUrl(qrData, 90) + "' width='90' height='90'/>" : "") +
-    "</div></div></div>" +
+    "<div class='sigrow'>" +
+    "<div class='sig'><div class='line'></div><div class='nm'>" + (cert.trainer || "Trainer") + "</div><div class='role'>TRAINER</div></div>" +
+    "<div class='seal'><span class='star'>&#9733;</span>OFFICIAL<br/>SEAL</div>" +
+    "<div class='sig'><div class='line'></div><div class='nm'>" + (settings?.signature_name || "Authorized Signatory") + "</div><div class='role'>" + (settings?.designation || "").toUpperCase() + "</div></div>" +
+    "</div>" +
+    "</div>" +
+    "<div class='footer'><div class='certno'>CERTIFICATE NO. " + cert.certificate_number + "</div>" +
+    (settings?.enable_qr_code !== false ? "<img src='" + qrImageUrl(qrData, 74) + "' width='74' height='74'/>" : "<div></div>") +
+    "</div>" +
+    "</div></div>" +
     "</body></html>";
   w.document.write(html);
   w.document.close(); w.focus();
-  setTimeout(() => w.print(), 700);
+  setTimeout(() => w.print(), 800);
 }
 
 function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, onClose }) {
@@ -4334,23 +4362,56 @@ function CertificatePreview({ cert, settings, onPrint, onClose }) {
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
   return (
     <div>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&display=swap" />
       <div className="flex items-center gap-2 mb-4">
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
         <h2 className="text-[18px] font-bold text-[#111827]">Certificate Preview</h2>
       </div>
-      <div className="bg-white rounded-2xl border-4 border-[#1E3A8A] p-6 text-center">
-        <p className="text-[15px] font-bold text-[#1E3A8A]">TAPASVI Society</p>
-        <p className="text-[18px] font-bold text-[#111827] mt-3 tracking-wide">CERTIFICATE OF COMPLETION</p>
-        <p className="text-[12px] text-[#6B7280] mt-2">This certificate is proudly presented to</p>
-        <p className="text-[22px] font-bold text-[#1E3A8A] mt-2 inline-block border-b-2 border-[#1E3A8A] pb-1 px-4">{cert.beneficiary_name}</p>
-        <p className="text-[13px] text-[#111827] mt-3">for successfully completing <b>{cert.course}</b> ({cert.batch_label})</p>
-        <p className="text-[12px] text-[#374151] mt-2">Grade: <b>{cert.grade}</b> &nbsp;|&nbsp; Percentage: <b>{cert.percentage}%</b> &nbsp;|&nbsp; Date: <b>{cert.certificate_date}</b></p>
-        <div className="flex justify-between items-end mt-8 px-2">
-          <div className="text-[11px] text-[#6B7280]">{cert.trainer || "Trainer"}<br /><span className="text-[10px]">Trainer</span></div>
-          <img src={qrImageUrl(qrData, 90)} width={90} height={90} alt="QR" />
-          <div className="text-[11px] text-[#6B7280]">{settings?.signature_name || "Authorized Signatory"}<br /><span className="text-[10px]">{settings?.designation || ""}</span></div>
+      <div className="relative bg-[#FDFBF5] p-2" style={{ border: "3px solid #1E3A8A" }}>
+        <div className="relative p-6 text-center" style={{ border: "1.5px solid #C9A227" }}>
+          {["top-3 left-3 border-r-0 border-b-0", "top-3 right-3 border-l-0 border-b-0", "bottom-3 left-3 border-r-0 border-t-0", "bottom-3 right-3 border-l-0 border-t-0"].map((pos, i) => (
+            <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: "2px solid #C9A227" }} />
+          ))}
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
+            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 70, color: "#1E3A8A", opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
+          </div>
+          <div className="relative">
+            <div className="flex justify-center mb-1"><Logo size={48} /></div>
+            <p className="text-[13px] font-bold text-[#1E3A8A] tracking-widest uppercase">TAPASVI Society</p>
+            <p className="text-[9px] text-[#9CA3AF] tracking-wide">Society for Rural Development, Social Issues &amp; Health</p>
+            <p className="mt-4 text-[26px] font-bold text-[#111827]" style={{ fontFamily: "'Playfair Display', serif" }}>Certificate of Completion</p>
+            <div className="w-16 h-0.5 mx-auto my-2" style={{ background: "#C9A227" }} />
+            <p className="text-[11.5px] text-[#6B7280] italic">This is to certify that</p>
+            <p className="my-1 text-[34px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: "#1E3A8A" }}>{cert.beneficiary_name}</p>
+            <p className="text-[12.5px] text-[#111827] mt-2 max-w-[420px] mx-auto">has successfully completed the <b>{cert.course}</b> training programme conducted at <b>{cert.batch_label}</b></p>
+            <div className="flex justify-center gap-2 mt-3 flex-wrap">
+              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Grade <b className="text-[#1E3A8A]">{cert.grade}</b></span>
+              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Score <b className="text-[#1E3A8A]">{cert.percentage}%</b></span>
+              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Date <b className="text-[#1E3A8A]">{cert.certificate_date}</b></span>
+            </div>
+            <div className="flex items-end justify-center gap-4 mt-8">
+              <div className="text-center flex-1">
+                <div className="border-t border-[#9CA3AF] w-24 mx-auto mb-1" />
+                <p className="text-[10.5px] font-bold text-[#111827]">{cert.trainer || "Trainer"}</p>
+                <p className="text-[8.5px] text-[#9CA3AF] tracking-wide">TRAINER</p>
+              </div>
+              <div className="w-14 h-14 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: "2px solid #C9A227", color: "#C9A227" }}>
+                <span className="text-[13px]">★</span>
+                <span className="text-[6px] font-bold tracking-wide">OFFICIAL SEAL</span>
+              </div>
+              <div className="text-center flex-1">
+                <div className="border-t border-[#9CA3AF] w-24 mx-auto mb-1" />
+                <p className="text-[10.5px] font-bold text-[#111827]">{settings?.signature_name || "Authorized Signatory"}</p>
+                <p className="text-[8.5px] text-[#9CA3AF] tracking-wide">{(settings?.designation || "").toUpperCase()}</p>
+              </div>
+            </div>
+            <div className="flex justify-between items-center mt-6">
+              <p className="text-[9px] text-[#9CA3AF] tracking-wide">CERTIFICATE NO. {cert.certificate_number}</p>
+              {settings?.enable_qr_code !== false && <img src={qrImageUrl(qrData, 60)} width={60} height={60} alt="QR" />}
+            </div>
+            {cert.status === "Revoked" && <p className="text-[11px] text-[#DC2626] font-bold mt-2">REVOKED</p>}
+          </div>
         </div>
-        <p className="text-[10.5px] text-[#9CA3AF] mt-4">Certificate No: {cert.certificate_number} {cert.status === "Revoked" && <span className="text-[#DC2626] font-bold"> · REVOKED</span>}</p>
       </div>
       <button onClick={onPrint} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>
         Print / Download PDF
