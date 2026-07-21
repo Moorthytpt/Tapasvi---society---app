@@ -1869,7 +1869,7 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint, dynPrograms, onAttendanceReport }) {
+  onExport, onPrint, dynPrograms, onAttendanceReport, onAssessments }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1942,6 +1942,11 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
               {onAttendanceReport && (
                 <button onClick={onAttendanceReport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
                   <ClipboardList size={13} /> Attendance Report
+                </button>
+              )}
+              {onAssessments && (
+                <button onClick={onAssessments} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                  <Award size={13} /> Assessments
                 </button>
               )}
             </>
@@ -3526,6 +3531,475 @@ function TrainingSettingsHub({ currentUser, showToast, logAppAudit, onBack }) {
   );
 }
 
+/* ============================================================
+   TRAINING ASSESSMENT MANAGEMENT MODULE
+   Reuses Field / Input / Select / inputCls / selectCls / downloadCSV /
+   showToast / logAppAudit exactly like the rest of the app.
+   Tables used: assessment_records (the assessment event),
+   assessment_marks (per-beneficiary marks for that event).
+   ============================================================ */
+function computeAssessmentResult(theory, practical, viva, maxMarks, passMarks, isAbsent) {
+  if (isAbsent) return { total: 0, percentage: 0, grade: "-", result: "Absent", certEligible: "No" };
+  const total = (Number(theory) || 0) + (Number(practical) || 0) + (Number(viva) || 0);
+  const pct = maxMarks > 0 ? Math.round((total / maxMarks) * 1000) / 10 : 0;
+  if (total < Number(passMarks || 0)) return { total, percentage: pct, grade: "Fail", result: "Fail", certEligible: "No" };
+  let grade = "D";
+  if (pct >= 90) grade = "A+";
+  else if (pct >= 80) grade = "A";
+  else if (pct >= 70) grade = "B";
+  else if (pct >= 60) grade = "C";
+  else if (pct >= 50) grade = "D";
+  else grade = "Pass";
+  return { total, percentage: pct, grade, result: "Pass", certEligible: "Yes" };
+}
+
+function printAssessmentResultSheet(assessment, rows) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const logoUrl = window.location.origin + "/icon-512.png";
+  const thead = "<tr><th>Beneficiary ID</th><th>Name</th><th>Theory</th><th>Practical</th><th>Viva</th><th>Total</th><th>%</th><th>Grade</th><th>Result</th></tr>";
+  const tbody = rows.map(r => (
+    "<tr><td>" + (r.beneficiary_id || "") + "</td><td>" + (r.beneficiary_name || "") + "</td><td>" +
+    (r.is_absent ? "-" : r.theory_marks ?? 0) + "</td><td>" + (r.is_absent ? "-" : r.practical_marks ?? 0) + "</td><td>" +
+    (r.is_absent ? "-" : r.viva_marks ?? 0) + "</td><td>" + r.total_marks + "</td><td>" + r.percentage + "%</td><td>" +
+    r.grade + "</td><td>" + r.result + "</td></tr>"
+  )).join("");
+  const css = "@page{margin:110px 20px 40px 20px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:14px 20px;border-bottom:2px solid #1E3A8A;display:flex;gap:10px;align-items:center;} " +
+    ".print-header img{width:38px;height:38px;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
+    "table{width:100%;border-collapse:collapse;margin-top:8px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;}";
+  const header = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div style='font-size:10px;color:#666;'>Assessment Result Sheet</div></div></div>";
+  const meta = "<p><b>Batch:</b> " + (assessment.batch_label || "") + " &nbsp; <b>Course:</b> " + (assessment.course || "") +
+    " &nbsp; <b>Trainer:</b> " + (assessment.trainer || "") + "</p><p><b>Date:</b> " + (assessment.assessment_date || "") +
+    " &nbsp; <b>Type:</b> " + (assessment.assessment_type || "") + " &nbsp; <b>Max Marks:</b> " + assessment.max_marks +
+    " &nbsp; <b>Pass Marks:</b> " + assessment.pass_marks + "</p>";
+  w.document.write("<!DOCTYPE html><html><head><title>Assessment Result Sheet</title><style>" + css + "</style></head><body>" +
+    header + "<div style='margin-top:6px;'>" + meta + "<table>" + thead + tbody + "</table></div></body></html>");
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+function AssessmentManagement({ batches, beneficiaries, enrollments, currentUser, isAdmin, showToast, logAppAudit, onClose }) {
+  const [assessments, setAssessments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subView, setSubView] = useState("list"); // list | form | marks | details
+  const [editing, setEditing] = useState(null);
+  const [active, setActive] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [query, setQuery] = useState("");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 8;
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("assessment_records").select("*").order("assessment_date", { ascending: false });
+    if (error) { showToast("Error loading assessments: " + error.message, "error"); setLoading(false); return; }
+    setAssessments(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const courseOptions = useMemo(() => [...new Set(assessments.map(a => a.course).filter(Boolean))], [assessments]);
+  const trainerOptions = useMemo(() => [...new Set(assessments.map(a => a.trainer).filter(Boolean))], [assessments]);
+
+  const filtered = useMemo(() => {
+    let r = assessments;
+    if (batchFilter !== "all") r = r.filter(a => a.batch_id === batchFilter);
+    if (courseFilter !== "all") r = r.filter(a => a.course === courseFilter);
+    if (trainerFilter !== "all") r = r.filter(a => a.trainer === trainerFilter);
+    if (statusFilter !== "all") r = r.filter(a => a.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(a => (a.batch_label || "").toLowerCase().includes(q) || (a.course || "").toLowerCase().includes(q) || (a.trainer || "").toLowerCase().includes(q));
+    }
+    return r;
+  }, [assessments, batchFilter, courseFilter, trainerFilter, statusFilter, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const saveAssessment = async (form) => {
+    const dup = assessments.find(a => a.id !== editing?.id && a.batch_id === form.batch_id && a.assessment_date === form.assessment_date && a.assessment_type === form.assessment_type);
+    if (dup) { showToast("An assessment for this Batch, Date and Type already exists.", "error"); return; }
+    if (Number(form.pass_marks) > Number(form.max_marks)) { showToast("Pass Marks cannot exceed Maximum Marks.", "error"); return; }
+    if (Number(form.max_marks) <= 0) { showToast("Maximum Marks must be greater than 0.", "error"); return; }
+
+    const now = new Date().toISOString();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const rec = { ...form, updated_by: who, updated_at: now };
+      const { error } = await supabase.from("assessment_records").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setAssessments(as => as.map(a => a.id === editing.id ? { ...a, ...rec } : a));
+      await logAppAudit("UPDATE", "Assessments", `Assessment updated: ${form.batch_label} — ${form.assessment_type} (${form.assessment_date})`);
+      showToast("Assessment updated.");
+    } else {
+      const rec = { ...form, status: "Scheduled", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const { data, error } = await supabase.from("assessment_records").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setAssessments(as => [data, ...as]);
+      await logAppAudit("CREATE", "Assessments", `Assessment created: ${form.batch_label} — ${form.assessment_type} (${form.assessment_date})`);
+      showToast("Assessment created.");
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  const deleteAssessment = async (a) => {
+    await supabase.from("assessment_marks").delete().eq("assessment_id", a.id);
+    const { error } = await supabase.from("assessment_records").delete().eq("id", a.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setAssessments(as => as.filter(x => x.id !== a.id));
+    await logAppAudit("DELETE", "Assessments", `Assessment deleted: ${a.batch_label} — ${a.assessment_type} (${a.assessment_date})`);
+    showToast("Assessment deleted.");
+    setDeleteTarget(null);
+  };
+
+  const markCompleted = async (a) => {
+    await supabase.from("assessment_records").update({ status: "Completed" }).eq("id", a.id);
+    setAssessments(as => as.map(x => x.id === a.id ? { ...x, status: "Completed" } : x));
+  };
+
+  if (subView === "form") {
+    return <AssessmentForm batches={batches} editing={editing} onSave={saveAssessment} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+  if ((subView === "marks" || subView === "details") && active) {
+    return (
+      <AssessmentMarksScreen
+        assessment={active}
+        readOnly={subView === "details"}
+        beneficiaries={beneficiaries}
+        enrollments={enrollments}
+        showToast={showToast}
+        logAppAudit={logAppAudit}
+        onCompleted={() => markCompleted(active)}
+        onClose={() => { setActive(null); setSubView("list"); }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Assessment Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} assessments</p>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div className="flex justify-end mb-4">
+          <button onClick={() => { setEditing(null); setSubView("form"); }}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            <Plus size={14} /> New Assessment
+          </button>
+        </div>
+      )}
+
+      <div className="flex gap-3 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search batch, course, trainer..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+      </div>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Batches</option>
+          {(batches || []).map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} · {b.training_type}</option>)}
+        </select>
+        <select value={courseFilter} onChange={e => { setCourseFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Courses</option>
+          {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={trainerFilter} onChange={e => { setTrainerFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Trainers</option>
+          {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Status</option>
+          <option value="Scheduled">Scheduled</option>
+          <option value="Completed">Completed</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No assessments found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {paginated.map(a => (
+            <div key={a.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-[#111827]">{a.batch_label} · {a.assessment_type}</p>
+                  <p className="text-[11px] text-[#6B7280]">{a.course} · {a.trainer} · {a.assessment_date} · Max {a.max_marks} / Pass {a.pass_marks}</p>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                  style={{ background: a.status === "Completed" ? "#DCFCE7" : "#FEF3C7", color: a.status === "Completed" ? "#16A34A" : "#B45309" }}>
+                  {a.status}
+                </span>
+              </div>
+              {a.remarks && <p className="text-[11.5px] text-[#6B7280] mt-2">{a.remarks}</p>}
+              <div className="flex gap-2 mt-3 flex-wrap">
+                <button onClick={() => { setActive(a); setSubView("marks"); }}
+                  className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>Enter Marks</button>
+                <button onClick={() => { setActive(a); setSubView("details"); }}
+                  className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                {isAdmin && (
+                  <button onClick={() => { setEditing(a); setSubView("form"); }}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>
+                )}
+                {isAdmin && (
+                  <button onClick={() => setDeleteTarget(a)}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Delete</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-5">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Prev</button>
+          <span className="text-[12px] text-[#6B7280]">Page {page} of {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next</button>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Delete Assessment?</p>
+                <p className="text-[12px] text-[#6B7280]">{deleteTarget.batch_label} — {deleteTarget.assessment_type}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">This will also remove all marks entered for this assessment. This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteAssessment(deleteTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssessmentForm({ batches, editing, onSave, onCancel }) {
+  const blank = { batch_id: "", batch_label: "", course: "", trainer: "", assessment_date: new Date().toISOString().slice(0, 10), assessment_type: "Theory", max_marks: 100, pass_marks: 40, remarks: "" };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? e.target.value : e }));
+
+  const onBatchChange = (batchId) => {
+    const b = (batches || []).find(x => x.batch_id === batchId);
+    setForm(f => ({
+      ...f, batch_id: batchId,
+      batch_label: b ? `${b.venue} (${b.start_date})` : "",
+      course: b?.training_type || f.course,
+      trainer: b?.trainer_name || f.trainer,
+    }));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit" : "New"} Assessment</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        <Field label="Batch" required>
+          <select value={form.batch_id} onChange={e => onBatchChange(e.target.value)} className={selectCls}>
+            <option value="">Select batch</option>
+            {(batches || []).map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} — {b.training_type} ({b.start_date})</option>)}
+          </select>
+        </Field>
+        <Field label="Course"><Input value={form.course} onChange={set("course")} placeholder="Course / Trade" /></Field>
+        <Field label="Trainer"><Input value={form.trainer} onChange={set("trainer")} placeholder="Trainer name" /></Field>
+        <Field label="Assessment Date" required><Input type="date" value={form.assessment_date} onChange={set("assessment_date")} /></Field>
+        <Field label="Assessment Type" required>
+          <Select value={form.assessment_type} onChange={set("assessment_type")} options={["Theory", "Practical", "Viva"]} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Maximum Marks" required><Input type="number" value={form.max_marks} onChange={set("max_marks")} /></Field>
+          <Field label="Pass Marks" required><Input type="number" value={form.pass_marks} onChange={set("pass_marks")} /></Field>
+        </div>
+        <Field label="Remarks"><textarea value={form.remarks || ""} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={() => onSave(form)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>Save</button>
+        <button onClick={onCancel} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function AssessmentMarksScreen({ assessment, readOnly, beneficiaries, enrollments, showToast, logAppAudit, onCompleted, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const enrolled = useMemo(() => (enrollments || []).filter(e => e.batch_id === assessment.batch_id), [enrollments, assessment.batch_id]);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("assessment_marks").select("*").eq("assessment_id", assessment.id);
+    if (error) { showToast("Error loading marks: " + error.message, "error"); setLoading(false); return; }
+    const existing = new Map((data || []).map(r => [r.beneficiary_id, r]));
+    const built = enrolled.map(e => {
+      const ex = existing.get(e.beneficiary_id);
+      return ex || {
+        assessment_id: assessment.id, beneficiary_id: e.beneficiary_id, beneficiary_name: e.beneficiary_name || e.beneficiary_id,
+        theory_marks: 0, practical_marks: 0, viva_marks: 0, total_marks: 0, percentage: 0, grade: "-", result: "-", certificate_eligible: "No", is_absent: false,
+      };
+    });
+    setRows(built);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [assessment.id]);
+
+  const updateCell = (beneficiaryId, field, value) => {
+    setRows(rs => rs.map(r => {
+      if (r.beneficiary_id !== beneficiaryId) return r;
+      const next = { ...r, [field]: value };
+      if (field !== "is_absent") {
+        const num = Number(value);
+        if (num < 0) { showToast("Marks cannot be negative.", "error"); return r; }
+      }
+      const calc = computeAssessmentResult(next.theory_marks, next.practical_marks, next.viva_marks, assessment.max_marks, assessment.pass_marks, next.is_absent);
+      return { ...next, total_marks: calc.total, percentage: calc.percentage, grade: calc.grade, result: calc.result, certificate_eligible: calc.certEligible };
+    }));
+  };
+
+  const bulkSave = async () => {
+    for (const r of rows) {
+      const sum = (Number(r.theory_marks) || 0) + (Number(r.practical_marks) || 0) + (Number(r.viva_marks) || 0);
+      if (!r.is_absent && sum > Number(assessment.max_marks)) {
+        showToast(`${r.beneficiary_name}: marks exceed Maximum Marks (${assessment.max_marks}).`, "error");
+        return;
+      }
+    }
+    setSaving(true);
+    const { error } = await supabase.from("assessment_marks").upsert(rows, { onConflict: "assessment_id,beneficiary_id" });
+    setSaving(false);
+    if (error) { showToast("Error saving marks: " + error.message, "error"); return; }
+    await logAppAudit("UPDATE", "Assessments", `Marks saved for ${assessment.batch_label} — ${assessment.assessment_type} (${rows.length} beneficiaries)`);
+    showToast("Marks saved.");
+    onCompleted && onCompleted();
+  };
+
+  const exportCSV = () => {
+    const csvRows = rows.map(r => ({
+      "Beneficiary ID": r.beneficiary_id, Name: r.beneficiary_name,
+      "Theory Marks": r.is_absent ? "-" : r.theory_marks, "Practical Marks": r.is_absent ? "-" : r.practical_marks, "Viva Marks": r.is_absent ? "-" : r.viva_marks,
+      Total: r.total_marks, Percentage: r.percentage, Grade: r.grade, Result: r.result, "Certificate Eligible": r.certificate_eligible,
+    }));
+    downloadCSV(csvRows, `assessment_${assessment.assessment_type}_${assessment.assessment_date}.csv`);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">{readOnly ? "Assessment Details" : "Marks Entry"}</h2>
+          <p className="text-[12px] text-[#6B7280]">{assessment.batch_label} · {assessment.course} · {assessment.trainer}</p>
+        </div>
+      </div>
+      <p className="text-[11.5px] text-[#6B7280] mb-4">{assessment.assessment_type} · {assessment.assessment_date} · Max {assessment.max_marks} / Pass {assessment.pass_marks}</p>
+
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <button onClick={() => printAssessmentResultSheet(assessment, rows)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <Printer size={13} /> Print Result Sheet
+        </button>
+        <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <FileSpreadsheet size={13} /> Export CSV
+        </button>
+        <button onClick={() => printAssessmentResultSheet(assessment, rows)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <Printer size={13} /> Export PDF
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Users size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No beneficiaries enrolled in this batch.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto -mx-4 px-4">
+          <table className="w-full text-[11.5px] border-collapse min-w-[640px]">
+            <thead>
+              <tr className="text-left text-[#6B7280] border-b border-[#E5E7EB]">
+                <th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Name</th>
+                <th className="py-2 pr-2">Theory</th><th className="py-2 pr-2">Practical</th><th className="py-2 pr-2">Viva</th>
+                <th className="py-2 pr-2">Total</th><th className="py-2 pr-2">%</th><th className="py-2 pr-2">Grade</th>
+                <th className="py-2 pr-2">Result</th><th className="py-2 pr-2">Absent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.beneficiary_id} className="border-b border-[#F3F4F6]">
+                  <td className="py-2 pr-2 font-mono">{r.beneficiary_id}</td>
+                  <td className="py-2 pr-2">{r.beneficiary_name}</td>
+                  {["theory_marks", "practical_marks", "viva_marks"].map(f => (
+                    <td key={f} className="py-2 pr-2">
+                      {readOnly ? (r.is_absent ? "-" : r[f]) : (
+                        <input type="number" disabled={r.is_absent} value={r[f]} onChange={e => updateCell(r.beneficiary_id, f, e.target.value)}
+                          className="w-16 rounded border border-[#E5E7EB] px-1.5 py-1 text-[11.5px]" />
+                      )}
+                    </td>
+                  ))}
+                  <td className="py-2 pr-2 font-semibold">{r.total_marks}</td>
+                  <td className="py-2 pr-2">{r.percentage}%</td>
+                  <td className="py-2 pr-2">{r.grade}</td>
+                  <td className="py-2 pr-2">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+                      style={{ background: r.result === "Pass" ? "#DCFCE7" : r.result === "Absent" ? "#F3F4F6" : "#FEE2E2", color: r.result === "Pass" ? "#16A34A" : r.result === "Absent" ? "#6B7280" : "#DC2626" }}>
+                      {r.result}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-2">
+                    {readOnly ? (r.is_absent ? "Yes" : "No") : (
+                      <input type="checkbox" checked={!!r.is_absent} onChange={e => updateCell(r.beneficiary_id, "is_absent", e.target.checked)} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!readOnly && rows.length > 0 && (
+        <button onClick={bulkSave} disabled={saving} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4 disabled:opacity-60" style={{ background: "#1E3A8A" }}>
+          {saving ? "Saving..." : "Save All Marks"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4517,6 +4991,17 @@ export default function App() {
               dynPrograms={dynPrograms}
               onClose={() => setTrainingSubView(null)} />
           )}
+          {view === "training" && trainingSubView === "assessment-management" && (
+            <AssessmentManagement
+              batches={batches}
+              beneficiaries={beneficiaries}
+              enrollments={enrollments}
+              currentUser={user}
+              isAdmin={isAdmin}
+              showToast={showToast}
+              logAppAudit={logAppAudit}
+              onClose={() => setTrainingSubView(null)} />
+          )}
 
           {/* VIEWS */}
           {!subView && view === "dashboard" && (
@@ -4562,6 +5047,7 @@ export default function App() {
               onAttendance={b => { setActiveBatch(b); setTrainingSubView("attendance"); }}
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
               onAttendanceReport={() => setTrainingSubView("attendance-report")}
+              onAssessments={() => setTrainingSubView("assessment-management")}
               onExport={exportBatches}
               onPrint={printBatches} />
           )}
