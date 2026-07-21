@@ -510,7 +510,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     identity_type: "aadhaar", identity_number: "",
     education: "", house_no: "", village: "", mandal: "",
     district: "Tirupati", state: "Andhra Pradesh",
-    category: "BC", disability: "No", shg: "No",
+    category: "BC", disability: "No", shg: "No", skill_interest: "",
     field_worker_name: "", notes: "",
     aadhaar_number: "", aadhaar_verified: "No", ekyc_status: "No",
   };
@@ -710,6 +710,16 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
             </Field>
             <Field label="SHG Member">
               <Select value={form.shg} onChange={set("shg")} options={["No","Yes"]} />
+            </Field>
+          </div>
+
+          <SectionHeader title="Education & Skills" color={p.color} />
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Education">
+              <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education level" />
+            </Field>
+            <Field label="Skill Interest">
+              <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select area of interest" />
             </Field>
           </div>
 
