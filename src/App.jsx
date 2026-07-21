@@ -3004,7 +3004,7 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
     { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: true },
     { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
     { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
-    { key: "training", label: "Training Settings", desc: "Training types, trainers, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: false },
+    { key: "training", label: "Training Settings", desc: "Courses, trainers, assessments, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: true },
     { key: "security", label: "Security", desc: "Password policy, session timeout, audit logs", icon: ShieldCheck, color: "#DC2626", tint: "#FEF2F2", ready: false },
     { key: "preferences", label: "App Preferences", desc: "Theme, language", icon: Palette, color: "#6366F1", tint: "#EEF2FF", ready: false },
   ];
@@ -3022,6 +3022,9 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
   }
   if (subView === "programs") {
     return <ProgramManagement currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} onBack={() => setSubView(null)} />;
+  }
+  if (subView === "training") {
+    return <TrainingSettingsHub currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
   }
 
   return (
@@ -3145,6 +3148,383 @@ const PROGRAM_ICON_MAP = {
   ClipboardList, Building2, Database, ShieldCheck, Palette, TrendingUp, BarChart3,
 };
 const PROGRAM_COLOR_PRESETS = ["#1E3A8A", "#F97316", "#16A34A", "#DC2626", "#7C3AED", "#0EA5E9", "#DB2777", "#F59E0B"];
+
+/* ============================================================
+   TRAINING SETTINGS MODULE — Super Admin only master config
+   Stores configuration used later by other modules. Does NOT
+   modify existing Training / Enrollment / Attendance / Employment.
+   ============================================================ */
+function TrainingMasterList({ title, tableName, orderBy, fields, listPrimary, listSecondary, dupCheckFields, showToast, logAppAudit, onBack }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [subView, setSubView] = useState("list");
+  const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from(tableName).select("*").order(orderBy || "created_at", { ascending: false });
+    if (error) { showToast("Error loading " + title + ": " + error.message, "error"); setLoading(false); return; }
+    setRows(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = useMemo(() => {
+    let r = rows;
+    if (statusFilter !== "all") r = r.filter(x => (x.status || "active") === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(x => fields.some(f => f.searchable && String(x[f.key] || "").toLowerCase().includes(q)));
+    }
+    return r;
+  }, [rows, query, statusFilter]);
+
+  const toggleStatus = async (row) => {
+    const newStatus = row.status === "active" ? "inactive" : "active";
+    const { error } = await supabase.from(tableName).update({ status: newStatus }).eq("id", row.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setRows(rs => rs.map(x => x.id === row.id ? { ...x, status: newStatus } : x));
+    await logAppAudit(newStatus === "active" ? "ACTIVATE" : "DEACTIVATE", "Training Settings", `${title}: "${row[listPrimary]}" → ${newStatus}`);
+    showToast(`${title} ${newStatus === "active" ? "activated" : "deactivated"}.`);
+  };
+
+  const deleteRow = async (row) => {
+    const { error } = await supabase.from(tableName).delete().eq("id", row.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setRows(rs => rs.filter(x => x.id !== row.id));
+    await logAppAudit("DELETE", "Training Settings", `${title} deleted: "${row[listPrimary]}"`);
+    showToast(`${title} deleted.`);
+    setDeleteTarget(null);
+  };
+
+  const saveRow = async (form) => {
+    for (const df of dupCheckFields || []) {
+      if (!form[df]) continue;
+      const dup = rows.find(x => x.id !== editing?.id && String(x[df]).trim().toLowerCase() === String(form[df]).trim().toLowerCase());
+      if (dup) { showToast(`${fields.find(f => f.key === df)?.label || df} already exists.`, "error"); return; }
+    }
+    for (const f of fields) {
+      if (f.required && !form[f.key]) { showToast(`${f.label} is required.`, "error"); return; }
+    }
+    if (editing) {
+      const { error } = await supabase.from(tableName).update(form).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRows(rs => rs.map(x => x.id === editing.id ? { ...x, ...form } : x));
+      await logAppAudit("UPDATE", "Training Settings", `${title} updated: "${form[listPrimary]}"`);
+      showToast(`${title} updated.`);
+    } else {
+      const rec = { ...form, status: form.status || "active", created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from(tableName).insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRows(rs => [data, ...rs]);
+      await logAppAudit("CREATE", "Training Settings", `${title} created: "${form[listPrimary]}"`);
+      showToast(`${title} created.`);
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  if (subView === "form") {
+    return <TrainingMasterForm title={title} fields={fields} editing={editing} onSave={saveRow} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">{title}</h2>
+          <p className="text-[12px] text-[#6B7280]">{rows.length} records</p>
+        </div>
+      </div>
+
+      <div className="flex justify-end mb-4">
+        <button onClick={() => { setEditing(null); setSubView("form"); }}
+          className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+          <Plus size={14} /> Add {title}
+        </button>
+      </div>
+
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Database size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No records found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(row => (
+            <div key={row.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-[#111827]">{row[listPrimary]}</p>
+                  {listSecondary?.length > 0 && (
+                    <p className="text-[11px] text-[#6B7280]">{listSecondary.map(k => row[k]).filter(Boolean).join(" · ")}</p>
+                  )}
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                  style={{ background: row.status === "active" ? "#DCFCE7" : "#F3F4F6", color: row.status === "active" ? "#16A34A" : "#6B7280" }}>
+                  {row.status === "active" ? "Active" : "Inactive"}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => toggleStatus(row)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                  {row.status === "active" ? "Deactivate" : "Activate"}
+                </button>
+                <button onClick={() => { setEditing(row); setSubView("form"); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => setDeleteTarget(row)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Delete {title}?</p>
+                <p className="text-[12px] text-[#6B7280]">{deleteTarget[listPrimary]}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteRow(deleteTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrainingMasterForm({ title, fields, editing, onSave, onCancel }) {
+  const blank = {};
+  fields.forEach(f => { blank[f.key] = f.default !== undefined ? f.default : ""; });
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? e.target.value : e }));
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit" : "Add"} {title}</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        {fields.map(f => (
+          <Field key={f.key} label={f.label} required={f.required}>
+            {f.type === "select" ? (
+              <Select value={form[f.key]} onChange={set(f.key)} options={f.options} />
+            ) : f.type === "textarea" ? (
+              <textarea value={form[f.key] || ""} onChange={set(f.key)} rows={2} className={inputCls} placeholder={f.placeholder || ""} />
+            ) : (
+              <Input value={form[f.key] ?? ""} onChange={set(f.key)} placeholder={f.placeholder || ""} type={f.type === "number" ? "number" : "text"} />
+            )}
+          </Field>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={() => onSave(form)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>Save</button>
+        <button onClick={onCancel} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function TrainingSingletonSettings({ title, tableName, fields, showToast, logAppAudit, onBack }) {
+  const [form, setForm] = useState(null);
+  const [rowId, setRowId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from(tableName).select("*").limit(1).maybeSingle();
+    if (error) { showToast("Error: " + error.message, "error"); setLoading(false); return; }
+    if (data) { setForm(data); setRowId(data.id); }
+    else {
+      const blank = {};
+      fields.forEach(f => { blank[f.key] = f.default !== undefined ? f.default : (f.type === "checkbox" ? false : ""); });
+      setForm(blank);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? (e.target.type === "checkbox" ? e.target.checked : e.target.value) : e }));
+
+  const save = async () => {
+    if (rowId) {
+      const { error } = await supabase.from(tableName).update(form).eq("id", rowId);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+    } else {
+      const { data, error } = await supabase.from(tableName).insert(form).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRowId(data.id);
+    }
+    await logAppAudit("UPDATE", "Training Settings", `${title} saved`);
+    showToast(`${title} saved.`);
+  };
+
+  if (loading || !form) {
+    return (
+      <div className="text-center py-16 text-[#9CA3AF]">
+        <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{title}</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        {fields.map(f => (
+          <Field key={f.key} label={f.type === "checkbox" ? "" : f.label}>
+            {f.type === "select" ? (
+              <Select value={form[f.key]} onChange={set(f.key)} options={f.options} />
+            ) : f.type === "checkbox" ? (
+              <label className="flex items-center gap-2 text-[12.5px] text-[#374151]">
+                <input type="checkbox" checked={!!form[f.key]} onChange={set(f.key)} /> {f.checkLabel || f.label}
+              </label>
+            ) : (
+              <Input value={form[f.key] ?? ""} onChange={set(f.key)} placeholder={f.placeholder || ""} type={f.type === "number" ? "number" : "text"} />
+            )}
+          </Field>
+        ))}
+      </div>
+      <button onClick={save} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>Save Settings</button>
+    </div>
+  );
+}
+
+function TrainingSettingsHub({ currentUser, showToast, logAppAudit, onBack }) {
+  const [subView, setSubView] = useState(null);
+
+  const COURSE_FIELDS = [
+    { key: "course_name", label: "Course Name", required: true, searchable: true },
+    { key: "course_code", label: "Course Code", required: true, searchable: true },
+    { key: "category", label: "Category", searchable: true },
+    { key: "description", label: "Description", type: "textarea" },
+    { key: "duration", label: "Duration", type: "number" },
+    { key: "duration_unit", label: "Duration Unit", type: "select", options: ["Days", "Weeks", "Months"], default: "Weeks" },
+    { key: "default_capacity", label: "Default Capacity", type: "number", default: 30 },
+    { key: "min_attendance_pct", label: "Minimum Attendance %", type: "number", default: 75 },
+    { key: "pass_marks_pct", label: "Pass Marks %", type: "number", default: 40 },
+    { key: "certificate_eligible", label: "Certificate Eligible", type: "select", options: ["Yes", "No"], default: "Yes" },
+  ];
+  const TRAINER_FIELDS = [
+    { key: "trainer_name", label: "Trainer Name", required: true, searchable: true },
+    { key: "mobile", label: "Mobile", required: true, searchable: true },
+    { key: "email", label: "Email", searchable: true },
+    { key: "qualification", label: "Qualification" },
+    { key: "specialization", label: "Specialization", searchable: true },
+    { key: "experience", label: "Experience (years)", type: "number" },
+    { key: "assigned_programs", label: "Assigned Programs" },
+  ];
+  const ASSESSMENT_FIELDS = [
+    { key: "assessment_name", label: "Assessment Name", required: true, searchable: true },
+    { key: "assessment_type", label: "Assessment Type", type: "select", options: ["Theory", "Practical", "Viva", "Assignment"], default: "Theory" },
+    { key: "practical_marks", label: "Practical Marks", type: "number", default: 0 },
+    { key: "theory_marks", label: "Theory Marks", type: "number", default: 0 },
+    { key: "total_marks", label: "Total Marks", type: "number", default: 100 },
+    { key: "pass_marks", label: "Pass Marks", type: "number", default: 40 },
+  ];
+  const CATEGORY_FIELDS = [
+    { key: "category_name", label: "Category Name", required: true, searchable: true },
+  ];
+  const CERT_FIELDS = [
+    { key: "certificate_prefix", label: "Certificate Prefix", placeholder: "e.g. TAPASVI/CERT/" },
+    { key: "certificate_format", label: "Certificate Format", placeholder: "e.g. {PREFIX}{YEAR}{NUMBER}" },
+    { key: "certificate_number_start", label: "Certificate Number Start", type: "number", default: 1 },
+    { key: "signature_name", label: "Signature Name" },
+    { key: "designation", label: "Designation" },
+    { key: "enable_qr_code", label: "QR Code", type: "checkbox", checkLabel: "Enable QR Code on certificate" },
+    { key: "enable_digital_signature", label: "Digital Signature", type: "checkbox", checkLabel: "Enable digital signature" },
+  ];
+  const ATTENDANCE_FIELDS = [
+    { key: "min_attendance_pct", label: "Minimum Attendance %", type: "number", default: 75 },
+    { key: "allow_late_attendance", label: "Late Attendance", type: "checkbox", checkLabel: "Allow late attendance" },
+    { key: "grace_minutes", label: "Grace Minutes", type: "number", default: 10 },
+    { key: "auto_absent_after", label: "Auto Absent After (minutes)", type: "number", default: 30 },
+    { key: "multiple_attendance_per_day", label: "Multiple Attendance/Day", type: "checkbox", checkLabel: "Allow multiple attendance entries per day" },
+  ];
+  const BATCH_FIELDS = [
+    { key: "default_capacity", label: "Default Capacity", type: "number", default: 30 },
+    { key: "maximum_capacity", label: "Maximum Capacity", type: "number", default: 40 },
+    { key: "allow_over_capacity", label: "Over Capacity", type: "checkbox", checkLabel: "Allow enrollment beyond capacity" },
+    { key: "auto_close_batch", label: "Auto Close Batch", type: "checkbox", checkLabel: "Auto-close batch when full" },
+  ];
+
+  const TILES = [
+    { key: "courses", label: "Course / Trade Management", desc: "Course master, duration, capacity, pass criteria", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8" },
+    { key: "trainers", label: "Trainer Management", desc: "Trainer profiles, qualification, specialization", icon: Users, color: "#1E3A8A", tint: "#EFF6FF" },
+    { key: "assessments", label: "Assessment Settings", desc: "Theory/Practical/Viva marks & pass criteria", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED" },
+    { key: "certificate", label: "Certificate Settings", desc: "Prefix, format, signature, QR code", icon: Award, color: "#16A34A", tint: "#DCFCE7" },
+    { key: "attendance", label: "Attendance Rules", desc: "Minimum %, grace time, auto-absent", icon: Clock, color: "#7C3AED", tint: "#FAF5FF" },
+    { key: "batch", label: "Batch Settings", desc: "Default/maximum capacity, auto-close", icon: Briefcase, color: "#0EA5E9", tint: "#F0F9FF" },
+    { key: "categories", label: "Training Categories", desc: "Digital Skills, Tailoring, Beautician...", icon: Database, color: "#DC2626", tint: "#FEF2F2" },
+  ];
+
+  const commonProps = { showToast, logAppAudit, onBack: () => setSubView(null) };
+
+  if (subView === "courses") return <TrainingMasterList title="Course" tableName="training_courses" fields={COURSE_FIELDS} listPrimary="course_name" listSecondary={["course_code", "category"]} dupCheckFields={["course_code"]} {...commonProps} />;
+  if (subView === "trainers") return <TrainingMasterList title="Trainer" tableName="training_trainers" fields={TRAINER_FIELDS} listPrimary="trainer_name" listSecondary={["mobile", "specialization"]} dupCheckFields={["email", "mobile"]} {...commonProps} />;
+  if (subView === "assessments") return <TrainingMasterList title="Assessment" tableName="training_assessments" fields={ASSESSMENT_FIELDS} listPrimary="assessment_name" listSecondary={["assessment_type", "total_marks"]} dupCheckFields={[]} {...commonProps} />;
+  if (subView === "categories") return <TrainingMasterList title="Training Category" tableName="training_categories" fields={CATEGORY_FIELDS} listPrimary="category_name" listSecondary={[]} dupCheckFields={["category_name"]} {...commonProps} />;
+  if (subView === "certificate") return <TrainingSingletonSettings title="Certificate Settings" tableName="training_certificate_settings" fields={CERT_FIELDS} {...commonProps} />;
+  if (subView === "attendance") return <TrainingSingletonSettings title="Attendance Rules" tableName="training_attendance_rules" fields={ATTENDANCE_FIELDS} {...commonProps} />;
+  if (subView === "batch") return <TrainingSingletonSettings title="Batch Settings" tableName="training_batch_settings" fields={BATCH_FIELDS} {...commonProps} />;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Training Settings</h2>
+          <p className="text-[12px] text-[#6B7280]">Master configuration for the Training module · Super Admin only</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {TILES.map(t => (
+          <button key={t.key} onClick={() => setSubView(t.key)}
+            className="text-left bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: t.tint }}>
+              <t.icon size={18} style={{ color: t.color }} />
+            </div>
+            <p className="text-[13px] font-semibold text-[#111827] mb-1">{t.label}</p>
+            <p className="text-[11px] text-[#6B7280] leading-snug">{t.desc}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
