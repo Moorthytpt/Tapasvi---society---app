@@ -405,7 +405,9 @@ function LoginScreen({ onLogin }) {
     .tp-fade-up { animation: tp-fadeInUp 0.5s ease both; }
     .tp-scale-in { animation: tp-scaleIn 0.4s ease both; }
     .tp-shake { animation: tp-shake 0.4s ease; }
-    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(30,58,138,0.12); }
+    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(22,163,74,0.16), 0 0 18px rgba(30,58,138,0.12); }
+    .tp-field-input::placeholder { color: ${dark ? "#6B7280" : "#9CA3AF"}; opacity: 1; }
+    .tp-theme-icon { display: inline-block; transition: transform 0.4s ease; }
     .tp-ripple-span { position:absolute; border-radius:9999px; background:#fff; pointer-events:none; animation: tp-ripple 0.6s ease-out; }
     .tp-check-circle { animation: tp-scaleIn 0.35s ease both; }
     .tp-check-path { stroke-dasharray: 48; stroke-dashoffset: 48; animation: tp-check 0.4s 0.15s ease forwards; }
@@ -457,7 +459,7 @@ function LoginScreen({ onLogin }) {
       <button onClick={toggleDark} aria-label="Toggle dark mode"
         className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
         style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(10px)", color: dc.text }}>
-        {dark ? "☀️" : "🌙"}
+        <span className="tp-theme-icon" style={{ transform: dark ? "rotate(180deg)" : "rotate(0deg)" }}>{dark ? "☀️" : "🌙"}</span>
       </button>
 
       {/* Success overlay */}
@@ -473,6 +475,10 @@ function LoginScreen({ onLogin }) {
         </div>
       )}
 
+      {/* subtle ambient mesh glow */}
+      <div className="absolute -top-20 -left-20 w-72 h-72 rounded-full pointer-events-none" style={{ background: dark ? "#16A34A" : "#4ADE80", opacity: dark ? 0.12 : 0.18, filter: "blur(80px)" }} />
+      <div className="absolute -bottom-24 -right-10 w-80 h-80 rounded-full pointer-events-none" style={{ background: dark ? "#1E3A8A" : "#3B82F6", opacity: dark ? 0.14 : 0.15, filter: "blur(90px)" }} />
+
       {/* subtle background waves — mobile + desktop right panel */}
       <svg className="absolute top-0 right-0 w-full lg:w-1/2 h-64 opacity-30 pointer-events-none" viewBox="0 0 500 200" preserveAspectRatio="none">
         <path d="M0,60 C120,120 380,0 500,60 L500,0 L0,0 Z" fill={dark ? "#1E3A8A" : "#BFDBFE"} />
@@ -485,16 +491,18 @@ function LoginScreen({ onLogin }) {
 
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
-          <div className="flex flex-col items-center gap-3 mb-6 tp-fade-up lg:hidden">
-            <Logo size={100} />
-            <h1 className="text-[22px] font-bold text-[#16A34A] text-center leading-none">TAPASVI</h1>
-            <p className="text-[11px] text-center -mt-1" style={{ color: dc.subtext }}>Social Welfare Organisation</p>
-            <span className="text-[9.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A" }}>
+          <div className="flex flex-col items-center gap-2.5 mb-6 tp-fade-up lg:hidden">
+            <Logo size={104} />
+            <h1 className="text-[30px] font-extrabold text-center leading-none tracking-wide"
+              style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
+              TAPASVI
+            </h1>
+            <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full mt-0.5" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 16px rgba(34,197,94,0.35)" }}>
               Digital NGO Management System · v2.0
             </span>
           </div>
 
-          <form onSubmit={submit} className="tp-fade-up rounded-[24px] p-6" style={{ background: dc.cardBg, backdropFilter: "blur(16px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 20px 50px -12px rgba(30,58,138,0.2)", animationDelay: "0.1s" }}>
+          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6" style={{ background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
             <p className="text-[19px] font-bold" style={{ color: dc.text }}>👋 Welcome Back</p>
             <p className="text-[12.5px] mb-5" style={{ color: dc.subtext }}>Sign in to continue</p>
 
@@ -515,7 +523,7 @@ function LoginScreen({ onLogin }) {
                 <input value={username} onChange={e => setUsername(e.target.value)}
                   placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
                   inputMode={role === "admin" ? "email" : "text"}
-                  className="w-full rounded-xl pl-10 pr-3.5 py-3 text-[13.5px] outline-none transition"
+                  className="tp-field-input w-full rounded-xl pl-10 pr-3.5 py-3 text-[13.5px] outline-none transition"
                   style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }} />
               </div>
             </div>
@@ -525,7 +533,7 @@ function LoginScreen({ onLogin }) {
               <div className="relative tp-input-glow rounded-xl transition-shadow">
                 <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: dc.subtext }} />
                 <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                  className="w-full rounded-xl pl-10 pr-14 py-3 text-[13.5px] outline-none transition"
+                  className="tp-field-input w-full rounded-xl pl-10 pr-14 py-3 text-[13.5px] outline-none transition"
                   style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }}
                   placeholder="••••••••" />
                 <button type="button" onClick={() => setShowPassword(s => !s)}
@@ -543,22 +551,26 @@ function LoginScreen({ onLogin }) {
             )}
 
             <div className="flex items-center justify-between mt-4 mb-1">
-              <label className="flex items-center gap-1.5 text-[12px]" style={{ color: dc.subtext }}>
-                <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: dc.subtext }}>
+                <span className="relative inline-flex items-center justify-center w-[18px] h-[18px] rounded-md transition-all"
+                  style={{ background: remember ? "linear-gradient(135deg,#1E3A8A,#16A34A)" : "transparent", border: remember ? "none" : `1.5px solid ${dc.inputBorder}` }}>
+                  <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {remember && <Check size={12} className="text-white" strokeWidth={3} />}
+                </span>
                 Remember Me
               </label>
-              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold" style={{ color: "#1E3A8A" }}>
+              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold transition-opacity hover:opacity-70" style={{ color: "#3B82F6" }}>
                 Forgot Password?
               </button>
             </div>
 
             <button type="submit" onClick={addRipple} disabled={loading}
-              className="relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-70"
+              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-70 hover:shadow-[0_12px_28px_-6px_rgba(22,163,74,0.55)] hover:brightness-110"
               style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.45)" }}>
               {ripples.map(r => (
                 <span key={r.id} className="tp-ripple-span" style={{ left: r.x - r.size / 2, top: r.y - r.size / 2, width: r.size, height: r.size }} />
               ))}
-              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : "Sign In"}
+              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : (<>Sign In <span className="transition-transform group-hover:translate-x-1">→</span></>)}
             </button>
 
             <p className="text-[10.5px] text-center mt-3" style={{ color: dc.subtext }}>
