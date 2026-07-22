@@ -4983,7 +4983,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   };
 
   if (preview) {
-    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} />;
+    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} onVerify={() => { setPreview(null); setTab("verify"); }} />;
   }
   if (tab === "verify") {
     return <CertificateVerify onBack={() => setTab("issued")} />;
@@ -5133,7 +5133,35 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   );
 }
 
-function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose }) {
+function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose, onVerify }) {
+  const [logoPosition, setLogoPosition] = useState("center");
+  const [logoSize, setLogoSize] = useState(44);
+  const [showBorder, setShowBorder] = useState(true);
+  const [showWatermark, setShowWatermark] = useState(settings?.enable_watermark !== false);
+  const [loadingPreview, setLoadingPreview] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoadingPreview(false), 350);
+    return () => clearTimeout(t);
+  }, [cert?.id]);
+
+  if (!cert) {
+    return (
+      <div>
+        <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+          <p className="text-[10px] text-white/70">Dashboard / Certificate</p>
+          <h2 className="text-[19px] font-bold mt-1">Certificate Management</h2>
+          <p className="text-[11.5px] text-white/85 mt-0.5">Design, Preview and Generate Professional Certificates</p>
+        </div>
+        <div className="bg-white rounded-[20px] border border-dashed border-[#E5E7EB] p-14 text-center">
+          <Award size={32} className="mx-auto mb-3 text-[#D1D5DB]" />
+          <p className="text-[14px] font-semibold text-[#6B7280]">No Certificate Selected</p>
+          <p className="text-[12px] text-[#9CA3AF] mt-1">Pick a certificate from the list to preview it here.</p>
+        </div>
+      </div>
+    );
+  }
+
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
   const org = orgSettings || {};
   const primary = settings?.primary_color || "#1E3A8A";
@@ -5160,106 +5188,171 @@ function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose }) {
     [org.district, org.state].filter(Boolean).join(", "),
     org.email && `✉ ${org.email}`,
   ].filter(Boolean);
+  const logoAlign = logoPosition === "left" ? "justify-start" : logoPosition === "right" ? "justify-end" : "justify-center";
 
   return (
     <div>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&display=swap" />
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
-        <h2 className="text-[18px] font-bold text-[#111827]">Certificate Preview</h2>
+
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><ChevronRight size={16} className="rotate-180" /></button>
+          <p className="text-[10px] text-white/70">Dashboard / Certificate</p>
+        </div>
+        <h2 className="text-[19px] font-bold">Certificate Management</h2>
+        <p className="text-[11.5px] text-white/85 mt-0.5">Design, Preview and Generate Professional Certificates</p>
       </div>
-      <div className="relative bg-[#FDFBF5] p-2" style={{ border: `3px solid ${border}` }}>
-        <div className="relative p-4 pt-3 pb-14 text-center" style={{ border: `1.5px solid ${secondary}` }}>
-          {["top-3 left-3 border-r-0 border-b-0", "top-3 right-3 border-l-0 border-b-0", "bottom-3 left-3 border-r-0 border-t-0", "bottom-3 right-3 border-l-0 border-t-0"].map((pos, i) => (
-            <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: `2px solid ${secondary}` }} />
-          ))}
-          {settings?.enable_watermark !== false && (
-            <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
-              <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 60, color: primary, opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
-            </div>
-          )}
-          {legalLines.length > 0 && (
-            <div className="absolute top-3 left-3 text-left text-[7.5px] text-[#374151] leading-[1.5] hidden sm:block">
-              {legalLines.map(l => <div key={l}>{l}</div>)}
-            </div>
-          )}
-          <div className="relative">
-            <div className="flex justify-center mb-1"><Logo size={44} /></div>
-            <p className="text-[13px] font-bold tracking-widest uppercase" style={{ color: primary }}>{org.ngo_name || "TAPASVI Society"}</p>
-            {org.registration_number && <p className="text-[8.5px] text-[#9CA3AF]">Society Registration No.: {org.registration_number}</p>}
-            <p className="mt-3 text-[24px] font-bold uppercase tracking-wide" style={{ fontFamily: "'Playfair Display', serif", color: secondary }}>{settings?.certificate_title || "Certificate"}</p>
-            <p className="text-[10.5px] font-bold tracking-[3px]" style={{ color: primary }}>{settings?.certificate_subtitle || "OF COMPLETION"}</p>
-            <div className="w-16 h-0.5 mx-auto my-2" style={{ background: secondary }} />
-            <p className="text-[11.5px] text-[#6B7280] italic">This is to certify that</p>
-            <p className="my-1 text-[32px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: primary }}>{cert.beneficiary_name}</p>
-            <p className="text-[12px] text-[#111827] mt-2 max-w-[420px] mx-auto">{settings?.completion_text || "has successfully completed the training program in"}</p>
-            {settings?.enable_course_name !== false && <p className="text-[13.5px] font-bold uppercase mt-1" style={{ color: primary }}>{cert.course}</p>}
-            <p className="text-[11.5px] text-[#111827] mt-1">conducted by {org.ngo_name || "TAPASVI Society"}</p>
 
-            {chips.length > 0 && (
-              <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-[#E5E7EB] flex-wrap max-w-[480px] mx-auto">
-                {chips.map(([label, val]) => (
-                  <div key={label} className="text-center px-1">
-                    <p className="text-[7px] text-[#9CA3AF] uppercase">{label}</p>
-                    <p className="text-[10.5px] font-bold text-[#111827]">{val}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+      <div className="grid lg:grid-cols-[280px_1fr] gap-4">
+        {/* Left: Controls */}
+        <div className="space-y-4 order-2 lg:order-1">
+          <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4">
+            <p className="text-[12px] font-bold text-[#111827] mb-3">Design Controls</p>
 
-            <div className="flex flex-col gap-1 items-center w-full max-w-[480px] mx-auto mt-3 rounded-lg px-3 py-2 text-[9px] text-[#374151]" style={{ border: `1px dashed ${secondary}` }}>
-              <div>Certificate No.: <b className="text-[#DC2626]">{cert.certificate_number}</b> &nbsp;·&nbsp; Issue Date: {cert.certificate_date}</div>
-              <div className="text-[8.5px] text-[#6B7280]">{settings?.verification_text || "This certificate is valid for all official purposes."}</div>
+            <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">Logo Position</label>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {["left", "center", "right"].map(pos => (
+                <button key={pos} onClick={() => setLogoPosition(pos)}
+                  className="py-1.5 rounded-lg text-[11px] font-semibold capitalize"
+                  style={logoPosition === pos ? { background: primary, color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+                  {pos}
+                </button>
+              ))}
             </div>
 
-            <div className="flex items-end justify-center gap-3 mt-6 flex-wrap">
-              {signatures[0] && (
-                <div className="text-center flex-1 min-w-[90px]">
-                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[0][0]}</p>
-                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
-                  <p className="text-[9px] font-bold text-[#111827]">{signatures[0][0]}</p>
-                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[0][1]}</p>
-                </div>
-              )}
-              {settings?.enable_seal !== false && (
-                <div className="w-12 h-12 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: `2px solid ${secondary}`, color: secondary }}>
-                  <span className="text-[11px]">★</span>
-                  <span className="text-[5px] font-bold tracking-wide">OFFICIAL SEAL</span>
-                </div>
-              )}
-              {signatures[1] && (
-                <div className="text-center flex-1 min-w-[90px]">
-                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[1][0]}</p>
-                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
-                  <p className="text-[9px] font-bold text-[#111827]">{signatures[1][0]}</p>
-                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[1][1]}</p>
-                </div>
-              )}
-              {signatures[2] && (
-                <div className="text-center flex-1 min-w-[90px]">
-                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[2][0]}</p>
-                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
-                  <p className="text-[9px] font-bold text-[#111827]">{signatures[2][0]}</p>
-                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[2][1]}</p>
-                </div>
-              )}
-            </div>
-            {cert.status === "Revoked" && <p className="text-[12px] text-[#DC2626] font-bold mt-3">CERTIFICATE REVOKED</p>}
+            <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">Logo Size ({logoSize}px)</label>
+            <input type="range" min={28} max={64} value={logoSize} onChange={e => setLogoSize(Number(e.target.value))} className="w-full mb-3" />
+
+            <label className="flex items-center justify-between text-[11.5px] text-[#374151] mb-2.5">
+              Show Border
+              <input type="checkbox" checked={showBorder} onChange={e => setShowBorder(e.target.checked)} />
+            </label>
+            <label className="flex items-center justify-between text-[11.5px] text-[#374151]">
+              Show Watermark
+              <input type="checkbox" checked={showWatermark} onChange={e => setShowWatermark(e.target.checked)} />
+            </label>
           </div>
-          {settings?.enable_qr_code !== false && (
-            <div className="absolute top-3 right-3 text-center">
-              <img src={qrImageUrl(qrData, 54)} width={54} height={54} alt="QR" className="border-2 p-0.5 bg-white" style={{ borderColor: secondary }} />
-              <p className="text-[6px] font-bold text-white mt-1 rounded-full px-1.5 py-0.5" style={{ background: primary }}>SCAN TO VERIFY</p>
-            </div>
-          )}
-          <div className="absolute bottom-2 left-2 right-2 rounded-md py-1.5 px-2 text-[8px] text-white text-center" style={{ background: primary }}>
-            {footerParts.length > 0 ? footerParts.join("   |   ") : (settings?.footer_text || "Generated & Verified by TAPASVI DMS")}
+
+          <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 space-y-2">
+            <p className="text-[12px] font-bold text-[#111827] mb-1">Actions</p>
+            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-bold text-white transition active:scale-[0.98]" style={{ background: `linear-gradient(90deg,${primary},#16A34A)` }}>
+              <Download size={15} /> Download PDF
+            </button>
+            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
+              <Printer size={15} /> Print
+            </button>
+            {onVerify && (
+              <button onClick={onVerify} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
+                <CheckCircle size={15} /> Verify QR
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Right: Live Preview */}
+        <div className="order-1 lg:order-2">
+          {loadingPreview ? (
+            <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-6 animate-pulse">
+              <div className="h-8 w-8 rounded-full bg-[#F3F4F6] mx-auto mb-3" />
+              <div className="h-4 w-1/2 bg-[#F3F4F6] mx-auto mb-2 rounded" />
+              <div className="h-8 w-2/3 bg-[#F3F4F6] mx-auto mb-3 rounded" />
+              <div className="h-24 w-full bg-[#F3F4F6] rounded" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="relative bg-[#FDFBF5] p-2 min-w-[480px]" style={{ border: showBorder ? `3px solid ${border}` : "none" }}>
+                <div className="relative p-4 pt-3 pb-14 text-center" style={{ border: showBorder ? `1.5px solid ${secondary}` : "none" }}>
+                  {showBorder && ["top-3 left-3 border-r-0 border-b-0", "top-3 right-3 border-l-0 border-b-0", "bottom-3 left-3 border-r-0 border-t-0", "bottom-3 right-3 border-l-0 border-t-0"].map((pos, i) => (
+                    <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: `2px solid ${secondary}` }} />
+                  ))}
+                  {showWatermark && (
+                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
+                      <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 60, color: primary, opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
+                    </div>
+                  )}
+                  {legalLines.length > 0 && (
+                    <div className="absolute top-3 left-3 text-left text-[7.5px] text-[#374151] leading-[1.5] hidden sm:block">
+                      {legalLines.map(l => <div key={l}>{l}</div>)}
+                    </div>
+                  )}
+                  <div className="relative">
+                    <div className={"flex mb-1 " + logoAlign}><Logo size={logoSize} /></div>
+                    <p className="text-[13px] font-bold tracking-widest uppercase" style={{ color: primary }}>{org.ngo_name || "TAPASVI Society"}</p>
+                    {org.registration_number && <p className="text-[8.5px] text-[#9CA3AF]">Society Registration No.: {org.registration_number}</p>}
+                    <p className="mt-3 text-[24px] font-bold uppercase tracking-wide" style={{ fontFamily: "'Playfair Display', serif", color: secondary }}>{settings?.certificate_title || "Certificate"}</p>
+                    <p className="text-[10.5px] font-bold tracking-[3px]" style={{ color: primary }}>{settings?.certificate_subtitle || "OF COMPLETION"}</p>
+                    <div className="w-16 h-0.5 mx-auto my-2" style={{ background: secondary }} />
+                    <p className="text-[11.5px] text-[#6B7280] italic">This is to certify that</p>
+                    <p className="my-1 text-[32px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: primary }}>{cert.beneficiary_name}</p>
+                    <p className="text-[12px] text-[#111827] mt-2 max-w-[420px] mx-auto">{settings?.completion_text || "has successfully completed the training program in"}</p>
+                    {settings?.enable_course_name !== false && <p className="text-[13.5px] font-bold uppercase mt-1" style={{ color: primary }}>{cert.course}</p>}
+                    <p className="text-[11.5px] text-[#111827] mt-1">conducted by {org.ngo_name || "TAPASVI Society"}</p>
+
+                    {chips.length > 0 && (
+                      <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-[#E5E7EB] flex-wrap max-w-[480px] mx-auto">
+                        {chips.map(([label, val]) => (
+                          <div key={label} className="text-center px-1">
+                            <p className="text-[7px] text-[#9CA3AF] uppercase">{label}</p>
+                            <p className="text-[10.5px] font-bold text-[#111827]">{val}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1 items-center w-full max-w-[480px] mx-auto mt-3 rounded-lg px-3 py-2 text-[9px] text-[#374151]" style={{ border: `1px dashed ${secondary}` }}>
+                      <div>Certificate No.: <b className="text-[#DC2626]">{cert.certificate_number}</b> &nbsp;·&nbsp; Issue Date: {cert.certificate_date}</div>
+                      <div className="text-[8.5px] text-[#6B7280]">{settings?.verification_text || "This certificate is valid for all official purposes."}</div>
+                    </div>
+
+                    <div className="flex items-end justify-center gap-3 mt-6 flex-wrap">
+                      {signatures[0] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[0][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[0][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[0][1]}</p>
+                        </div>
+                      )}
+                      {settings?.enable_seal !== false && (
+                        <div className="w-12 h-12 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: `2px solid ${secondary}`, color: secondary }}>
+                          <span className="text-[11px]">★</span>
+                          <span className="text-[5px] font-bold tracking-wide">OFFICIAL SEAL</span>
+                        </div>
+                      )}
+                      {signatures[1] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[1][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[1][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[1][1]}</p>
+                        </div>
+                      )}
+                      {signatures[2] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[2][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[2][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[2][1]}</p>
+                        </div>
+                      )}
+                    </div>
+                    {cert.status === "Revoked" && <p className="text-[12px] text-[#DC2626] font-bold mt-3">CERTIFICATE REVOKED</p>}
+                  </div>
+                  {settings?.enable_qr_code !== false && (
+                    <div className="absolute top-3 right-3 text-center">
+                      <img src={qrImageUrl(qrData, 54)} width={54} height={54} alt="QR" className="border-2 p-0.5 bg-white" style={{ borderColor: secondary }} />
+                      <p className="text-[6px] font-bold text-white mt-1 rounded-full px-1.5 py-0.5" style={{ background: primary }}>SCAN TO VERIFY</p>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2 left-2 right-2 rounded-md py-1.5 px-2 text-[8px] text-white text-center" style={{ background: primary }}>
+                    {footerParts.length > 0 ? footerParts.join("   |   ") : (settings?.footer_text || "Generated & Verified by TAPASVI DMS")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <button onClick={onPrint} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: primary }}>
-        Print / Download PDF
-      </button>
     </div>
   );
 }
