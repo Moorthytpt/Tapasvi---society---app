@@ -405,12 +405,14 @@ function LoginScreen({ onLogin }) {
     .tp-fade-up { animation: tp-fadeInUp 0.5s ease both; }
     .tp-scale-in { animation: tp-scaleIn 0.4s ease both; }
     .tp-shake { animation: tp-shake 0.4s ease; }
-    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(22,163,74,0.16), 0 0 18px rgba(30,58,138,0.12); }
-    .tp-field-input::placeholder { color: ${dark ? "#6B7280" : "#9CA3AF"}; opacity: 1; }
+    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(22,163,74,0.2), 0 0 22px rgba(30,58,138,0.16); }
+    .tp-input-glow:focus-within .tp-field-input { border-color: #16A34A !important; }
+    .tp-field-input { box-shadow: inset 0 1px 3px rgba(0,0,0,${dark ? "0.18" : "0.04"}); }
+    .tp-field-input::placeholder { color: ${dark ? "#6B7280" : "#9CA3AF"}; opacity: 0.85; }
     .tp-theme-icon { display: inline-block; transition: transform 0.4s ease; }
     @keyframes tp-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-14px); } }
     .tp-particle { animation: tp-float 10s ease-in-out infinite; }
-    @keyframes tp-logo-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+    @keyframes tp-logo-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-3px); } }
     .tp-logo-float { animation: tp-logo-float 4s ease-in-out infinite; }
     .tp-ripple-span { position:absolute; border-radius:9999px; background:#fff; pointer-events:none; animation: tp-ripple 0.6s ease-out; }
     .tp-check-circle { animation: tp-scaleIn 0.35s ease both; }
@@ -507,20 +509,20 @@ function LoginScreen({ onLogin }) {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-2.5 mb-[12px] tp-fade-up lg:hidden">
-            <Logo size={144} className="tp-logo-float" style={{ filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.18))" }} />
-            <h1 className="text-[30px] font-extrabold text-center leading-none tracking-wide"
+            <Logo size={144} className="tp-logo-float" style={{ filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.22))" }} />
+            <h1 className="text-[30px] font-black text-center leading-none tracking-wide"
               style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
               TAPASVI
             </h1>
-            <div className="flex items-center justify-center mt-1">
-              <div className="flex items-center gap-2.5 rounded-full"
+            <div className="flex items-center justify-center mt-1.5">
+              <div className="flex items-center gap-3 rounded-full"
                 style={{
-                  minHeight: 43,
-                  padding: "9px 28px",
-                  background: dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.45)",
-                  backdropFilter: "blur(14px)",
-                  border: `1px solid ${dark ? "rgba(74,222,128,0.24)" : "rgba(22,163,74,0.18)"}`,
-                  boxShadow: "0 0 18px rgba(34,197,94,0.2)",
+                  minHeight: 50,
+                  padding: "12px 32px",
+                  background: dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.42)",
+                  backdropFilter: "blur(16px)",
+                  border: `1px solid ${dark ? "rgba(74,222,128,0.22)" : "rgba(22,163,74,0.16)"}`,
+                  boxShadow: "0 0 20px rgba(34,197,94,0.22), inset 0 1px 0 rgba(255,255,255,0.08)",
                 }}>
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: "#4ADE80" }} />
@@ -534,8 +536,8 @@ function LoginScreen({ onLogin }) {
             </div>
           </div>
 
-          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ transform: "translateY(-16px)", background: dc.cardBg, backdropFilter: "blur(24px)", border: `1px solid ${dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.45)"}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
-            <p className="text-[19px] font-bold" style={{ color: dc.text }}>👋 Welcome Back</p>
+          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ transform: "translateY(-16px)", background: dc.cardBg, backdropFilter: "blur(26px)", border: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.4)"}`, boxShadow: "0 22px 55px -18px rgba(30,58,138,0.24)", animationDelay: "0.1s" }}>
+            <p className="text-[19px] font-bold mb-0.5" style={{ color: dc.text }}>👋 Welcome Back</p>
             <p className="text-[12.5px] mb-5" style={{ color: dc.subtext }}>Sign in to continue</p>
 
             <div className="grid grid-cols-2 gap-2 mb-4">
@@ -600,8 +602,8 @@ function LoginScreen({ onLogin }) {
             </div>
 
             <button type="submit" onClick={addRipple} disabled={loading} aria-label="Sign In"
-              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 ease-out active:scale-[0.97] active:duration-150 disabled:opacity-70 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.36)" }}>
+              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 ease-out active:scale-[0.97] active:duration-150 disabled:opacity-70 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: "none" }}>
               {ripples.map(r => (
                 <span key={r.id} className="tp-ripple-span" style={{ left: r.x - r.size / 2, top: r.y - r.size / 2, width: r.size, height: r.size }} />
               ))}
@@ -616,10 +618,10 @@ function LoginScreen({ onLogin }) {
           </form>
 
           <div className="mt-5 text-center tp-fade-up" style={{ animationDelay: "0.2s", opacity: 0.65 }}>
-            <p className="text-[10.5px] flex items-center justify-center gap-1.5" style={{ color: dc.subtext }}>
-              <ShieldCheck size={12} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
+            <p className="text-[10px] flex items-center justify-center gap-1.5 tracking-wide" style={{ color: dc.subtext }}>
+              <ShieldCheck size={11} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
             </p>
-            <p className="text-[10px] mt-1.5" style={{ color: dark ? "#6B7280" : "#9CA3AF" }}>
+            <p className="text-[9.5px] mt-1.5 tracking-wide" style={{ color: dark ? "#6B7280" : "#9CA3AF" }}>
               TAPASVI DMS v2.0 · © {new Date().getFullYear()} TAPASVI Society
             </p>
           </div>
