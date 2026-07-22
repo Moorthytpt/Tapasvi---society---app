@@ -492,7 +492,7 @@ function LoginScreen({ onLogin }) {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-2.5 mb-6 tp-fade-up lg:hidden">
-            <Logo size={104} />
+            <Logo size={112} />
             <h1 className="text-[30px] font-extrabold text-center leading-none tracking-wide"
               style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
               TAPASVI
