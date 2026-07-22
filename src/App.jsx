@@ -226,9 +226,9 @@ function printTable(rows, title, cols) {
    UI ATOMS
    ============================================================ */
 
-function Logo({ size = 40, style }) {
+function Logo({ size = 40, style, className }) {
   return (
-    <img src="/icon-512-transparent.png" alt="TAPASVI" width={size} height={size}
+    <img src="/icon-512-transparent.png" alt="TAPASVI" width={size} height={size} className={className}
       style={{ objectFit: "contain", display: "block", ...style }} />
   );
 }
@@ -410,6 +410,8 @@ function LoginScreen({ onLogin }) {
     .tp-theme-icon { display: inline-block; transition: transform 0.4s ease; }
     @keyframes tp-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-14px); } }
     .tp-particle { animation: tp-float 6s ease-in-out infinite; }
+    @keyframes tp-logo-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+    .tp-logo-float { animation: tp-logo-float 4s ease-in-out infinite; }
     .tp-ripple-span { position:absolute; border-radius:9999px; background:#fff; pointer-events:none; animation: tp-ripple 0.6s ease-out; }
     .tp-check-circle { animation: tp-scaleIn 0.35s ease both; }
     .tp-check-path { stroke-dasharray: 48; stroke-dashoffset: 48; animation: tp-check 0.4s 0.15s ease forwards; }
@@ -505,33 +507,34 @@ function LoginScreen({ onLogin }) {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-2.5 mb-6 tp-fade-up lg:hidden">
-            <Logo size={128} style={{ filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.18))" }} />
+            <Logo size={128} className="tp-logo-float" style={{ filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.18))" }} />
             <h1 className="text-[30px] font-extrabold text-center leading-none tracking-wide"
               style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
               TAPASVI
             </h1>
-            <div className="flex items-center flex-wrap justify-center gap-x-2 gap-y-1.5 mt-1">
-              <div className="flex items-center gap-2 rounded-full"
+            <div className="flex items-center justify-center mt-1">
+              <div className="flex items-center gap-2.5 rounded-full"
                 style={{
-                  padding: "9px 22px",
+                  minHeight: 46,
+                  padding: "10px 28px",
                   background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.55)",
                   backdropFilter: "blur(12px)",
                   border: `1px solid ${dark ? "rgba(74,222,128,0.28)" : "rgba(22,163,74,0.22)"}`,
-                  boxShadow: "0 0 14px rgba(34,197,94,0.16)",
+                  boxShadow: "0 0 18px rgba(34,197,94,0.2)",
                 }}>
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: "#4ADE80" }} />
                   <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#16A34A" }} />
                 </span>
-                <span className="text-[11.5px] font-medium tracking-wide" style={{ color: dc.text }}>Digital NGO Management System</span>
+                <span className="text-[11.5px] font-semibold tracking-wide" style={{ color: dc.text }}>Digital NGO Management System</span>
+                <span className="text-[9.5px] font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ background: dark ? "rgba(22,163,74,0.22)" : "#DCFCE7", color: "#16A34A" }}>
+                  v2.0
+                </span>
               </div>
-              <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 8px rgba(34,197,94,0.18)" }}>
-                v2.0
-              </span>
             </div>
           </div>
 
-          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
+          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ transform: "translateY(-16px)", background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
             <p className="text-[19px] font-bold" style={{ color: dc.text }}>👋 Welcome Back</p>
             <p className="text-[12.5px] mb-5" style={{ color: dc.subtext }}>Sign in to continue</p>
 
@@ -597,8 +600,8 @@ function LoginScreen({ onLogin }) {
             </div>
 
             <button type="submit" onClick={addRipple} disabled={loading} aria-label="Sign In"
-              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] disabled:opacity-70 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.5)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.45)" }}>
+              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] disabled:opacity-70 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.36)" }}>
               {ripples.map(r => (
                 <span key={r.id} className="tp-ripple-span" style={{ left: r.x - r.size / 2, top: r.y - r.size / 2, width: r.size, height: r.size }} />
               ))}
@@ -612,7 +615,7 @@ function LoginScreen({ onLogin }) {
             </p>
           </form>
 
-          <div className="mt-5 text-center tp-fade-up" style={{ animationDelay: "0.2s" }}>
+          <div className="mt-5 text-center tp-fade-up" style={{ animationDelay: "0.2s", opacity: 0.65 }}>
             <p className="text-[10.5px] flex items-center justify-center gap-1.5" style={{ color: dc.subtext }}>
               <ShieldCheck size={12} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
             </p>
