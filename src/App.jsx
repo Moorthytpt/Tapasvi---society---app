@@ -510,10 +510,25 @@ function LoginScreen({ onLogin }) {
               style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
               TAPASVI
             </h1>
-            <p className="text-[11px] font-medium" style={{ color: dc.subtext }}>Digital NGO Management System</p>
-            <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full mt-0.5" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 8px rgba(34,197,94,0.18)" }}>
-              v2.0
-            </span>
+            <div className="flex items-center flex-wrap justify-center gap-x-2 gap-y-1.5 mt-1">
+              <div className="flex items-center gap-2 rounded-full"
+                style={{
+                  padding: "9px 22px",
+                  background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.55)",
+                  backdropFilter: "blur(12px)",
+                  border: `1px solid ${dark ? "rgba(74,222,128,0.28)" : "rgba(22,163,74,0.22)"}`,
+                  boxShadow: "0 0 14px rgba(34,197,94,0.16)",
+                }}>
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: "#4ADE80" }} />
+                  <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#16A34A" }} />
+                </span>
+                <span className="text-[11.5px] font-medium tracking-wide" style={{ color: dc.text }}>Digital NGO Management System</span>
+              </div>
+              <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 8px rgba(34,197,94,0.18)" }}>
+                v2.0
+              </span>
+            </div>
           </div>
 
           <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
