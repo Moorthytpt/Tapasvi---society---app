@@ -1946,20 +1946,25 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
 
   return (
     <div className="max-w-[720px] mx-auto">
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
-        <div className="flex-1">
-          <h2 className="text-[17px] font-bold text-[#111827]">Mark Attendance</h2>
-          <p className="text-[12px] text-[#6B7280]">{batch.training_name}</p>
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><X size={16} /></button>
+          <p className="text-[10px] text-white/70">Dashboard / Attendance / Take Attendance</p>
         </div>
-        <div className="text-right">
-          <p className="text-[16px] font-black text-[#1E3A8A]">{totalSessions}</p>
-          <p className="text-[10px] text-[#6B7280]">Total Sessions</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[17px] font-bold">{batch.training_name}</h2>
+            <p className="text-[11px] text-white/80 mt-0.5">Track beneficiary attendance quickly and accurately.</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[18px] font-black">{totalSessions}</p>
+            <p className="text-[9.5px] text-white/75">Total Sessions</p>
+          </div>
         </div>
       </div>
 
       {/* Session date picker */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[160px]">
           <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">SESSION DATE</label>
           <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)}
@@ -1988,7 +1993,7 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+      <div className="bg-white rounded-[20px] border border-[#E5E7EB] overflow-hidden shadow-sm">
         {batchEnrollments.length === 0 ? (
           <div className="text-center py-12 text-[#9CA3AF]">
             <Users size={24} className="mx-auto mb-2 opacity-40" />
@@ -1999,13 +2004,15 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
             {batchEnrollments.map(e => {
               const s = statsFor(e.beneficiary_id);
               return (
-                <div key={e.enrollment_id} className="px-4 py-3">
+                <div key={e.enrollment_id} className="px-4 py-3.5">
                   <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0" style={{ background: "#1E3A8A" }}>
+                      {(e.beneficiary_name || e.beneficiary_id || "?").charAt(0).toUpperCase()}
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
                       <p className="text-[11px] text-[#6B7280]">
-                        {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · {s.present}P / {s.absent}A · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
-                        {e.enrolled_by && <> · Enrolled by {e.enrolled_by}</>}
+                        {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
                       </p>
                     </div>
                     {isAdmin && onCancelEnrollment && (
@@ -2016,28 +2023,33 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
                       </button>
                     )}
                   </div>
-                  <div className="flex gap-2 mt-2">
-                    {statusOptions.map(st => (
-                      <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
-                        className="flex-1 py-2 rounded-lg text-[12px] font-bold transition"
-                        style={marks[e.beneficiary_id] === st
-                          ? { background: statusColors[st], color: "white" }
-                          : { background: "#F3F4F6", color: "#6B7280" }}>
-                        {st}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    {statusOptions.map(st => {
+                      const icons = { Present: "🟢", Absent: "🔴", Late: "🟡" };
+                      const selected = marks[e.beneficiary_id] === st;
+                      return (
+                        <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
+                          className="py-3 rounded-2xl text-[13px] font-bold transition-all active:scale-95"
+                          style={selected
+                            ? { background: statusColors[st], color: "white", boxShadow: `0 4px 12px -2px ${statusColors[st]}66` }
+                            : { background: "#F3F4F6", color: "#6B7280" }}>
+                          <span className="block text-[16px] mb-0.5">{icons[st]}</span>{st}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-        <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
+        <div className="sticky bottom-0 p-4 border-t border-[#F3F4F6] bg-white flex gap-3">
           <button onClick={save} disabled={saving || batchEnrollments.length === 0}
-            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: saving ? "#888" : "#1E3A8A" }}>
+            className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: saving ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
             {saving ? "Saving..." : `Save Attendance — ${sessionDate}`}
           </button>
-          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Close</button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-3 text-[13px] font-medium text-[#374151]">Close</button>
         </div>
       </div>
     </div>
@@ -2113,6 +2125,8 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
 function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynPrograms, onClose }) {
   const [programFilter, setProgramFilter] = useState("all");
   const [batchFilter, setBatchFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [beneficiaryQuery, setBeneficiaryQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -2126,6 +2140,7 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
   const batchMap = useMemo(() => Object.fromEntries(batches.map(b => [b.batch_id, b])), [batches]);
   const beneficiaryMap = useMemo(() => Object.fromEntries(beneficiaries.map(b => [b.beneficiary_id, b])), [beneficiaries]);
+  const villageOptions = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))].sort(), [beneficiaries]);
 
   const batchesInProgram = useMemo(() => {
     if (programFilter === "all") return batches;
@@ -2136,6 +2151,8 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
     let r = attendanceRecords;
     if (programFilter !== "all") r = r.filter(rec => batchMap[rec.batch_id]?.program === programFilter);
     if (batchFilter !== "all") r = r.filter(rec => rec.batch_id === batchFilter);
+    if (villageFilter !== "all") r = r.filter(rec => beneficiaryMap[rec.beneficiary_id]?.village === villageFilter);
+    if (statusFilter !== "all") r = r.filter(rec => rec.status === statusFilter);
     if (fromDate) r = r.filter(rec => rec.session_date >= fromDate);
     if (toDate) r = r.filter(rec => rec.session_date <= toDate);
     if (beneficiaryQuery.trim()) {
@@ -2146,7 +2163,12 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
       });
     }
     return [...r].sort((a, b) => (b.session_date || "").localeCompare(a.session_date || ""));
-  }, [attendanceRecords, programFilter, batchFilter, fromDate, toDate, beneficiaryQuery, batchMap, beneficiaryMap]);
+  }, [attendanceRecords, programFilter, batchFilter, villageFilter, statusFilter, fromDate, toDate, beneficiaryQuery, batchMap, beneficiaryMap]);
+
+  const resetFilters = () => {
+    setProgramFilter("all"); setBatchFilter("all"); setVillageFilter("all"); setStatusFilter("all");
+    setBeneficiaryQuery(""); setFromDate(""); setToDate("");
+  };
 
   const rowsForExport = () => filtered.map(rec => {
     const bt = batchMap[rec.batch_id];
@@ -2157,6 +2179,8 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
       "Program": PROGRAM_MAP[bt?.program]?.short || bt?.program || "—",
       "Beneficiary ID": rec.beneficiary_id,
       "Beneficiary Name": ben?.name || "—",
+      "Village": ben?.village || "—",
+      "Trainer": bt?.trainer_name || "—",
       "Status": rec.status,
       "Marked By": rec.marked_by || "—",
     };
@@ -2167,24 +2191,68 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
   const totalPresent = filtered.filter(r => r.status === "Present" || r.status === "Late").length;
   const totalAbsent = filtered.filter(r => r.status === "Absent").length;
+  const attendancePct = filtered.length > 0 ? Math.round((totalPresent / filtered.length) * 100) : 0;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayRecords = attendanceRecords.filter(r => r.session_date === todayStr);
+  const todayPresent = todayRecords.filter(r => r.status === "Present" || r.status === "Late").length;
+  const todayAbsent = todayRecords.filter(r => r.status === "Absent").length;
+  const activeBatches = batches.filter(b => b.status === "Ongoing").length;
+  const todaysTrainings = batches.filter(b => b.start_date && b.end_date && b.start_date <= todayStr && b.end_date >= todayStr).length;
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  const SUMMARY = [
+    { label: "Today's Attendance", value: todayRecords.length, sub: `${todayStr}`, icon: ClipboardList, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Present", value: todayPresent, sub: "Today", icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Absent", value: todayAbsent, sub: "Today", icon: XCircle, grad: ["#DC2626", "#F87171"] },
+    { label: "Attendance %", value: attendancePct + "%", sub: "Filtered range", icon: TrendingUp, grad: ["#DB2777", "#F472B6"] },
+    { label: "Active Batches", value: activeBatches, sub: "Ongoing", icon: BookOpen, grad: ["#F97316", "#FB923C"] },
+    { label: "Today's Trainings", value: todaysTrainings, sub: "In session", icon: Clock, grad: ["#7C3AED", "#A78BFA"] },
+  ];
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-5">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
-        <div className="flex-1">
-          <h2 className="text-[18px] font-bold text-[#111827]">Attendance Report</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} records · {totalPresent} present · {totalAbsent} absent</p>
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><ChevronRight size={16} className="rotate-180" /></button>
+          <p className="text-[10px] text-white/70">Dashboard / Attendance</p>
         </div>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
-          <FileSpreadsheet size={13} /> CSV
-        </button>
-        <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
-          <Printer size={13} /> PDF
-        </button>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[19px] font-bold">Attendance Management</h2>
+            <p className="text-[11.5px] text-white/85 mt-0.5">Track beneficiary attendance quickly and accurately.</p>
+          </div>
+          <p className="text-[10.5px] text-white/80">{todayLabel}</p>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+        {SUMMARY.map(s => (
+          <div key={s.label} className="rounded-[20px] p-4 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center mb-2.5">
+              <s.icon size={16} />
+            </div>
+            <p className="text-[21px] font-bold leading-none">{s.value}</p>
+            <p className="text-[10.5px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
+            <p className="text-[9px] text-white/65 mt-0.5">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] text-[#6B7280]">{filtered.length} records · {totalPresent} present · {totalAbsent} absent</p>
+        <div className="flex gap-2">
+          <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+            <FileSpreadsheet size={13} /> Excel
+          </button>
+          <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+            <Printer size={13} /> PDF / Print
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-4 mb-4 grid grid-cols-2 gap-3">
         <div>
           <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">PROGRAM</label>
           <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setBatchFilter("all"); }} className={selectCls + " text-[12.5px]"}>
@@ -2197,6 +2265,22 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
           <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
             <option value="all">All Batches</option>
             {batchesInProgram.map(b => <option key={b.batch_id} value={b.batch_id}>{b.training_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">VILLAGE</label>
+          <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Villages</option>
+            {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">STATUS</label>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Status</option>
+            <option value="Present">Present</option>
+            <option value="Absent">Absent</option>
+            <option value="Late">Late</option>
           </select>
         </div>
         <div>
@@ -2214,23 +2298,30 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
             <input value={beneficiaryQuery} onChange={e => setBeneficiaryQuery(e.target.value)} placeholder="Search beneficiary..." className={inputCls + " pl-9 text-[12.5px]"} />
           </div>
         </div>
+        <div className="col-span-2 flex justify-end">
+          <button onClick={resetFilters} className="text-[11.5px] font-semibold text-[#6B7280] px-3 py-1.5 rounded-lg border border-[#E5E7EB] hover:bg-[#F3F4F6]">
+            Reset Filters
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+      <div className="bg-white rounded-[20px] border border-[#E5E7EB] overflow-hidden shadow-sm">
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-[#9CA3AF]">
-            <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
-            <p className="text-[13px]">No attendance records match these filters.</p>
+            <ClipboardList size={30} className="mx-auto mb-3 opacity-40" />
+            <p className="text-[13px]">No attendance records found.</p>
           </div>
         ) : (
           <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
             <table className="w-full text-[12px]">
-              <thead className="sticky top-0 bg-white">
+              <thead className="sticky top-0 bg-[#F8FAFC] z-10">
                 <tr className="border-b border-[#E5E7EB]">
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Date</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Training</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Beneficiary</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Status</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Date</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Training</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Beneficiary</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Village</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Trainer</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -2240,11 +2331,13 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
                   const color = rec.status === "Present" ? "#16A34A" : rec.status === "Late" ? "#F97316" : "#DC2626";
                   const tint = rec.status === "Present" ? "#DCFCE7" : rec.status === "Late" ? "#FFF7ED" : "#FEF2F2";
                   return (
-                    <tr key={rec.id} className="border-b border-[#F3F4F6]">
-                      <td className="px-3 py-2 whitespace-nowrap">{rec.session_date}</td>
-                      <td className="px-3 py-2">{bt?.training_name || rec.batch_id}</td>
-                      <td className="px-3 py-2">{ben?.name || rec.beneficiary_id} <span className="text-[#9CA3AF]">({rec.beneficiary_id})</span></td>
-                      <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: tint, color }}>{rec.status}</span></td>
+                    <tr key={rec.id} className="border-b border-[#F3F4F6] hover:bg-[#F8FAFC] transition-colors">
+                      <td className="px-3 py-2.5 text-[#374151]">{rec.session_date}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{bt?.training_name || rec.batch_id}</td>
+                      <td className="px-3 py-2.5 text-[#111827] font-medium">{ben?.name || rec.beneficiary_id}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{ben?.village || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{bt?.trainer_name || "—"}</td>
+                      <td className="px-3 py-2.5"><Badge label={rec.status} color={color} tint={tint} /></td>
                     </tr>
                   );
                 })}
