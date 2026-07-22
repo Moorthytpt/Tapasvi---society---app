@@ -664,6 +664,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const [step, setStep] = useState(1);
   const TOTAL_STEPS = 6;
   const STEP_LABELS = ["Personal", "Address", "Education", "Program", "Identity", "Review"];
+  const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
 
   // Auto-save draft (new registrations only) — pure UX convenience, no schema change, no effect on submit logic.
   const DRAFT_KEY = "tapasvi_beneficiary_draft";
