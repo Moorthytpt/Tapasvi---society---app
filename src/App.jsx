@@ -1267,7 +1267,26 @@ function CountUp({ value, duration = 800 }) {
   return <>{display}</>;
 }
 
+function Sparkline({ data, color }) {
+  if (!data || data.length < 2) return <div className="h-6" />;
+  const vals = data.map(d => d.count);
+  const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${28 - ((v - min) / range) * 26}`).join(" ");
+  return (
+    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="w-full h-7">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+    </svg>
+  );
+}
+
 function Dashboard({ beneficiaries, training, employment, villages, isAdmin, currentUser, onQuickAction, onViewBeneficiary }) {
+  const [dark, setDark] = useState(() => localStorage.getItem("tapasvi_dashboard_theme") === "dark");
+  const toggleDark = () => setDark(d => { localStorage.setItem("tapasvi_dashboard_theme", !d ? "dark" : "light"); return !d; });
+  const dc = dark
+    ? { pageText: "#F3F4F6", subtext: "#9CA3AF", cardBg: "rgba(17,24,39,0.7)", cardBorder: "rgba(255,255,255,0.08)", sectionBg: "#0B1220" }
+    : { pageText: "#111827", subtext: "#6B7280", cardBg: "rgba(255,255,255,0.75)", cardBorder: "rgba(229,231,235,0.8)", sectionBg: "#F8FAFC" };
+
   const total = beneficiaries.length;
   const women = beneficiaries.filter(b => b.gender === "Female").length;
   const youth = beneficiaries.filter(b => b.gender !== "Female").length;
@@ -1289,6 +1308,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
     beneficiaries.forEach(b => { if (b.village) m[b.village] = (m[b.village] || 0) + 1; });
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [beneficiaries]);
+
+  const byDistrict = useMemo(() => reportsGroupBy(beneficiaries, b => b.district), [beneficiaries]);
 
   const byStatus = useMemo(() => {
     const m = {};
@@ -1343,11 +1364,20 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
   const todaysRegistrations = beneficiaries.filter(b => b.registration_date === todayStr0).length;
 
   const thisMonth = now.toISOString().slice(0, 7);
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = lastMonthDate.toISOString().slice(0, 7);
   const newBeneficiariesThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
+  const beneficiariesLastMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === lastMonth).length;
   const newTrainingsThisMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === thisMonth).length;
+  const trainingsLastMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === lastMonth).length;
   const newAssessmentsThisMonth = assessmentRecords.filter(a => (a.assessment_date || "").slice(0, 7) === thisMonth).length;
+  const assessmentsLastMonth = assessmentRecords.filter(a => (a.assessment_date || "").slice(0, 7) === lastMonth).length;
   const newCertsThisMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === thisMonth).length;
+  const certsLastMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === lastMonth).length;
   const newPlacementsThisMonth = employment.filter(e => (e.created_at || "").slice(0, 7) === thisMonth).length;
+  const placementsLastMonth = employment.filter(e => (e.created_at || "").slice(0, 7) === lastMonth).length;
+
+  const growthPct = (curr, prev) => prev > 0 ? Math.round(((curr - prev) / prev) * 100) : (curr > 0 ? 100 : null);
 
   // Greeting
   const hour = now.getHours();
@@ -1382,18 +1412,18 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
   }, [employment]);
 
   const SUMMARY = [
-    { label: "Total Beneficiaries", value: total, delta: newBeneficiariesThisMonth, icon: Users, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Total Beneficiaries", value: total, delta: newBeneficiariesThisMonth, growth: growthPct(newBeneficiariesThisMonth, beneficiariesLastMonth), trend: beneficiaryGrowth, icon: Users, grad: ["#1E3A8A", "#3B82F6"] },
     { label: "Active Programs", value: activeProgramsCount, icon: BookOpen, grad: ["#DB2777", "#F472B6"] },
     { label: "Field Workers", value: fieldWorkerCount, icon: Users, grad: ["#DC2626", "#F87171"] },
     { label: "Trainers", value: trainersCount, icon: ClipboardList, grad: ["#F97316", "#FB923C"] },
     { label: "Today's Registrations", value: todaysRegistrations, icon: TrendingUp, grad: ["#0EA5E9", "#38BDF8"] },
-    { label: "Employment Placements", value: employed, delta: newPlacementsThisMonth, icon: Briefcase, grad: ["#0EA5E9", "#0369A1"] },
+    { label: "Employment Placements", value: employed, delta: newPlacementsThisMonth, growth: growthPct(newPlacementsThisMonth, placementsLastMonth), trend: placementTrend, icon: Briefcase, grad: ["#0EA5E9", "#0369A1"] },
     { label: "Women Beneficiaries", value: women, icon: Users, grad: ["#DB2777", "#EC4899"] },
     { label: "Youth Beneficiaries", value: youth, icon: Users, grad: ["#16A34A", "#4ADE80"] },
-    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, icon: BookOpen, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, growth: growthPct(newTrainingsThisMonth, trainingsLastMonth), trend: monthlyTrainings, icon: BookOpen, grad: ["#7C3AED", "#A78BFA"] },
     { label: "Completed Trainings", value: completedTrainings, icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
-    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, icon: ClipboardList, grad: ["#F97316", "#FDBA74"] },
-    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, icon: Award, grad: ["#7C3AED", "#C4B5FD"] },
+    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, growth: growthPct(newAssessmentsThisMonth, assessmentsLastMonth), icon: ClipboardList, grad: ["#F97316", "#FDBA74"] },
+    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, growth: growthPct(newCertsThisMonth, certsLastMonth), trend: certificateTrend, icon: Award, grad: ["#7C3AED", "#C4B5FD"] },
     { label: "Villages Covered", value: villagesCovered, icon: MapPin, grad: ["#16A34A", "#065F46"] },
   ];
 
@@ -1408,9 +1438,18 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
   ];
 
   return (
-    <div>
+    <div className="transition-colors duration-300 -m-4 p-4 rounded-2xl" style={{ background: dc.sectionBg }}>
+      {/* Theme toggle */}
+      <div className="flex justify-end mb-2">
+        <button onClick={toggleDark} aria-label="Toggle dashboard theme"
+          className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-105"
+          style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(10px)" }}>
+          {dark ? "☀️" : "🌙"}
+        </button>
+      </div>
+
       {/* Greeting banner */}
-      <div className="rounded-2xl p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)", boxShadow: "0 12px 30px -12px rgba(30,58,138,0.4)" }}>
         <div className="flex items-center gap-3 relative z-10">
           <Logo size={38} />
           <div className="flex-1 min-w-0">
@@ -1429,13 +1468,23 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
         {SUMMARY.map(s => (
           <div key={s.label} className="rounded-[20px] p-3.5 text-white relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_32px_-10px_rgba(0,0,0,0.35)]"
             style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})`, boxShadow: "0 8px 20px -10px rgba(0,0,0,0.25)" }}>
-            <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur flex items-center justify-center mb-2">
-              <s.icon size={15} />
+            <div className="flex items-start justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur flex items-center justify-center">
+                <s.icon size={15} />
+              </div>
+              {s.growth !== undefined && s.growth !== null && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5" style={{ background: s.growth >= 0 ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)" }}>
+                  {s.growth >= 0 ? "↑" : "↓"} {Math.abs(s.growth)}%
+                </span>
+              )}
             </div>
             <p className="text-[20px] font-bold leading-none"><CountUp value={s.value} /></p>
             <p className="text-[10px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
             {s.delta > 0 && (
               <p className="text-[9.5px] text-white/90 mt-1 flex items-center gap-0.5"><TrendingUp size={10} /> +{s.delta} this month</p>
+            )}
+            {s.trend && s.trend.length >= 2 && (
+              <div className="mt-1.5 opacity-80"><Sparkline data={s.trend} color="#ffffff" /></div>
             )}
           </div>
         ))}
@@ -1443,15 +1492,15 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 
       {/* Quick actions */}
       <div className="mb-5">
-        <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-2.5">Quick Actions</h3>
+        <h3 className="text-[12px] font-bold uppercase tracking-wide mb-2.5" style={{ color: dc.subtext }}>Quick Actions</h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
           {QUICK_ACTIONS.map(a => (
             <button key={a.key} onClick={() => onQuickAction && onQuickAction(a.key)}
-              className="bg-white rounded-[20px] border border-[#E5E7EB] p-3 flex flex-col items-center gap-1.5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 active:scale-95">
+              className="rounded-[20px] p-3 flex flex-col items-center gap-1.5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 active:scale-95" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}` }}>
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: a.color + "1A" }}>
                 <a.icon size={14} style={{ color: a.color }} />
               </div>
-              <span className="text-[9.5px] font-medium text-[#374151] text-center leading-tight">{a.label}</span>
+              <span className="text-[9.5px] font-medium text-center leading-tight" style={{ color: dc.pageText }}>{a.label}</span>
             </button>
           ))}
         </div>
@@ -1459,9 +1508,9 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 
       {/* Recent Beneficiaries + Recent Activities */}
       <div className="grid md:grid-cols-2 gap-3 mb-5">
-        <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-4">
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Recent Beneficiaries</h3>
+            <h3 className="text-[12px] font-bold uppercase tracking-wide" style={{ color: dc.subtext }}>Recent Beneficiaries</h3>
             <button onClick={() => onQuickAction && onQuickAction("beneficiaries-list")} className="text-[11px] font-semibold text-[#1E3A8A] hover:underline">View All →</button>
           </div>
           {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 6).length === 0 ? (
@@ -1475,8 +1524,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
                     {(b.name || "?").charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-semibold text-[#111827] truncate">{b.name || b.beneficiary_id}</p>
-                    <p className="text-[10px] text-[#6B7280] truncate">{PROGRAM_MAP[b.program]?.short || b.program} · {b.village || "—"}</p>
+                    <p className="text-[12px] font-semibold truncate" style={{ color: dc.pageText }}>{b.name || b.beneficiary_id}</p>
+                    <p className="text-[10px] truncate" style={{ color: dc.subtext }}>{PROGRAM_MAP[b.program]?.short || b.program} · {b.village || "—"}</p>
                   </div>
                   <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: (statusColors[b.status] || "#1E3A8A") + "18", color: statusColors[b.status] || "#1E3A8A" }}>
                     {b.status || "Registered"}
@@ -1487,8 +1536,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
           )}
         </div>
 
-        <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-3">Recent Activity</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-3" style={{ color: dc.subtext }}>Recent Activity</h3>
           {recentActivity.length === 0 ? (
             <p className="text-[12px] text-[#9CA3AF] text-center py-6">No activity logged yet.</p>
           ) : (
@@ -1503,7 +1552,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
                       {!isLast && <div className="w-px flex-1 min-h-[24px]" style={{ background: "#E5E7EB" }} />}
                     </div>
                     <div className="pb-3 flex-1 min-w-0">
-                      <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                      <p className="text-[11.5px] leading-snug" style={{ color: dc.pageText }}>{a.details || a.action}</p>
                       <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "System"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
                     </div>
                   </div>
@@ -1516,50 +1565,54 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 
       {/* Charts */}
       <div className="grid md:grid-cols-2 gap-3 mb-5">
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Beneficiary Growth</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Beneficiary Growth</h3>
           <MiniBarChart data={beneficiaryGrowth} color="#1E3A8A" />
         </div>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Program Distribution</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Program Distribution</h3>
           <MiniDonut data={programDonut} />
         </div>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Monthly Trainings</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Monthly Trainings</h3>
           <MiniBarChart data={monthlyTrainings} color="#DB2777" />
         </div>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Assessment Results</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Assessment Results</h3>
           <MiniDonut data={assessmentResults} colors={["#16A34A", "#DC2626"]} />
         </div>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Certificate Trend</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Certificate Trend</h3>
           <MiniBarChart data={certificateTrend} color="#7C3AED" />
         </div>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Placement Trend</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Placement Trend</h3>
           <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300 md:col-span-2" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>District-wise Beneficiaries</h3>
+          <MiniBarChart data={byDistrict} color="#1E3A8A" />
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
         {/* Women vs Youth */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Gender Split</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Gender Split</h3>
           <div className="flex items-end gap-4 h-28">
             {[["Women", women, "#F97316"], ["Youth (M)", youth, "#1E3A8A"]].map(([label, count, color]) => (
               <div key={label} className="flex flex-col items-center gap-2 flex-1">
-                <span className="text-[16px] font-bold text-[#111827]">{count}</span>
+                <span className="text-[16px] font-bold" style={{ color: dc.pageText }}>{count}</span>
                 <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
-                <span className="text-[11px] text-[#6B7280]">{label}</span>
+                <span className="text-[11px]" style={{ color: dc.subtext }}>{label}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Program wise */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Program-wise Beneficiaries</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Program-wise Beneficiaries</h3>
           <div className="space-y-3">
             {PROGRAMS.map(p => (
               <div key={p.key} className="flex items-center gap-3">
@@ -1568,7 +1621,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-medium text-[#111827]">{p.short}</span>
+                    <span className="text-[12px] font-medium" style={{ color: dc.pageText }}>{p.short}</span>
                     <span className="text-[12px] font-bold" style={{ color: p.color }}>{byProgram[p.key] || 0}</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
@@ -1581,8 +1634,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
         </div>
 
         {/* Status breakdown */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Training Status</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Training Status</h3>
           <div className="grid grid-cols-2 gap-3">
             {STATUS_OPTIONS.map(s => (
               <div key={s} className="rounded-lg p-3 flex items-center justify-between" style={{ background: statusColors[s] + "18" }}>
@@ -1595,15 +1648,15 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 
         {/* Village wise */}
         {isAdmin && (
-          <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Village-wise Performance</h3>
+          <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+            <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Village-wise Performance</h3>
             {byVillage.length === 0 ? <p className="text-[12px] text-[#AAA]">No data yet.</p> : byVillage.map(([v, c]) => (
               <div key={v} className="flex items-center gap-3 py-1.5">
-                <span className="text-[12px] text-[#111827] w-28 shrink-0 truncate">{v}</span>
+                <span className="text-[12px] w-28 shrink-0 truncate" style={{ color: dc.pageText }}>{v}</span>
                 <div className="flex-1 h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
                   <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${(c / maxVillage) * 100}%` }} />
                 </div>
-                <span className="text-[12px] font-bold text-[#111827] w-6 text-right">{c}</span>
+                <span className="text-[12px] font-bold w-6 text-right" style={{ color: dc.pageText }}>{c}</span>
               </div>
             ))}
           </div>
