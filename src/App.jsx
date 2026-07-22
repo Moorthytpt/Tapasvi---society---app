@@ -654,13 +654,81 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const submit = e => {
     e.preventDefault();
     if (!validate()) return;
+    try { localStorage.removeItem(DRAFT_KEY); } catch (_) { /* non-fatal */ }
     onSave({
       ...form, program: activeProgram,
       aadhaar_number: form.identity_type === "aadhaar" ? form.identity_number : (form.aadhaar_number || ""),
     });
   };
 
-  const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
+  const [step, setStep] = useState(1);
+  const TOTAL_STEPS = 6;
+  const STEP_LABELS = ["Personal", "Address", "Education", "Program", "Identity", "Review"];
+
+  // Auto-save draft (new registrations only) — pure UX convenience, no schema change, no effect on submit logic.
+  const DRAFT_KEY = "tapasvi_beneficiary_draft";
+  useEffect(() => {
+    if (editing) return;
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setForm(f => ({ ...f, ...parsed.form }));
+        if (parsed.activeProgram) setActiveProgram(parsed.activeProgram);
+      }
+    } catch (_) { /* ignore corrupt draft */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (editing) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, activeProgram })); } catch (_) { /* storage full/unavailable — non-fatal */ }
+  }, [form, activeProgram, editing]);
+
+  const validateStep = (s) => {
+    const e = {};
+    if (s === 1) {
+      if (!form.name.trim()) e.name = "Required";
+      if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required (1-120)";
+      if (!form.phone.trim()) e.phone = "Required";
+      else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    } else if (s === 2) {
+      if (!form.village.trim()) e.village = "Required";
+      if (!form.mandal.trim()) e.mandal = "Required";
+    } else if (s === 4) {
+      if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
+    } else if (s === 5) {
+      if (!form.identity_number.trim()) e.identity_number = "Document number required";
+      else if (!identityInfo.pattern.test(form.identity_number)) e.identity_number = `Invalid format. ${identityInfo.hint}`;
+      else {
+        const dup = beneficiaries.find(b =>
+          b.identity_type === form.identity_type && b.identity_number === form.identity_number &&
+          b.program === activeProgram && b.beneficiary_id !== editing?.beneficiary_id
+        );
+        if (dup) e.identity_number = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
+      }
+    }
+    setErrors(prev => ({ ...prev, ...e, ...Object.fromEntries(Object.keys(prev).filter(k => !e[k]).map(k => [k, undefined])) }));
+    return Object.keys(e).length === 0;
+  };
+
+  const goNext = () => { if (validateStep(step)) setStep(s => Math.min(TOTAL_STEPS, s + 1)); };
+  const goBack = () => setStep(s => Math.max(1, s - 1));
+
+  const jump = (s) => setStep(s);
+
+  const StepDot = ({ n, label }) => {
+    const active = step === n;
+    const done = step > n;
+    return (
+      <button type="button" onClick={() => jump(n)} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all"
+          style={active ? { background: p.color, color: "#fff", boxShadow: `0 0 0 4px ${p.color}22` } : done ? { background: p.color + "22", color: p.color } : { background: "#F3F4F6", color: "#9CA3AF" }}>
+          {done ? "✓" : n}
+        </div>
+        <span className="text-[9px] font-medium truncate max-w-full" style={{ color: active ? p.color : "#9CA3AF" }}>{label}</span>
+      </button>
+    );
+  };
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -668,8 +736,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         <div className="flex items-center gap-3">
           <Logo size={32} />
           <div>
-            <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "Quick Registration"}</h2>
-            <p className="text-[11.5px] text-[#6B7280]">Complete in 2–3 minutes</p>
+            <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "New Registration"}</h2>
+            <p className="text-[11.5px] text-[#6B7280]">Step {step} of {TOTAL_STEPS} · {STEP_LABELS[step - 1]}</p>
           </div>
         </div>
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
@@ -687,131 +755,203 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         </div>
       )}
 
-      {!editing && !dynProgramsLoading && resolvedPrograms.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
-            <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
-              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
-              style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
-              <Icon size={18} />{pr.short}
-            </button>
-          );})}
-        </div>
-      )}
-
       {(editing || (!dynProgramsLoading && !noActiveProgramsAvailable)) && (
+      <>
+        {/* Progress bar */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden mb-3">
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(step / TOTAL_STEPS) * 100}%`, background: p.color }} />
+          </div>
+          <div className="flex gap-1">
+            {STEP_LABELS.map((label, i) => <StepDot key={label} n={i + 1} label={label} />)}
+          </div>
+        </div>
+
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
-        <div className="p-5">
+        <div className="p-5 min-h-[340px]">
 
-          <SectionHeader title="System Information" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint="Auto-generated">
-              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono text-[12px]"} />
-            </Field>
-            <Field label="Date">
-              <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-            <Field label="Program">
-              <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-            <Field label="Field Worker" required error={errors.field_worker_name}>
-              <Input value={form.field_worker_name}
-                onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
-                readOnly={currentUser.role === "fieldworker"}
-                className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
-            </Field>
-          </div>
+          {step === 1 && (
+            <>
+              {!editing && resolvedPrograms.length > 0 && (
+                <>
+                  <SectionHeader title="Select Program" color={p.color} />
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
+                      <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
+                        className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
+                        style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
+                        <Icon size={18} />{pr.short}
+                      </button>
+                    );})}
+                  </div>
+                </>
+              )}
+              <SectionHeader title="Personal Information" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Beneficiary Name" required error={errors.name}>
+                  <Input value={form.name} onChange={set("name")} placeholder="Full name" autoFocus />
+                </Field>
+                <Field label="Gender" required>
+                  <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
+                </Field>
+                <Field label="Age" required error={errors.age}>
+                  <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
+                </Field>
+                <Field label="Mobile Number" required error={errors.phone}>
+                  <Input value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                    placeholder="10-digit mobile" inputMode="numeric" />
+                </Field>
+              </div>
+            </>
+          )}
 
-          <SectionHeader title="Personal Information" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Beneficiary Name" required error={errors.name}>
-              <Input value={form.name} onChange={set("name")} placeholder="Full name" />
-            </Field>
-            <Field label="Gender" required>
-              <Select value={form.gender} onChange={set("gender")} options={["Male","Female","Other"]} />
-            </Field>
-            <Field label="Age" required error={errors.age}>
-              <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
-            </Field>
-            <Field label="Mobile Number" required error={errors.phone}>
-              <Input value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g,"").slice(0,10) }))}
-                placeholder="10-digit mobile" inputMode="numeric" />
-            </Field>
-          </div>
+          {step === 2 && (
+            <>
+              <SectionHeader title="Address" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="House No">
+                  <Input value={form.house_no || ""} onChange={set("house_no")} placeholder="e.g. 4-6" />
+                </Field>
+                <Field label="Village" required error={errors.village}>
+                  <Input value={form.village} onChange={set("village")} placeholder="Village name" />
+                </Field>
+                <Field label="Mandal" required error={errors.mandal}>
+                  <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
+                </Field>
+                <Field label="District">
+                  <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
+                </Field>
+                <Field label="State">
+                  <Input value="Andhra Pradesh" readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+              </div>
+            </>
+          )}
 
-          <SectionHeader title="Identity Proof" color={p.color} />
-          <div className="bg-[#F8FAFC] rounded-xl border border-[#E5E7EB] p-4 mb-2">
-            <div className="grid grid-cols-2 gap-x-4">
-              <Field label="Document Type" required>
-                <Select value={form.identity_type} onChange={set("identity_type")}
-                  options={IDENTITY_TYPES.map(i => ({ value: i.value, label: i.label }))} />
+          {step === 3 && (
+            <>
+              <SectionHeader title="Social Information" color={p.color} />
+              <div className="grid grid-cols-3 gap-x-4">
+                <Field label="Category">
+                  <Select value={form.category} onChange={set("category")} options={["SC", "ST", "BC", "OC", "Minority"]} />
+                </Field>
+                <Field label="Disability">
+                  <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
+                </Field>
+                <Field label="SHG Member">
+                  <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
+                </Field>
+              </div>
+              <SectionHeader title="Education & Skills" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Education">
+                  <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education level" />
+                </Field>
+                <Field label="Skill Interest">
+                  <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select area of interest" />
+                </Field>
+              </div>
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <SectionHeader title="Program Details" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Registration ID" hint="Auto-generated">
+                  <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono text-[12px]"} />
+                </Field>
+                <Field label="Registration Date">
+                  <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+                <Field label="Program">
+                  <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+                <Field label="Field Worker" required error={errors.field_worker_name}>
+                  <Input value={form.field_worker_name}
+                    onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
+                    readOnly={currentUser.role === "fieldworker"}
+                    className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
+                </Field>
+              </div>
+              <p className="text-[10.5px] text-[#6B7280] mt-2">ℹ Training batch enrollment happens after registration, from Training → Enroll.</p>
+            </>
+          )}
+
+          {step === 5 && (
+            <>
+              <SectionHeader title="Identity Proof" color={p.color} />
+              <div className="bg-[#F8FAFC] rounded-xl border border-[#E5E7EB] p-4 mb-2">
+                <div className="grid grid-cols-2 gap-x-4">
+                  <Field label="Document Type" required>
+                    <Select value={form.identity_type} onChange={set("identity_type")}
+                      options={IDENTITY_TYPES.map(i => ({ value: i.value, label: i.label }))} />
+                  </Field>
+                  <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
+                    <Input value={form.identity_number}
+                      onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
+                      placeholder={identityInfo.placeholder}
+                      inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
+                  </Field>
+                </div>
+              </div>
+
+              <Field label="Notes">
+                <textarea value={form.notes || ""} onChange={set("notes")} rows={2} className={inputCls} placeholder="Field worker observations..." />
               </Field>
-              <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
-                <Input value={form.identity_number}
-                  onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
-                  placeholder={identityInfo.placeholder}
-                  inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
-              </Field>
-            </div>
-            <p className="text-[10.5px] text-[#6B7280]">ℹ Additional documents can be added from Beneficiary Profile later.</p>
-          </div>
+            </>
+          )}
 
-          <SectionHeader title="Address" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="House No">
-              <Input value={form.house_no || ""} onChange={set("house_no")} placeholder="e.g. 4-6" />
-            </Field>
-            <Field label="Village" required error={errors.village}>
-              <Input value={form.village} onChange={set("village")} placeholder="Village name" />
-            </Field>
-            <Field label="Mandal" required error={errors.mandal}>
-              <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
-            </Field>
-            <Field label="District">
-              <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
-            </Field>
-            <Field label="State">
-              <Input value="Andhra Pradesh" readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-          </div>
-
-          <SectionHeader title="Social Information" color={p.color} />
-          <div className="grid grid-cols-3 gap-x-4">
-            <Field label="Category">
-              <Select value={form.category} onChange={set("category")} options={["SC","ST","BC","OC","Minority"]} />
-            </Field>
-            <Field label="Disability">
-              <Select value={form.disability} onChange={set("disability")} options={["No","Yes"]} />
-            </Field>
-            <Field label="SHG Member">
-              <Select value={form.shg} onChange={set("shg")} options={["No","Yes"]} />
-            </Field>
-          </div>
-
-          <SectionHeader title="Education & Skills" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Education">
-              <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education level" />
-            </Field>
-            <Field label="Skill Interest">
-              <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select area of interest" />
-            </Field>
-          </div>
-
-          <Field label="Notes">
-            <textarea value={form.notes||""} onChange={set("notes")} rows={2} className={inputCls} placeholder="Field worker observations..." />
-          </Field>
+          {step === 6 && (
+            <>
+              <SectionHeader title="Review & Submit" color={p.color} />
+              <div className="space-y-3">
+                {[
+                  { label: "Personal Information", step: 1, rows: [["Name", form.name], ["Gender", form.gender], ["Age", form.age], ["Mobile", form.phone]] },
+                  { label: "Address", step: 2, rows: [["House No", form.house_no], ["Village", form.village], ["Mandal", form.mandal], ["District", form.district]] },
+                  { label: "Education & Social", step: 3, rows: [["Category", form.category], ["Education", form.education], ["Skill Interest", form.skill_interest]] },
+                  { label: "Program Details", step: 4, rows: [["Program", p.label], ["Field Worker", form.field_worker_name], ["Registration Date", form.registration_date]] },
+                  { label: "Identity Proof", step: 5, rows: [["Document Type", identityInfo.label], ["Document Number", form.identity_number]] },
+                ].map(section => (
+                  <div key={section.label} className="rounded-xl border border-[#E5E7EB] p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[12px] font-bold text-[#111827]">{section.label}</p>
+                      <button type="button" onClick={() => jump(section.step)} className="text-[11px] font-semibold" style={{ color: p.color }}>Edit</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      {section.rows.map(([k, v]) => (
+                        <div key={k} className="text-[11px]"><span className="text-[#9CA3AF]">{k}: </span><span className="text-[#111827] font-medium">{v || "—"}</span></div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
         </div>
-        <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
-          <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white" style={{ background: p.color }}>
-            {editing ? "Update Record" : "Save Registration"}
-          </button>
-          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">Cancel</button>
-          {!editing && <span className="text-[10.5px] text-[#9CA3AF] ml-auto">* ID auto-generated on save</span>}
+
+        <div className="sticky bottom-0 px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
+          {step > 1 && (
+            <button type="button" onClick={goBack} className="rounded-xl border border-[#E5E7EB] px-5 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-white">
+              Previous
+            </button>
+          )}
+          {step < TOTAL_STEPS && (
+            <button type="button" onClick={goNext} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white ml-auto" style={{ background: p.color }}>
+              Next
+            </button>
+          )}
+          {step === TOTAL_STEPS && (
+            <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white ml-auto" style={{ background: p.color }}>
+              {editing ? "Update Record" : "Save Registration"}
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-5 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-white">Cancel</button>
         </div>
       </form>
+      </>
       )}
     </div>
   );
@@ -2472,6 +2612,57 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
   });
   const otherPrograms = Object.values(otherProgramsMap);
 
+  // Live data this profile fetches for itself — attendance, assessments, certificates, placement.
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [employmentRecords, setEmploymentRecords] = useState([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLiveLoading(true);
+      const [ar, am, asr, ct, em] = await Promise.all([
+        supabase.from("attendance_records").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("assessment_marks").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("certificates").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("employment").select("*").eq("beneficiary_id", b.beneficiary_id),
+      ]);
+      setAttendanceRecords(ar.data || []);
+      setAssessmentMarks(am.data || []);
+      setAssessmentRecords(asr.data || []);
+      setCertificates(ct.data || []);
+      setEmploymentRecords(em.data || []);
+      setLiveLoading(false);
+    })();
+  }, [b.beneficiary_id]);
+
+  const myEnrollments = (enrollments || []).filter(e => e.beneficiary_id === b.beneficiary_id);
+  const presentCount = attendanceRecords.filter(a => a.status === "Present" || a.status === "Late").length;
+  const attendancePct = attendanceRecords.length > 0 ? Math.round((presentCount / attendanceRecords.length) * 100) : null;
+  const latestMark = [...assessmentMarks].sort((x, y) => (y.created_at || "").localeCompare(x.created_at || ""))[0];
+  const activeCert = certificates.find(c => c.status === "Active");
+  const activeEmployment = employmentRecords.find(e => e.status === "Active");
+  const completedEnrollments = myEnrollments.filter(e => e.enrollment_status === "Completed").length;
+  const trainingProgressPct = myEnrollments.length > 0 ? Math.round((completedEnrollments / myEnrollments.length) * 100) : 0;
+
+  const derivedStatus = activeEmployment ? "Placed" : activeCert ? "Certified" : completedEnrollments > 0 ? "Completed" : myEnrollments.length > 0 ? "Training" : (b.status || "Registered");
+  const derivedStatusColor = { Placed: "#0EA5E9", Certified: "#7C3AED", Completed: "#16A34A", Training: "#F97316", Registered: "#1E3A8A" }[derivedStatus] || "#1E3A8A";
+
+  const firstEnrollmentDate = myEnrollments.length > 0 ? [...myEnrollments].sort((x, y) => (x.enrolled_at || "").localeCompare(y.enrolled_at || ""))[0]?.enrolled_at : null;
+  const firstAssessmentDate = assessmentMarks.length > 0 ? (assessmentRecords.find(r => r.id === assessmentMarks[0].assessment_id)?.assessment_date) : null;
+
+  const TIMELINE = [
+    { label: "Registration", date: b.registration_date, done: true },
+    { label: "Training Started", date: firstEnrollmentDate?.slice(0, 10), done: myEnrollments.length > 0 },
+    { label: "Attendance Recorded", date: attendanceRecords[0]?.session_date, done: attendanceRecords.length > 0 },
+    { label: "Assessment Completed", date: firstAssessmentDate, done: assessmentMarks.length > 0 },
+    { label: "Certificate Issued", date: activeCert?.certificate_date, done: !!activeCert },
+    { label: "Placement", date: activeEmployment?.created_at?.slice(0, 10), done: !!activeEmployment },
+  ];
+
   const InfoRow = ({ label, value }) => (
     <div className="flex py-2 border-b border-[#F3F4F6] last:border-0">
       <span className="text-[11.5px] text-[#6B7280] w-36 shrink-0">{label}</span>
@@ -2496,19 +2687,64 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       </div>
 
       {/* Profile Header Card */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4 flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
-          style={{ background: p.color }}>
-          {(b.name || "?").charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
-          <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
-          <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1E3A8A"} tint={(statusColors[b.status] || "#1E3A8A") + "18"} />
-            {b.field_worker_name && <span className="text-[10.5px] text-[#6B7280]">👤 {b.field_worker_name}</span>}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
+            style={{ background: p.color }}>
+            {(b.name || "?").charAt(0).toUpperCase()}
           </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
+            <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
+            <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge label={derivedStatus} color={derivedStatusColor} tint={derivedStatusColor + "18"} />
+              {b.field_worker_name && <span className="text-[10.5px] text-[#6B7280]">👤 {b.field_worker_name}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <div><p className="text-[9.5px] text-[#9CA3AF] uppercase">Village</p><p className="text-[12px] font-semibold text-[#111827]">{b.village || "—"}</p></div>
+          <div><p className="text-[9.5px] text-[#9CA3AF] uppercase">Registration Date</p><p className="text-[12px] font-semibold text-[#111827]">{b.registration_date || "—"}</p></div>
+        </div>
+      </div>
+
+      {/* Live Summary Cards */}
+      <div className="grid grid-cols-3 gap-2.5 mb-4">
+        {[
+          { label: "Attendance", value: attendancePct !== null ? attendancePct + "%" : "—", color: "#1E3A8A" },
+          { label: "Assessment Score", value: latestMark ? latestMark.percentage + "%" : "—", color: "#F97316" },
+          { label: "Grade", value: latestMark ? latestMark.grade : "—", color: "#7C3AED" },
+          { label: "Certificate", value: activeCert ? "Issued" : "Pending", color: activeCert ? "#16A34A" : "#9CA3AF" },
+          { label: "Placement", value: activeEmployment ? "Placed" : "Pending", color: activeEmployment ? "#0EA5E9" : "#9CA3AF" },
+          { label: "Training Progress", value: myEnrollments.length ? trainingProgressPct + "%" : "—", color: "#DB2777" },
+        ].map(card => (
+          <div key={card.label} className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center">
+            <p className="text-[14px] font-bold" style={{ color: card.color }}>{liveLoading ? "…" : card.value}</p>
+            <p className="text-[9px] text-[#6B7280] mt-0.5 leading-tight">{card.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Timeline */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-4">📍 Journey Timeline</h4>
+        <div className="space-y-0">
+          {TIMELINE.map((t, i) => (
+            <div key={t.label} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                  style={t.done ? { background: "#16A34A", color: "#fff" } : { background: "#F3F4F6", color: "#9CA3AF" }}>
+                  {t.done ? "✓" : i + 1}
+                </div>
+                {i < TIMELINE.length - 1 && <div className="w-0.5 flex-1 min-h-[24px]" style={{ background: t.done ? "#16A34A" : "#E5E7EB" }} />}
+              </div>
+              <div className="pb-4 flex-1">
+                <p className="text-[12.5px] font-semibold text-[#111827]">{t.label}</p>
+                <p className="text-[10.5px]" style={{ color: t.done ? "#16A34A" : "#9CA3AF" }}>{t.done ? (t.date || "Completed") : "Pending"}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -2608,29 +2844,84 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       </div>
 
       {/* Training History */}
-      {(() => {
-        const myEnrollments = (enrollments || []).filter(e => e.beneficiary_id === b.beneficiary_id);
-        if (myEnrollments.length === 0) return null;
-        return (
-          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-            <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Training History</h4>
-            <div className="space-y-2.5">
-              {myEnrollments.map(e => (
-                <div key={e.enrollment_id} className="bg-[#F8FAFC] rounded-xl p-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
-                    <div className="flex gap-2">
-                      {e.attendance_pct > 0 && <Badge label={`${e.attendance_pct}% Attendance`} color="#1E3A8A" tint="#EFF6FF" />}
-                      {e.certificate_status === "Issued" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
-                    </div>
-                  </div>
-                  {e.certificate_no && <p className="text-[10.5px] font-mono text-[#6B7280] mt-1">{e.certificate_no}</p>}
+      {myEnrollments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+          <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Training History</h4>
+          <div className="space-y-2.5">
+            {myEnrollments.map(e => (
+              <div key={e.enrollment_id} className="bg-[#F8FAFC] rounded-xl p-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
+                  <Badge label={e.enrollment_status || "Active"} color={e.enrollment_status === "Completed" ? "#16A34A" : "#1E3A8A"} tint={e.enrollment_status === "Completed" ? "#DCFCE7" : "#EFF6FF"} />
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">🕓 Recent Activity</h4>
+        {liveLoading ? (
+          <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Attendance</p>
+              {attendanceRecords.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No records yet.</p> : (
+                <div className="space-y-1.5">
+                  {attendanceRecords.slice(0, 5).map((a, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{a.session_date}</span>
+                      <Badge label={a.status} color={a.status === "Present" ? "#16A34A" : a.status === "Late" ? "#F97316" : "#DC2626"} tint={a.status === "Present" ? "#DCFCE7" : a.status === "Late" ? "#FFF7ED" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Assessments</p>
+              {assessmentMarks.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No assessments yet.</p> : (
+                <div className="space-y-1.5">
+                  {assessmentMarks.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{assessmentRecords.find(r => r.id === m.assessment_id)?.assessment_type || "Assessment"} · {m.percentage}%</span>
+                      <Badge label={m.result} color={m.result === "Pass" ? "#16A34A" : "#DC2626"} tint={m.result === "Pass" ? "#DCFCE7" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Certificates</p>
+              {certificates.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">None issued yet.</p> : (
+                <div className="space-y-1.5">
+                  {certificates.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151] font-mono">{c.certificate_number}</span>
+                      <Badge label={c.status} color={c.status === "Active" ? "#16A34A" : "#DC2626"} tint={c.status === "Active" ? "#DCFCE7" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Placement</p>
+              {employmentRecords.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No placement records yet.</p> : (
+                <div className="space-y-1.5">
+                  {employmentRecords.map((e, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{e.job_role || e.employer || "—"}</span>
+                      <Badge label={e.status} color={e.status === "Active" ? "#16A34A" : "#9CA3AF"} tint={e.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        );
-      })()}
+        )}
+      </div>
 
       {/* Notes */}
       {b.notes && (
@@ -2640,17 +2931,6 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
         </div>
       )}
 
-      {/* Future Modules */}
-      <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 mb-4">
-        <h4 className="text-[12px] font-bold text-[#6B7280] uppercase tracking-wide mb-3">🚀 Coming Soon</h4>
-        <div className="grid grid-cols-3 gap-2">
-          {["Training","Employment","Attendance","Certificates","Govt Schemes","AI Insights"].map(m => (
-            <div key={m} className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center">
-              <p className="text-[11px] text-[#9CA3AF] font-medium">{m}</p>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
