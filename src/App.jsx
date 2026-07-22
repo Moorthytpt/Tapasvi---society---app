@@ -3915,6 +3915,7 @@ function AssessmentMarksScreen({ assessment, readOnly, beneficiaries, enrollment
     const built = enrolled.map(e => {
       const ex = existing.get(e.beneficiary_id);
       return ex || {
+        id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${assessment.id}-${e.beneficiary_id}-${Date.now()}`,
         assessment_id: assessment.id, beneficiary_id: e.beneficiary_id, beneficiary_name: e.beneficiary_name || e.beneficiary_id,
         theory_marks: 0, practical_marks: 0, viva_marks: 0, total_marks: 0, percentage: 0, grade: "-", result: "-", certificate_eligible: "No", is_absent: false,
       };
