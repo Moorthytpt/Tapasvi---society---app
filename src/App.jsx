@@ -226,10 +226,10 @@ function printTable(rows, title, cols) {
    UI ATOMS
    ============================================================ */
 
-function Logo({ size = 40 }) {
+function Logo({ size = 40, style }) {
   return (
     <img src="/icon-512-transparent.png" alt="TAPASVI" width={size} height={size}
-      style={{ objectFit: "contain", display: "block" }} />
+      style={{ objectFit: "contain", display: "block", ...style }} />
   );
 }
 
@@ -408,12 +408,14 @@ function LoginScreen({ onLogin }) {
     .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(22,163,74,0.16), 0 0 18px rgba(30,58,138,0.12); }
     .tp-field-input::placeholder { color: ${dark ? "#6B7280" : "#9CA3AF"}; opacity: 1; }
     .tp-theme-icon { display: inline-block; transition: transform 0.4s ease; }
+    @keyframes tp-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-14px); } }
+    .tp-particle { animation: tp-float 6s ease-in-out infinite; }
     .tp-ripple-span { position:absolute; border-radius:9999px; background:#fff; pointer-events:none; animation: tp-ripple 0.6s ease-out; }
     .tp-check-circle { animation: tp-scaleIn 0.35s ease both; }
     .tp-check-path { stroke-dasharray: 48; stroke-dashoffset: 48; animation: tp-check 0.4s 0.15s ease forwards; }
   `;
   const dc = dark
-    ? { pageBg: "linear-gradient(135deg,#0B1220 0%,#0F1B14 60%,#0A1A12 100%)", cardBg: "rgba(17,24,39,0.72)", cardBorder: "rgba(255,255,255,0.08)", text: "#F3F4F6", subtext: "#9CA3AF", inputBg: "rgba(31,41,55,0.7)", inputBorder: "#374151", inputText: "#F3F4F6" }
+    ? { pageBg: "linear-gradient(150deg,#060B18 0%,#0B1220 22%,#0E1E1A 55%,#0A1A2E 78%,#081018 100%)", cardBg: "rgba(17,24,39,0.72)", cardBorder: "rgba(255,255,255,0.08)", text: "#F3F4F6", subtext: "#9CA3AF", inputBg: "rgba(31,41,55,0.7)", inputBorder: "#374151", inputText: "#F3F4F6" }
     : { pageBg: "linear-gradient(135deg,#EFF6FF 0%,#F0FDF4 60%,#ECFDF5 100%)", cardBg: "rgba(255,255,255,0.72)", cardBorder: "rgba(255,255,255,0.6)", text: "#111827", subtext: "#6B7280", inputBg: "rgba(255,255,255,0.8)", inputBorder: "#E5E7EB", inputText: "#111827" };
 
   if (showForgot) {
@@ -479,6 +481,17 @@ function LoginScreen({ onLogin }) {
       <div className="absolute -top-20 -left-20 w-72 h-72 rounded-full pointer-events-none" style={{ background: dark ? "#16A34A" : "#4ADE80", opacity: dark ? 0.12 : 0.18, filter: "blur(80px)" }} />
       <div className="absolute -bottom-24 -right-10 w-80 h-80 rounded-full pointer-events-none" style={{ background: dark ? "#1E3A8A" : "#3B82F6", opacity: dark ? 0.14 : 0.15, filter: "blur(90px)" }} />
 
+      {/* very light floating particles — dark mode only, for subtle depth */}
+      {dark && [
+        { top: "18%", left: "12%", size: 4, delay: "0s", color: "#4ADE80" },
+        { top: "30%", left: "82%", size: 3, delay: "1.2s", color: "#60A5FA" },
+        { top: "62%", left: "8%", size: 3, delay: "2.4s", color: "#4ADE80" },
+        { top: "75%", left: "88%", size: 4, delay: "0.8s", color: "#60A5FA" },
+        { top: "48%", left: "50%", size: 2.5, delay: "1.8s", color: "#4ADE80" },
+      ].map((p, i) => (
+        <span key={i} className="tp-particle absolute rounded-full pointer-events-none" style={{ top: p.top, left: p.left, width: p.size, height: p.size, background: p.color, opacity: 0.35, animationDelay: p.delay, filter: "blur(0.5px)" }} />
+      ))}
+
       {/* subtle background waves — mobile + desktop right panel */}
       <svg className="absolute top-0 right-0 w-full lg:w-1/2 h-64 opacity-30 pointer-events-none" viewBox="0 0 500 200" preserveAspectRatio="none">
         <path d="M0,60 C120,120 380,0 500,60 L500,0 L0,0 Z" fill={dark ? "#1E3A8A" : "#BFDBFE"} />
@@ -492,24 +505,25 @@ function LoginScreen({ onLogin }) {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-2.5 mb-6 tp-fade-up lg:hidden">
-            <Logo size={112} />
+            <Logo size={128} style={{ filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.18))" }} />
             <h1 className="text-[30px] font-extrabold text-center leading-none tracking-wide"
               style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
               TAPASVI
             </h1>
-            <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full mt-0.5" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 16px rgba(34,197,94,0.35)" }}>
-              Digital NGO Management System · v2.0
+            <p className="text-[11px] font-medium" style={{ color: dc.subtext }}>Digital NGO Management System</p>
+            <span className="text-[9.5px] font-semibold px-3 py-1.5 rounded-full mt-0.5" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A", boxShadow: "0 0 8px rgba(34,197,94,0.18)" }}>
+              v2.0
             </span>
           </div>
 
-          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6" style={{ background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
+          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ background: dc.cardBg, backdropFilter: "blur(20px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 25px 60px -15px rgba(30,58,138,0.28)", animationDelay: "0.1s" }}>
             <p className="text-[19px] font-bold" style={{ color: dc.text }}>👋 Welcome Back</p>
             <p className="text-[12.5px] mb-5" style={{ color: dc.subtext }}>Sign in to continue</p>
 
             <div className="grid grid-cols-2 gap-2 mb-4">
               {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
-                <button key={r} type="button" onClick={() => setRole(r)}
-                  className="flex items-center justify-center gap-2 rounded-xl border py-2.5 text-[13px] font-semibold transition-all"
+                <button key={r} type="button" onClick={() => setRole(r)} aria-pressed={role === r} aria-label={`Sign in as ${label}`}
+                  className="flex items-center justify-center gap-2 rounded-xl border py-2.5 text-[13px] font-semibold transition-all duration-300 hover:scale-[1.02] active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
                   style={role === r ? { background: "linear-gradient(90deg,#1E3A8A,#16A34A)", color: "#fff", borderColor: "transparent", boxShadow: "0 4px 12px -2px rgba(30,58,138,0.4)" } : { borderColor: dc.inputBorder, color: dc.subtext, background: dc.inputBg }}>
                   <Icon size={14} /> {label}
                 </button>
@@ -517,34 +531,37 @@ function LoginScreen({ onLogin }) {
             </div>
 
             <div className="mb-3">
-              <label className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>{role === "admin" ? "Email" : "Full Name"}</label>
-              <div className="relative tp-input-glow rounded-xl transition-shadow">
-                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: dc.subtext }} />
-                <input value={username} onChange={e => setUsername(e.target.value)}
+              <label htmlFor="tp-username" className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>{role === "admin" ? "Email" : "Full Name"}</label>
+              <div className="group relative tp-input-glow rounded-xl transition-shadow">
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200 group-focus-within:text-[#16A34A]" style={{ color: dc.subtext }} />
+                <input id="tp-username" value={username} onChange={e => setUsername(e.target.value)}
                   placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
                   inputMode={role === "admin" ? "email" : "text"}
+                  aria-label={role === "admin" ? "Email" : "Full Name"}
                   className="tp-field-input w-full rounded-xl pl-10 pr-3.5 py-3 text-[13.5px] outline-none transition"
                   style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }} />
               </div>
             </div>
 
             <div className="mb-1">
-              <label className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>Password</label>
-              <div className="relative tp-input-glow rounded-xl transition-shadow">
-                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: dc.subtext }} />
-                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+              <label htmlFor="tp-password" className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>Password</label>
+              <div className="group relative tp-input-glow rounded-xl transition-shadow">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200 group-focus-within:text-[#16A34A]" style={{ color: dc.subtext }} />
+                <input id="tp-password" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                  aria-label="Password"
                   className="tp-field-input w-full rounded-xl pl-10 pr-14 py-3 text-[13.5px] outline-none transition"
                   style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }}
                   placeholder="••••••••" />
-                <button type="button" onClick={() => setShowPassword(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#1E3A8A] px-1.5">
-                  {showPassword ? "Hide" : "Show"}
+                <button type="button" onClick={() => setShowPassword(s => !s)} aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#1E3A8A] px-1.5 transition-all duration-200"
+                  style={{ transform: "translateY(-50%) scale(1)" }}>
+                  <span key={showPassword ? "hide" : "show"} className="tp-scale-in inline-block">{showPassword ? "Hide" : "Show"}</span>
                 </button>
               </div>
             </div>
 
             {error && (
-              <div className="tp-shake mt-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+              <div className="tp-shake mt-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2" role="alert" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
                 <AlertCircle size={14} className="text-[#DC2626] mt-0.5 shrink-0" />
                 <p className="text-[12px] text-[#DC2626] font-medium">{error}</p>
               </div>
@@ -552,29 +569,31 @@ function LoginScreen({ onLogin }) {
 
             <div className="flex items-center justify-between mt-4 mb-1">
               <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: dc.subtext }}>
-                <span className="relative inline-flex items-center justify-center w-[18px] h-[18px] rounded-md transition-all"
+                <span className="relative inline-flex items-center justify-center w-[22px] h-[22px] rounded-md transition-all duration-200"
                   style={{ background: remember ? "linear-gradient(135deg,#1E3A8A,#16A34A)" : "transparent", border: remember ? "none" : `1.5px solid ${dc.inputBorder}` }}>
-                  <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                  {remember && <Check size={12} className="text-white" strokeWidth={3} />}
+                  <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} aria-label="Remember Me" className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {remember && <Check size={14} className="tp-scale-in text-white" strokeWidth={3} />}
                 </span>
                 Remember Me
               </label>
-              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold transition-opacity hover:opacity-70" style={{ color: "#3B82F6" }}>
+              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold transition-all hover:underline" style={{ color: "#60A5FA" }}>
                 Forgot Password?
               </button>
             </div>
 
-            <button type="submit" onClick={addRipple} disabled={loading}
-              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-70 hover:shadow-[0_12px_28px_-6px_rgba(22,163,74,0.55)] hover:brightness-110"
+            <button type="submit" onClick={addRipple} disabled={loading} aria-label="Sign In"
+              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] disabled:opacity-70 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.5)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.45)" }}>
               {ripples.map(r => (
                 <span key={r.id} className="tp-ripple-span" style={{ left: r.x - r.size / 2, top: r.y - r.size / 2, width: r.size, height: r.size }} />
               ))}
-              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : (<>Sign In <span className="transition-transform group-hover:translate-x-1">→</span></>)}
+              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : (
+                <>Sign In <span className="inline-block w-0 opacity-0 -translate-x-1 transition-all duration-300 group-hover:w-4 group-hover:opacity-100 group-hover:translate-x-0 group-active:w-4 group-active:opacity-100">→</span></>
+              )}
             </button>
 
-            <p className="text-[10.5px] text-center mt-3" style={{ color: dc.subtext }}>
-              {role === "admin" ? "Admin: registered email & password" : "Contact Admin for your login credentials"}
+            <p className="text-[10.5px] text-center mt-3 tracking-wide" style={{ color: dc.subtext }}>
+              Secure Access for Authorized Users
             </p>
           </form>
 
@@ -583,7 +602,7 @@ function LoginScreen({ onLogin }) {
               <ShieldCheck size={12} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
             </p>
             <p className="text-[10px] mt-1.5" style={{ color: dark ? "#6B7280" : "#9CA3AF" }}>
-              TAPASVI DMS v2.0 · © {new Date().getFullYear()} TAPASVI Society · Privacy Policy · Terms of Use
+              TAPASVI DMS v2.0 · © {new Date().getFullYear()} TAPASVI Society
             </p>
           </div>
         </div>
