@@ -4699,6 +4699,550 @@ function CertificateVerify({ onBack }) {
   );
 }
 
+/* ============================================================
+   REPORTS MODULE — enterprise reporting dashboard, live Supabase data.
+   Self-contained: fetches its own data, doesn't touch other modules.
+   ============================================================ */
+function reportsGroupBy(arr, keyFn) {
+  const m = {};
+  arr.forEach(x => { const k = keyFn(x) || "Not specified"; m[k] = (m[k] || 0) + 1; });
+  return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+
+function ageBucket(age) {
+  const n = Number(age);
+  if (!n) return "Not specified";
+  if (n < 18) return "Under 18";
+  if (n <= 25) return "18–25";
+  if (n <= 35) return "26–35";
+  if (n <= 45) return "36–45";
+  return "46+";
+}
+
+function incomeBucket(income) {
+  const n = Number(income);
+  if (!n) return "Not specified";
+  if (n < 5000) return "Below ₹5,000";
+  if (n < 10000) return "₹5,000–9,999";
+  if (n < 15000) return "₹10,000–14,999";
+  if (n < 20000) return "₹15,000–19,999";
+  return "₹20,000+";
+}
+
+function monthKey(dateStr) {
+  if (!dateStr) return null;
+  return String(dateStr).slice(0, 7); // YYYY-MM
+}
+
+function printSimpleTable(title, columns, rows) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const thead = "<tr>" + columns.map(c => "<th>" + c.label + "</th>").join("") + "</tr>";
+  const tbody = rows.map(r => "<tr>" + columns.map(c => "<td>" + (r[c.key] ?? "") + "</td>").join("") + "</tr>").join("");
+  const css = "@page{margin:80px 20px 30px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".hdr{position:fixed;top:0;left:0;right:0;padding:12px 20px;border-bottom:2px solid #1E3A8A;} .hdr b{color:#1E3A8A;font-size:15px;}" +
+    "table{width:100%;border-collapse:collapse;margin-top:6px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;}";
+  w.document.write("<!DOCTYPE html><html><head><title>" + title + "</title><style>" + css + "</style></head><body>" +
+    "<div class='hdr'><b>TAPASVI Society</b><div style='font-size:11px;color:#666;'>" + title + "</div></div>" +
+    "<table>" + thead + tbody + "</table></body></html>");
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+function MiniBarChart({ data, color }) {
+  const max = Math.max(1, ...data.map(d => d.count));
+  return (
+    <div className="space-y-2">
+      {data.slice(0, 8).map(d => (
+        <div key={d.label} className="flex items-center gap-2">
+          <span className="text-[10.5px] text-[#6B7280] w-24 truncate shrink-0">{d.label}</span>
+          <div className="flex-1 h-4 bg-[#F3F4F6] rounded overflow-hidden">
+            <div className="h-full rounded" style={{ width: (d.count / max * 100) + "%", background: color || "#1E3A8A" }} />
+          </div>
+          <span className="text-[10.5px] font-semibold text-[#111827] w-8 text-right shrink-0">{d.count}</span>
+        </div>
+      ))}
+      {data.length === 0 && <p className="text-[11px] text-[#9CA3AF] text-center py-4">No data</p>}
+    </div>
+  );
+}
+
+function MiniDonut({ data, colors }) {
+  const total = data.reduce((s, d) => s + d.count, 0) || 1;
+  let acc = 0;
+  const palette = colors || ["#1E3A8A", "#16A34A", "#F97316", "#DB2777", "#7C3AED", "#0EA5E9", "#DC2626"];
+  const stops = data.map((d, i) => {
+    const start = (acc / total) * 360; acc += d.count;
+    const end = (acc / total) * 360;
+    return `${palette[i % palette.length]} ${start}deg ${end}deg`;
+  }).join(", ");
+  return (
+    <div className="flex items-center gap-4">
+      <div className="w-20 h-20 rounded-full shrink-0" style={{ background: data.length ? `conic-gradient(${stops})` : "#F3F4F6" }} />
+      <div className="space-y-1 flex-1 min-w-0">
+        {data.slice(0, 6).map((d, i) => (
+          <div key={d.label} className="flex items-center gap-1.5 text-[10.5px] text-[#374151]">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: palette[i % palette.length] }} />
+            <span className="truncate flex-1">{d.label}</span>
+            <span className="font-semibold shrink-0">{d.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportTable({ title, columns, rows, filenamePrefix }) {
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState(columns[0]?.key);
+  const [sortDir, setSortDir] = useState("desc");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 6;
+
+  const filtered = useMemo(() => {
+    let r = rows;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(row => columns.some(c => String(row[c.key] ?? "").toLowerCase().includes(q)));
+    }
+    return [...r].sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av ?? "").localeCompare(String(bv ?? ""));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [rows, query, sortKey, sortDir, columns]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-[13px] font-bold text-[#111827]">{title}</p>
+        <div className="flex gap-2">
+          <button onClick={() => downloadCSV(rows, (filenamePrefix || "report") + ".csv")} className="flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[10.5px] text-[#374151]">
+            <Download size={12} /> CSV
+          </button>
+          <button onClick={() => printSimpleTable(title, columns, rows)} className="flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[10.5px] text-[#374151]">
+            <Printer size={12} /> Print / PDF
+          </button>
+        </div>
+      </div>
+      <div className="relative mb-2">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search..." className={inputCls + " pl-8 text-[11.5px] py-1.5"} />
+      </div>
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full text-[11px] border-collapse min-w-[300px]">
+          <thead>
+            <tr className="text-left text-[#6B7280] border-b border-[#E5E7EB]">
+              {columns.map(c => (
+                <th key={c.key} onClick={() => toggleSort(c.key)} className="py-1.5 pr-2 cursor-pointer select-none whitespace-nowrap">
+                  {c.label} {sortKey === c.key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((row, i) => (
+              <tr key={i} className="border-b border-[#F3F4F6]">
+                {columns.map(c => <td key={c.key} className="py-1.5 pr-2 whitespace-nowrap">{row[c.key]}</td>)}
+              </tr>
+            ))}
+            {paginated.length === 0 && (
+              <tr><td colSpan={columns.length} className="text-center py-6 text-[#9CA3AF]">No data</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-3">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] text-[10.5px] disabled:opacity-40">Prev</button>
+          <span className="text-[10.5px] text-[#6B7280]">{page} / {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] text-[10.5px] disabled:opacity-40">Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReportsModule({ currentUser, isAdmin, showToast }) {
+  const [loading, setLoading] = useState(true);
+  const [beneficiaries, setBeneficiaries] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [employment, setEmployment] = useState([]);
+  const [villages, setVillages] = useState([]);
+  const [fieldWorkers, setFieldWorkers] = useState([]);
+  const [section, setSection] = useState("beneficiary");
+
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [fwFilter, setFwFilter] = useState("all");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [b, bt, en, ar, asr, asm, ct, em, vl, us] = await Promise.all([
+        supabase.from("beneficiaries").select("*"),
+        supabase.from("batch_trainings").select("*"),
+        supabase.from("training_enrollments").select("*"),
+        supabase.from("attendance_records").select("*"),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("assessment_marks").select("*"),
+        supabase.from("certificates").select("*"),
+        supabase.from("employment").select("*"),
+        supabase.from("village_master").select("*"),
+        supabase.from("users").select("*"),
+      ]);
+      setBeneficiaries(b.data || []); setBatches(bt.data || []); setEnrollments(en.data || []);
+      setAttendanceRecords(ar.data || []); setAssessmentRecords(asr.data || []); setAssessmentMarks(asm.data || []);
+      setCertificates(ct.data || []); setEmployment(em.data || []); setVillages(vl.data || []);
+      setFieldWorkers((us.data || []).filter(u => u.role === "fieldworker"));
+      setLoading(false);
+    })();
+  }, []);
+
+  const isFW = currentUser?.role === "fieldworker";
+  const myUsername = currentUser?.username;
+
+  // Scope to Field Worker's own data first
+  const scopedBeneficiaries = useMemo(() => isFW ? beneficiaries.filter(b => b.field_worker_name === myUsername) : beneficiaries, [beneficiaries, isFW, myUsername]);
+  const scopedBatches = useMemo(() => isFW ? batches.filter(b => b.assigned_field_worker === myUsername) : batches, [batches, isFW, myUsername]);
+  const scopedBatchIds = useMemo(() => new Set(scopedBatches.map(b => b.batch_id)), [scopedBatches]);
+  const scopedBeneficiaryIds = useMemo(() => new Set(scopedBeneficiaries.map(b => b.beneficiary_id)), [scopedBeneficiaries]);
+  const scopedEnrollments = useMemo(() => isFW ? enrollments.filter(e => scopedBatchIds.has(e.batch_id)) : enrollments, [enrollments, isFW, scopedBatchIds]);
+  const scopedAttendance = useMemo(() => isFW ? attendanceRecords.filter(a => scopedBatchIds.has(a.batch_id)) : attendanceRecords, [attendanceRecords, isFW, scopedBatchIds]);
+  const scopedAssessmentRecords = useMemo(() => isFW ? assessmentRecords.filter(r => scopedBatchIds.has(r.batch_id)) : assessmentRecords, [assessmentRecords, isFW, scopedBatchIds]);
+  const scopedAssessmentIds = useMemo(() => new Set(scopedAssessmentRecords.map(r => r.id)), [scopedAssessmentRecords]);
+  const scopedAssessmentMarks = useMemo(() => isFW ? assessmentMarks.filter(m => scopedAssessmentIds.has(m.assessment_id)) : assessmentMarks, [assessmentMarks, isFW, scopedAssessmentIds]);
+  const scopedCertificates = useMemo(() => isFW ? certificates.filter(c => scopedBatchIds.has(c.batch_id)) : certificates, [certificates, isFW, scopedBatchIds]);
+  const scopedEmployment = useMemo(() => isFW ? employment.filter(e => scopedBeneficiaryIds.has(e.beneficiary_id)) : employment, [employment, isFW, scopedBeneficiaryIds]);
+
+  // Apply global filter bar on top of scope
+  const filteredBeneficiaries = useMemo(() => scopedBeneficiaries.filter(b =>
+    (programFilter === "all" || b.program === programFilter) &&
+    (villageFilter === "all" || b.village === villageFilter) &&
+    (fwFilter === "all" || b.field_worker_name === fwFilter) &&
+    (!dateFrom || (b.registration_date || "") >= dateFrom) &&
+    (!dateTo || (b.registration_date || "") <= dateTo)
+  ), [scopedBeneficiaries, programFilter, villageFilter, fwFilter, dateFrom, dateTo]);
+
+  const filteredBatches = useMemo(() => scopedBatches.filter(b =>
+    (programFilter === "all" || b.program === programFilter) &&
+    (villageFilter === "all" || b.venue === villageFilter) &&
+    (trainerFilter === "all" || b.trainer_name === trainerFilter) &&
+    (fwFilter === "all" || b.assigned_field_worker === fwFilter) &&
+    (batchFilter === "all" || b.batch_id === batchFilter) &&
+    (statusFilter === "all" || b.status === statusFilter) &&
+    (!dateFrom || (b.start_date || "") >= dateFrom) &&
+    (!dateTo || (b.start_date || "") <= dateTo)
+  ), [scopedBatches, programFilter, villageFilter, trainerFilter, fwFilter, batchFilter, statusFilter, dateFrom, dateTo]);
+  const filteredBatchIds = useMemo(() => new Set(filteredBatches.map(b => b.batch_id)), [filteredBatches]);
+
+  const filteredEnrollments = useMemo(() => scopedEnrollments.filter(e => filteredBatchIds.has(e.batch_id)), [scopedEnrollments, filteredBatchIds]);
+  const filteredAttendance = useMemo(() => scopedAttendance.filter(a => filteredBatchIds.has(a.batch_id)), [scopedAttendance, filteredBatchIds]);
+  const filteredAssessmentRecords = useMemo(() => scopedAssessmentRecords.filter(r => filteredBatchIds.has(r.batch_id)), [scopedAssessmentRecords, filteredBatchIds]);
+  const filteredAssessmentIds = useMemo(() => new Set(filteredAssessmentRecords.map(r => r.id)), [filteredAssessmentRecords]);
+  const filteredAssessmentMarks = useMemo(() => scopedAssessmentMarks.filter(m => filteredAssessmentIds.has(m.assessment_id)), [scopedAssessmentMarks, filteredAssessmentIds]);
+  const filteredCertificates = useMemo(() => scopedCertificates.filter(c => filteredBatchIds.has(c.batch_id)), [scopedCertificates, filteredBatchIds]);
+  const filteredEmployment = useMemo(() => scopedEmployment.filter(e =>
+    (statusFilter === "all" || e.status === statusFilter) &&
+    (!dateFrom || (e.created_at || "").slice(0, 10) >= dateFrom) &&
+    (!dateTo || (e.created_at || "").slice(0, 10) <= dateTo)
+  ), [scopedEmployment, statusFilter, dateFrom, dateTo]);
+
+  // Summary cards
+  const totalBeneficiaries = filteredBeneficiaries.length;
+  const totalTrainings = filteredBatches.length;
+  const totalAssessments = filteredAssessmentRecords.length;
+  const certsIssued = filteredCertificates.filter(c => c.status === "Active").length;
+  const placements = filteredEmployment.filter(e => e.status === "Active").length;
+  const totalVillages = new Set(filteredBeneficiaries.map(b => b.village).filter(Boolean)).size;
+  const totalTrainers = new Set(filteredBatches.map(b => b.trainer_name).filter(Boolean)).size;
+  const completionPct = totalTrainings > 0 ? Math.round(filteredBatches.filter(b => b.status === "Completed").length / totalTrainings * 100) : 0;
+  const placementPct = totalBeneficiaries > 0 ? Math.round(placements / totalBeneficiaries * 100) : 0;
+
+  const SUMMARY = [
+    { label: "Total Beneficiaries", value: totalBeneficiaries, icon: Users, color: "#1E3A8A" },
+    { label: "Total Trainings", value: totalTrainings, icon: BookOpen, color: "#DB2777" },
+    { label: "Total Assessments", value: totalAssessments, icon: ClipboardList, color: "#F97316" },
+    { label: "Certificates Issued", value: certsIssued, icon: Award, color: "#16A34A" },
+    { label: "Placements", value: placements, icon: Briefcase, color: "#0EA5E9" },
+    { label: "Total Villages", value: totalVillages, icon: MapPin, color: "#7C3AED" },
+    { label: "Total Trainers", value: totalTrainers, icon: Users, color: "#DC2626" },
+    { label: "Training Completion %", value: completionPct + "%", icon: CheckCircle, color: "#16A34A" },
+    { label: "Placement %", value: placementPct + "%", icon: TrendingUp, color: "#0EA5E9" },
+  ];
+
+  // Beneficiary breakdowns
+  const programWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.program), [filteredBeneficiaries]);
+  const villageWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.village), [filteredBeneficiaries]);
+  const genderWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.gender), [filteredBeneficiaries]);
+  const ageWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => ageBucket(b.age)), [filteredBeneficiaries]);
+  const educationWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.education), [filteredBeneficiaries]);
+  const skillWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.skill_interest), [filteredBeneficiaries]);
+  const fwWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.field_worker_name), [filteredBeneficiaries]);
+
+  // Training breakdowns
+  const batchWise = useMemo(() => filteredBatches.map(b => ({
+    label: `${b.venue || ""} · ${b.training_type || ""}`, status: b.status,
+    participants: filteredEnrollments.filter(e => e.batch_id === b.batch_id).length,
+  })), [filteredBatches, filteredEnrollments]);
+  const trainerWise = useMemo(() => reportsGroupBy(filteredBatches, b => b.trainer_name), [filteredBatches]);
+  const attendancePctByBatch = useMemo(() => filteredBatches.map(b => {
+    const recs = filteredAttendance.filter(a => a.batch_id === b.batch_id);
+    const present = recs.filter(a => a.status === "Present" || a.status === "Late").length;
+    return { label: `${b.venue || ""} · ${b.training_type || ""}`, pct: recs.length > 0 ? Math.round(present / recs.length * 100) : 0 };
+  }), [filteredBatches, filteredAttendance]);
+  const ongoingCount = filteredBatches.filter(b => b.status === "Ongoing").length;
+  const completedCount = filteredBatches.filter(b => b.status === "Completed").length;
+  const dropoutCount = filteredEnrollments.filter(e => e.enrollment_status === "Cancelled" || e.enrollment_status === "Dropped").length;
+
+  // Assessment breakdowns
+  const asmTotal = filteredAssessmentMarks.length;
+  const asmPass = filteredAssessmentMarks.filter(m => m.result === "Pass").length;
+  const asmFail = filteredAssessmentMarks.filter(m => m.result === "Fail").length;
+  const gradeDist = useMemo(() => reportsGroupBy(filteredAssessmentMarks, m => m.grade), [filteredAssessmentMarks]);
+  const scores = filteredAssessmentMarks.map(m => Number(m.percentage) || 0);
+  const avgScore = scores.length ? Math.round(scores.reduce((a, c) => a + c, 0) / scores.length) : 0;
+  const highScore = scores.length ? Math.max(...scores) : 0;
+  const lowScore = scores.length ? Math.min(...scores) : 0;
+
+  // Certificate breakdowns
+  const certIssued = filteredCertificates.filter(c => c.status === "Active").length;
+  const certRevoked = filteredCertificates.filter(c => c.status === "Revoked").length;
+  const certReissued = filteredCertificates.filter(c => c.reissued_from).length;
+  const certIssuedIds = new Set(filteredCertificates.map(c => c.assessment_id + "::" + c.beneficiary_id));
+  const certPending = filteredAssessmentMarks.filter(m => m.result === "Pass" && m.certificate_eligible === "Yes" && !certIssuedIds.has(m.assessment_id + "::" + m.beneficiary_id)).length;
+
+  // Placement breakdowns
+  const companyWise = useMemo(() => reportsGroupBy(filteredEmployment, e => e.employer), [filteredEmployment]);
+  const salaryWise = useMemo(() => reportsGroupBy(filteredEmployment, e => incomeBucket(e.monthly_income)), [filteredEmployment]);
+  const pendingPlacement = Math.max(0, totalBeneficiaries - placements);
+
+  // Charts
+  const monthlyTrainings = useMemo(() => {
+    const m = reportsGroupBy(filteredBatches, b => monthKey(b.start_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredBatches]);
+  const certificateTrend = useMemo(() => {
+    const m = reportsGroupBy(filteredCertificates, c => monthKey(c.certificate_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredCertificates]);
+  const placementTrend = useMemo(() => {
+    const m = reportsGroupBy(filteredEmployment, e => monthKey(e.created_at));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredEmployment]);
+
+  const programOptions = [...new Set(batches.map(b => b.program).filter(Boolean))];
+  const villageOptions = [...new Set([...beneficiaries.map(b => b.village), ...batches.map(b => b.venue)].filter(Boolean))];
+  const trainerOptions = [...new Set(batches.map(b => b.trainer_name).filter(Boolean))];
+  const batchOptions = scopedBatches;
+
+  const SECTIONS = [
+    { key: "beneficiary", label: "Beneficiary" },
+    { key: "training", label: "Training" },
+    { key: "assessment", label: "Assessment" },
+    { key: "certificate", label: "Certificate" },
+    { key: "placement", label: "Placement" },
+  ];
+
+  if (loading) {
+    return (
+      <div className="text-center py-20 text-[#9CA3AF]">
+        <RefreshCw size={26} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading reports...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-[19px] font-bold text-[#111827]">Reports</h2>
+        <p className="text-[12px] text-[#6B7280]">{isFW ? "Showing data for your assigned villages, batches & beneficiaries" : "Live data across the organization"}</p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-4">
+        <div className="grid grid-cols-2 gap-2">
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+        </div>
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Programs</option>
+            {programOptions.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Villages</option>
+            {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select value={trainerFilter} onChange={e => setTrainerFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Trainers</option>
+            {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {isAdmin && (
+            <select value={fwFilter} onChange={e => setFwFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+              <option value="all">All Field Workers</option>
+              {fieldWorkers.map(u => <option key={u.username} value={u.username}>{u.full_name || u.username}</option>)}
+            </select>
+          )}
+          <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Batches</option>
+            {batchOptions.map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} · {b.training_type}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Status</option>
+            <option value="Ongoing">Ongoing</option>
+            <option value="Completed">Completed</option>
+            <option value="Upcoming">Upcoming</option>
+            <option value="Active">Active</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-5">
+        {SUMMARY.map(s => (
+          <div key={s.label} className="bg-white rounded-2xl border border-[#E5E7EB] p-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style={{ background: s.color + "1A" }}>
+              <s.icon size={15} style={{ color: s.color }} />
+            </div>
+            <p className="text-[17px] font-bold text-[#111827]">{s.value}</p>
+            <p className="text-[10px] text-[#6B7280] leading-tight">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Program Distribution</p>
+          <MiniDonut data={programWise} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Gender Distribution</p>
+          <MiniDonut data={genderWise} colors={["#1E3A8A", "#DB2777", "#9CA3AF"]} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Monthly Trainings</p>
+          <MiniBarChart data={monthlyTrainings} color="#DB2777" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Certificate Trend</p>
+          <MiniBarChart data={certificateTrend} color="#16A34A" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:col-span-2">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Placement Trend</p>
+          <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
+      </div>
+
+      {/* Section tabs */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {SECTIONS.map(s => (
+          <button key={s.key} onClick={() => setSection(s.key)}
+            className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (section === s.key ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {section === "beneficiary" && (
+        <>
+          <ReportTable title="Program-wise" columns={[{ key: "label", label: "Program" }, { key: "count", label: "Count" }]} rows={programWise} filenamePrefix="beneficiaries_program" />
+          <ReportTable title="Village-wise" columns={[{ key: "label", label: "Village" }, { key: "count", label: "Count" }]} rows={villageWise} filenamePrefix="beneficiaries_village" />
+          <ReportTable title="Gender-wise" columns={[{ key: "label", label: "Gender" }, { key: "count", label: "Count" }]} rows={genderWise} filenamePrefix="beneficiaries_gender" />
+          <ReportTable title="Age-wise" columns={[{ key: "label", label: "Age Group" }, { key: "count", label: "Count" }]} rows={ageWise} filenamePrefix="beneficiaries_age" />
+          <ReportTable title="Education-wise" columns={[{ key: "label", label: "Education" }, { key: "count", label: "Count" }]} rows={educationWise} filenamePrefix="beneficiaries_education" />
+          <ReportTable title="Skill Interest-wise" columns={[{ key: "label", label: "Skill Interest" }, { key: "count", label: "Count" }]} rows={skillWise} filenamePrefix="beneficiaries_skill" />
+          <ReportTable title="Field Worker-wise" columns={[{ key: "label", label: "Field Worker" }, { key: "count", label: "Count" }]} rows={fwWise} filenamePrefix="beneficiaries_fieldworker" />
+        </>
+      )}
+
+      {section === "training" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Ongoing", ongoingCount, "#F97316"], ["Completed", completedCount, "#16A34A"], ["Dropouts", dropoutCount, "#DC2626"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Batch-wise" columns={[{ key: "label", label: "Batch" }, { key: "status", label: "Status" }, { key: "participants", label: "Participants" }]} rows={batchWise} filenamePrefix="training_batch" />
+          <ReportTable title="Trainer-wise" columns={[{ key: "label", label: "Trainer" }, { key: "count", label: "Batches" }]} rows={trainerWise} filenamePrefix="training_trainer" />
+          <ReportTable title="Attendance % by Batch" columns={[{ key: "label", label: "Batch" }, { key: "pct", label: "Attendance %" }]} rows={attendancePctByBatch} filenamePrefix="training_attendance" />
+        </>
+      )}
+
+      {section === "assessment" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {[["Total", asmTotal, "#1E3A8A"], ["Pass", asmPass, "#16A34A"], ["Fail", asmFail, "#DC2626"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Average Score", avgScore + "%"], ["Highest Score", highScore + "%"], ["Lowest Score", lowScore + "%"]].map(([l, v]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[15px] font-bold text-[#111827]">{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Grade Distribution" columns={[{ key: "label", label: "Grade" }, { key: "count", label: "Count" }]} rows={gradeDist} filenamePrefix="assessment_grade" />
+        </>
+      )}
+
+      {section === "certificate" && (
+        <div className="grid grid-cols-2 gap-2.5">
+          {[["Issued", certIssued, "#16A34A"], ["Pending", certPending, "#F97316"], ["Revoked", certRevoked, "#DC2626"], ["Reissued", certReissued, "#0EA5E9"]].map(([l, v, c]) => (
+            <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 text-center">
+              <p className="text-[22px] font-bold" style={{ color: c }}>{v}</p>
+              <p className="text-[11px] text-[#6B7280]">{l}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section === "placement" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Total Placed", placements, "#16A34A"], ["Placement %", placementPct + "%", "#0EA5E9"], ["Pending", pendingPlacement, "#F97316"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Company-wise" columns={[{ key: "label", label: "Employer" }, { key: "count", label: "Count" }]} rows={companyWise} filenamePrefix="placement_company" />
+          <ReportTable title="Salary-wise" columns={[{ key: "label", label: "Income Range" }, { key: "count", label: "Count" }]} rows={salaryWise} filenamePrefix="placement_salary" />
+        </>
+      )}
+    </div>
+  );
+}
+
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5576,6 +6120,7 @@ export default function App() {
     { key: "beneficiaries", label: "Beneficiaries", icon: Users },
     { key: "training", label: "Training", icon: BookOpen },
     { key: "employment", label: "Employment", icon: Briefcase },
+    { key: "reports", label: "Reports", icon: BarChart3 },
     ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
     ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
     ...(isSuperAdmin ? [{ key: "settings", label: "Settings", icon: SettingsIcon }] : []),
@@ -5771,6 +6316,9 @@ export default function App() {
               onAdd={() => { setEditing(null); setSubView("village-form"); }}
               onEdit={v => { setEditing(v); setSubView("village-form"); }}
               onDelete={v => setDeleteTarget({ type: "village", record: v })} />
+          )}
+          {!subView && view === "reports" && (
+            <ReportsModule currentUser={user} isAdmin={isAdmin} showToast={showToast} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
