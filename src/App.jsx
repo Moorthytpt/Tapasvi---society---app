@@ -1617,28 +1617,47 @@ function TrainingDashboard({ batches, enrollments }) {
   const ongoing   = batches.filter(b => b.status === "Ongoing").length;
   const completed = batches.filter(b => b.status === "Completed").length;
   const totalPart = enrollments.length;
-  const compRate  = totalPart > 0 ? Math.round((enrollments.filter(e => e.attendance_pct >= 75).length / totalPart) * 100) : 0;
+  const withAttendance = enrollments.filter(e => e.attendance_pct !== null && e.attendance_pct !== undefined);
+  const avgAttendance = withAttendance.length > 0 ? Math.round(withAttendance.reduce((s, e) => s + Number(e.attendance_pct || 0), 0) / withAttendance.length) : null;
+
+  // Self-fetched, scoped to the batches this user can see — doesn't touch any existing query.
+  const [assessmentsCompleted, setAssessmentsCompleted] = useState(null);
+  const [certificatesIssued, setCertificatesIssued] = useState(null);
+  const batchIds = useMemo(() => batches.map(b => b.batch_id), [batches]);
+
+  useEffect(() => {
+    if (batchIds.length === 0) { setAssessmentsCompleted(0); setCertificatesIssued(0); return; }
+    (async () => {
+      const [{ data: ar }, { data: ct }] = await Promise.all([
+        supabase.from("assessment_records").select("id, batch_id, status").in("batch_id", batchIds),
+        supabase.from("certificates").select("id, batch_id, status").in("batch_id", batchIds),
+      ]);
+      setAssessmentsCompleted((ar || []).filter(a => a.status === "Completed").length);
+      setCertificatesIssued((ct || []).filter(c => c.status === "Active").length);
+    })();
+  }, [batchIds]);
 
   const stats = [
-    { label: "Total Trainings", value: total,    color: "#1E3A8A", tint: "#EFF6FF", icon: BookOpen },
-    { label: "Upcoming",        value: upcoming,  color: "#6366F1", tint: "#EEF2FF", icon: Clock },
-    { label: "Ongoing",         value: ongoing,   color: "#F97316", tint: "#FFF7ED", icon: TrendingUp },
-    { label: "Completed",       value: completed, color: "#16A34A", tint: "#DCFCE7", icon: CheckCircle },
-    { label: "Participants",    value: totalPart, color: "#0369A1", tint: "#E0F2FE", icon: Users },
-    { label: "Completion Rate", value: compRate + "%", color: "#7C3AED", tint: "#F5F3FF", icon: Award },
+    { label: "Total Trainings", value: total, icon: BookOpen, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Active Trainings", value: ongoing, icon: TrendingUp, grad: ["#F97316", "#FB923C"] },
+    { label: "Upcoming Trainings", value: upcoming, icon: Clock, grad: ["#6366F1", "#818CF8"] },
+    { label: "Completed Trainings", value: completed, icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Total Enrollments", value: totalPart, icon: Users, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Attendance %", value: avgAttendance !== null ? avgAttendance + "%" : "—", icon: ClipboardList, grad: ["#DB2777", "#F472B6"] },
+    { label: "Assessments Completed", value: assessmentsCompleted ?? "…", icon: Award, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Certificates Issued", value: certificatesIssued ?? "…", icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       {stats.map(s => (
-        <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-4 flex items-center gap-3" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.tint }}>
-            <s.icon size={18} style={{ color: s.color }} />
+        <div key={s.label} className="rounded-[20px] p-4 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
+          style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
+          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center mb-2.5">
+            <s.icon size={16} />
           </div>
-          <div>
-            <p className="text-[20px] font-bold text-[#111827] leading-none">{s.value}</p>
-            <p className="text-[11px] text-[#6B7280] mt-0.5">{s.label}</p>
-          </div>
+          <p className="text-[21px] font-bold leading-none">{s.value}</p>
+          <p className="text-[10.5px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
         </div>
       ))}
     </div>
@@ -2295,14 +2314,24 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
 
   const getEnrollCount = batchId => visibleEnrollments.filter(e => e.batch_id === batchId).length;
 
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">Training Management</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} trainings</p>
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <p className="text-[10px] text-white/70 mb-1">Dashboard / Training Management</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[19px] font-bold">Training Management</h2>
+            <p className="text-[11.5px] text-white/85 mt-0.5">Manage training batches, enrollments and progress.</p>
+          </div>
+          <p className="text-[10.5px] text-white/80">{todayLabel}</p>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <p className="text-[12px] text-[#6B7280]">{filtered.length} trainings</p>
         <div className="flex gap-2 flex-wrap">
           {isAdmin && (
             <>
@@ -2331,8 +2360,8 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
           )}
           {isAdmin && (
             <button onClick={onAdd}
-              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white"
-              style={{ background: "#1E3A8A" }}>
+              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white transition hover:opacity-90"
+              style={{ background: "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
               <Plus size={14} /> New Training
             </button>
           )}
@@ -2343,7 +2372,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       <TrainingDashboard batches={visibleBatches} enrollments={visibleEnrollments} />
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4 flex-wrap">
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3 flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[180px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
           <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}
@@ -2378,7 +2407,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
             const enrollCount = getEnrollCount(batch.batch_id);
             const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
             return (
-              <div key={batch.batch_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
+              <div key={batch.batch_id} className="bg-white rounded-[20px] border border-[#E5E7EB] shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all overflow-hidden">
                 <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
