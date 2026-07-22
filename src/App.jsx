@@ -112,7 +112,7 @@ function pdfIndividual(b, aadhaarDisplay) {
     "<p><b>Field Worker:</b> " + (b.field_worker_name || "") + "</p>",
     "<p><b>Date:</b> " + (b.registration_date || b.survey_date || "") + "</p>",
   ].join("");
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var css = "@page{margin:90px 20px 40px 20px;} body{font-family:Arial,sans-serif;padding:0;} " +
     ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 20px;background:#fff;} " +
     ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
@@ -131,7 +131,7 @@ function pdfIndividual(b, aadhaarDisplay) {
 function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
   var w = window.open("", "_blank");
   if (!w) return;
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var siteHost = window.location.host;
   var total = rows.length;
   var completed = rows.filter(function(b){ return b.status === "Completed"; }).length;
@@ -204,7 +204,7 @@ function printTable(rows, title, cols) {
   var w = window.open("", "_blank");
   if (!w) return;
   var headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var css = "@page{margin:90px 16px 50px 16px;} body{font-family:Arial,sans-serif;padding:0;font-size:11px;} " +
     ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 16px;background:#fff;} " +
     ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} .print-header .sub{font-size:9.5px;color:#6B7280;} " +
@@ -228,7 +228,7 @@ function printTable(rows, title, cols) {
 
 function Logo({ size = 40 }) {
   return (
-    <img src="/icon-512.png" alt="TAPASVI" width={size} height={size}
+    <img src="/icon-512-transparent.png" alt="TAPASVI" width={size} height={size}
       style={{ objectFit: "contain", display: "block" }} />
   );
 }
@@ -485,11 +485,11 @@ function LoginScreen({ onLogin }) {
 
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
         <div className="w-full max-w-[420px]">
-          <div className="flex flex-col items-center mb-6 tp-fade-up lg:hidden">
-            <Logo size={56} />
-            <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
-            <p className="text-[11px] text-center mt-0.5" style={{ color: dc.subtext }}>Social Welfare Organisation</p>
-            <span className="mt-2 text-[9.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A" }}>
+          <div className="flex flex-col items-center gap-3 mb-6 tp-fade-up lg:hidden">
+            <Logo size={100} />
+            <h1 className="text-[22px] font-bold text-[#16A34A] text-center leading-none">TAPASVI</h1>
+            <p className="text-[11px] text-center -mt-1" style={{ color: dc.subtext }}>Social Welfare Organisation</p>
+            <span className="text-[9.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: dark ? "rgba(22,163,74,0.18)" : "#DCFCE7", color: "#16A34A" }}>
               Digital NGO Management System · v2.0
             </span>
           </div>
@@ -4303,7 +4303,7 @@ function computeAssessmentResult(theory, practical, viva, maxMarks, passMarks, i
 function printAssessmentResultSheet(assessment, rows) {
   const w = window.open("", "_blank");
   if (!w) return;
-  const logoUrl = window.location.origin + "/icon-512.png";
+  const logoUrl = window.location.origin + "/icon-512-transparent.png";
   const thead = "<tr><th>Beneficiary ID</th><th>Name</th><th>Theory</th><th>Practical</th><th>Viva</th><th>Total</th><th>%</th><th>Grade</th><th>Result</th></tr>";
   const tbody = rows.map(r => (
     "<tr><td>" + (r.beneficiary_id || "") + "</td><td>" + (r.beneficiary_name || "") + "</td><td>" +
@@ -4778,7 +4778,7 @@ async function nextCertificateNumber() {
 function printCertificate(cert, settings, org) {
   const w = window.open("", "_blank");
   if (!w) return;
-  const logoUrl = window.location.origin + "/icon-512.png";
+  const logoUrl = window.location.origin + "/icon-512-transparent.png";
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
   const primary = settings?.primary_color || "#1E3A8A";
   const secondary = settings?.secondary_color || "#C9A227";
