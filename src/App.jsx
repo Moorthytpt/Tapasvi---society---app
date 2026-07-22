@@ -5081,8 +5081,14 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-4">
         <div className="grid grid-cols-2 gap-2">
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          <div>
+            <p className="text-[9.5px] text-[#9CA3AF] mb-1">From Date</p>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          </div>
+          <div>
+            <p className="text-[9.5px] text-[#9CA3AF] mb-1">To Date</p>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          </div>
         </div>
         <div className="flex gap-2 mt-2 flex-wrap">
           <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
