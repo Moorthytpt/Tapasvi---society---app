@@ -3070,7 +3070,7 @@ function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", phone: "", email: "", website: "" };
+  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", district: "", state: "", pincode: "", phone: "", email: "", website: "" };
 
   useEffect(() => {
     (async () => {
@@ -3136,6 +3136,15 @@ function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
           </Field>
           <Field label="Website">
             <Input value={form.website || ""} onChange={set("website")} placeholder="https://..." />
+          </Field>
+          <Field label="Pincode">
+            <Input value={form.pincode || ""} onChange={set("pincode")} placeholder="517xxx" />
+          </Field>
+          <Field label="District">
+            <Input value={form.district || ""} onChange={set("district")} placeholder="Tirupati" />
+          </Field>
+          <Field label="State">
+            <Input value={form.state || ""} onChange={set("state")} placeholder="Andhra Pradesh" />
           </Field>
         </div>
         <Field label="Address">
@@ -3373,7 +3382,15 @@ function TrainingSingletonSettings({ title, tableName, fields, showToast, logApp
     setLoading(true);
     const { data, error } = await supabase.from(tableName).select("*").limit(1).maybeSingle();
     if (error) { showToast("Error: " + error.message, "error"); setLoading(false); return; }
-    if (data) { setForm(data); setRowId(data.id); }
+    if (data) {
+      const merged = { ...data };
+      fields.forEach(f => {
+        if (merged[f.key] === undefined || merged[f.key] === null) {
+          merged[f.key] = f.default !== undefined ? f.default : (f.type === "checkbox" ? false : "");
+        }
+      });
+      setForm(merged); setRowId(data.id);
+    }
     else {
       const blank = {};
       fields.forEach(f => { blank[f.key] = f.default !== undefined ? f.default : (f.type === "checkbox" ? false : ""); });
@@ -3469,13 +3486,34 @@ function TrainingSettingsHub({ currentUser, showToast, logAppAudit, onBack }) {
     { key: "category_name", label: "Category Name", required: true, searchable: true },
   ];
   const CERT_FIELDS = [
-    { key: "certificate_prefix", label: "Certificate Prefix", placeholder: "e.g. TAPASVI/CERT/" },
-    { key: "certificate_format", label: "Certificate Format", placeholder: "e.g. {PREFIX}{YEAR}{NUMBER}" },
+    { key: "certificate_title", label: "Certificate Title", default: "Certificate of Completion" },
+    { key: "certificate_subtitle", label: "Certificate Subtitle", default: "OF COMPLETION" },
+    { key: "completion_text", label: "Completion Text", type: "textarea", default: "has successfully completed the training program in" },
+    { key: "footer_text", label: "Footer Text", default: "Generated & Verified by TAPASVI DMS" },
+    { key: "verification_text", label: "Verification Text", default: "This certificate is valid for all official purposes." },
+    { key: "certificate_prefix", label: "Certificate Prefix", placeholder: "e.g. TAP", default: "TAP" },
     { key: "certificate_number_start", label: "Certificate Number Start", type: "number", default: 1 },
-    { key: "signature_name", label: "Signature Name" },
-    { key: "designation", label: "Designation" },
-    { key: "enable_qr_code", label: "QR Code", type: "checkbox", checkLabel: "Enable QR Code on certificate" },
-    { key: "enable_digital_signature", label: "Digital Signature", type: "checkbox", checkLabel: "Enable digital signature" },
+    { key: "primary_color", label: "Primary Color (hex)", default: "#1E3A8A" },
+    { key: "secondary_color", label: "Secondary Color (hex)", default: "#C9A227" },
+    { key: "border_color", label: "Border Color (hex)", default: "#C9A227" },
+    { key: "logo_position", label: "Logo Position", type: "select", options: ["Center", "Left", "Right"], default: "Center" },
+    { key: "min_attendance_pct_for_cert", label: "Minimum Attendance % Required", type: "number", default: 75 },
+    { key: "enable_watermark", label: "Watermark", type: "checkbox", checkLabel: "Show background watermark", default: true },
+    { key: "enable_qr_code", label: "QR Code", type: "checkbox", checkLabel: "Enable QR Code on certificate", default: true },
+    { key: "enable_seal", label: "Official Seal", type: "checkbox", checkLabel: "Show official seal", default: true },
+    { key: "enable_grade", label: "Grade", type: "checkbox", checkLabel: "Show Grade", default: true },
+    { key: "enable_score", label: "Score", type: "checkbox", checkLabel: "Show Score %", default: true },
+    { key: "enable_beneficiary_id", label: "Beneficiary ID", type: "checkbox", checkLabel: "Show Beneficiary ID", default: true },
+    { key: "enable_batch_id", label: "Batch ID", type: "checkbox", checkLabel: "Show Batch ID", default: true },
+    { key: "enable_village", label: "Village", type: "checkbox", checkLabel: "Show Village", default: true },
+    { key: "enable_duration", label: "Duration", type: "checkbox", checkLabel: "Show Duration", default: true },
+    { key: "enable_course_name", label: "Course Name", type: "checkbox", checkLabel: "Show Course Name", default: true },
+    { key: "trainer_sign_name", label: "Trainer — Name" },
+    { key: "trainer_sign_designation", label: "Trainer — Designation", default: "Trainer" },
+    { key: "trainer_sign_image", label: "Trainer — Signature Image URL" },
+    { key: "secretary_sign_name", label: "Secretary — Name" },
+    { key: "secretary_sign_designation", label: "Secretary — Designation", default: "Secretary" },
+    { key: "secretary_sign_image", label: "Secretary — Signature Image URL" },
   ];
   const ATTENDANCE_FIELDS = [
     { key: "min_attendance_pct", label: "Minimum Attendance %", type: "number", default: 75 },
@@ -3543,6 +3581,13 @@ function TrainingSettingsHub({ currentUser, showToast, logAppAudit, onBack }) {
    Tables used: assessment_records (the assessment event),
    assessment_marks (per-beneficiary marks for that event).
    ============================================================ */
+function certificateGradeTier(pct) {
+  if (pct >= 90) return "Gold";
+  if (pct >= 75) return "Silver";
+  if (pct >= 60) return "Bronze";
+  return "Not Eligible";
+}
+
 function computeAssessmentResult(theory, practical, viva, maxMarks, passMarks, isAbsent) {
   if (isAbsent) return { total: 0, percentage: 0, grade: "-", result: "Absent", certEligible: "No" };
   const total = (Number(theory) || 0) + (Number(practical) || 0) + (Number(viva) || 0);
@@ -4019,74 +4064,118 @@ function qrImageUrl(data, size) {
 
 async function nextCertificateNumber() {
   const { data: settings } = await supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle();
-  const prefix = settings?.certificate_prefix || "TAP-";
+  const base = (settings?.certificate_prefix || "TAP").replace(/-+$/, "");
+  const year = new Date().getFullYear();
+  const stub = `${base}-${year}-`;
   const startNum = Number(settings?.certificate_number_start) || 1;
-  const { data: existing } = await supabase.from("certificates").select("certificate_number").ilike("certificate_number", prefix + "%");
+  const { data: existing } = await supabase.from("certificates").select("certificate_number").ilike("certificate_number", stub + "%");
   let maxNum = startNum - 1;
   (existing || []).forEach(c => {
-    const n = parseInt(String(c.certificate_number).replace(prefix, ""), 10);
+    const n = parseInt(String(c.certificate_number).replace(stub, ""), 10);
     if (!isNaN(n) && n > maxNum) maxNum = n;
   });
-  return { number: prefix + String(maxNum + 1).padStart(6, "0"), settings };
+  return { number: stub + String(maxNum + 1).padStart(6, "0"), settings };
 }
 
-function printCertificate(cert, settings) {
+function printCertificate(cert, settings, org) {
   const w = window.open("", "_blank");
   if (!w) return;
   const logoUrl = window.location.origin + "/icon-512.png";
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  const primary = settings?.primary_color || "#1E3A8A";
+  const secondary = settings?.secondary_color || "#C9A227";
+  const border = settings?.border_color || settings?.secondary_color || "#C9A227";
+  const durationText = cert.start_date && cert.end_date ? `${cert.start_date} to ${cert.end_date}` : "";
+
+  const chip = (icon, label, value) => (!value ? "" :
+    "<div class='chip'><div class='chipicon'>" + icon + "</div><div><div class='chiplbl'>" + label + "</div><div class='chipval'>" + value + "</div></div></div>");
+  const chips = [
+    settings?.enable_beneficiary_id !== false ? chip("&#128100;", "Beneficiary ID", cert.beneficiary_id) : "",
+    settings?.enable_batch_id !== false ? chip("&#128214;", "Batch ID", cert.batch_id) : "",
+    settings?.enable_village !== false ? chip("&#128205;", "Village", cert.village) : "",
+    settings?.enable_duration !== false ? chip("&#128197;", "Duration", durationText) : "",
+    settings?.enable_grade !== false ? chip("&#9733;", "Grade", cert.grade) : "",
+    settings?.enable_score !== false ? chip("&#127942;", "Score", cert.percentage ? cert.percentage + "%" : "") : "",
+  ].join("");
+
+  const sig = (name, designation) => (!name ? "" :
+    "<div class='sig'><div class='sigscript'>" + name + "</div><div class='line'></div><div class='nm'>" + name + "</div><div class='role'>" + (designation || "").toUpperCase() + "</div></div>");
+  const signatures = [
+    sig(cert.trainer || settings?.trainer_sign_name, settings?.trainer_sign_designation || "Trainer"),
+    settings?.secretary_sign_name ? sig(settings.secretary_sign_name, settings.secretary_sign_designation || "Secretary") : "",
+  ].filter(Boolean).join("");
+
+  const legalLines = org?.registration_number ? "<div>Regd. No.: " + org.registration_number + "</div>" : "";
+
+  const footerParts = [
+    org?.website ? "&#127760; " + org.website : "",
+    [org?.district, org?.state].filter(Boolean).join(", ") ? "&#128205; " + [org?.district, org?.state].filter(Boolean).join(", ") : "",
+    org?.email ? "&#9993; " + org.email : "",
+  ].filter(Boolean).join(" &nbsp;|&nbsp; ");
+
   const css = "@page{size:landscape;margin:0;} " +
     "*{box-sizing:border-box;} body{margin:0;font-family:'Lato',Arial,sans-serif;background:#fff;}" +
     "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&family=Lato:wght@400;700&display=swap');" +
-    ".sheet{width:100vw;height:100vh;position:relative;padding:26px;background:linear-gradient(#fdfbf5,#fdfbf5);}" +
-    ".frame{position:relative;width:100%;height:100%;border:3px solid #1E3A8A;padding:10px;}" +
-    ".frame:before{content:'';position:absolute;inset:8px;border:1.5px solid #C9A227;}" +
-    ".corner{position:absolute;width:26px;height:26px;border:2px solid #C9A227;}" +
-    ".corner.tl{top:16px;left:16px;border-right:none;border-bottom:none;} .corner.tr{top:16px;right:16px;border-left:none;border-bottom:none;}" +
-    ".corner.bl{bottom:16px;left:16px;border-right:none;border-top:none;} .corner.br{bottom:16px;right:16px;border-left:none;border-top:none;}" +
-    ".watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:120px;color:#1E3A8A;opacity:0.045;letter-spacing:6px;transform:rotate(-18deg);pointer-events:none;}" +
-    ".content{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:18px 60px;}" +
-    ".logo{width:56px;height:56px;object-fit:contain;} .org{font-size:15px;font-weight:700;color:#1E3A8A;letter-spacing:2px;margin-top:6px;text-transform:uppercase;}" +
-    ".org-sub{font-size:9.5px;color:#9CA3AF;letter-spacing:1px;}" +
-    ".title{font-family:'Playfair Display',serif;font-size:34px;font-weight:700;color:#111827;margin:18px 0 2px;letter-spacing:1px;}" +
-    ".rule{width:90px;height:2px;background:#C9A227;margin:8px auto 16px;}" +
-    ".sub{font-size:12.5px;color:#6B7280;font-style:italic;}" +
-    ".name{font-family:'Great Vibes',cursive;font-size:44px;color:#1E3A8A;margin:6px 0 4px;line-height:1;}" +
-    ".course{font-size:14.5px;color:#111827;margin:8px 0 4px;max-width:640px;}" +
-    ".badges{display:flex;gap:10px;margin:10px 0 4px;} .badge{border:1px solid #E5E7EB;border-radius:20px;padding:4px 14px;font-size:11px;color:#374151;background:#F9FAFB;}" +
-    ".badge b{color:#1E3A8A;}" +
-    ".sigrow{display:flex;align-items:flex-end;justify-content:space-between;width:100%;max-width:620px;margin-top:34px;}" +
-    ".sig{text-align:center;flex:1;} .sig .line{border-top:1px solid #9CA3AF;width:150px;margin:0 auto 6px;}" +
-    ".sig .nm{font-size:12px;font-weight:700;color:#111827;} .sig .role{font-size:9.5px;color:#9CA3AF;}" +
-    ".seal{width:66px;height:66px;border-radius:50%;border:2px solid #C9A227;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#C9A227;font-size:8px;font-weight:700;letter-spacing:1px;margin:0 18px;}" +
-    ".seal .star{font-size:16px;line-height:1;}" +
-    ".footer{position:absolute;bottom:26px;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:0 60px;}" +
-    ".certno{font-size:9.5px;color:#9CA3AF;letter-spacing:0.5px;}";
+    ".sheet{width:100vw;height:100vh;position:relative;padding:16px;background:#fdfbf5;}" +
+    ".frame{position:relative;width:100%;height:100%;border:3px solid " + border + ";padding:8px;}" +
+    ".frame:before{content:'';position:absolute;inset:6px;border:1.5px solid " + secondary + ";}" +
+    ".corner{position:absolute;width:24px;height:24px;border:2px solid " + secondary + ";}" +
+    ".corner.tl{top:14px;left:14px;border-right:none;border-bottom:none;} .corner.tr{top:14px;right:14px;border-left:none;border-bottom:none;}" +
+    ".corner.bl{bottom:14px;left:14px;border-right:none;border-top:none;} .corner.br{bottom:14px;right:14px;border-left:none;border-top:none;}" +
+    (settings?.enable_watermark !== false ? ".watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:100px;color:" + primary + ";opacity:0.045;letter-spacing:6px;transform:rotate(-18deg);pointer-events:none;}" : "") +
+    ".legal{position:absolute;top:22px;left:26px;font-size:9px;color:#374151;line-height:1.5;}" +
+    ".qrbox{position:absolute;top:20px;right:24px;text-align:center;}" +
+    ".qrbox img{border:2px solid " + secondary + ";padding:3px;background:#fff;}" +
+    ".scanlbl{margin-top:4px;background:" + primary + ";color:#fff;font-size:8px;font-weight:700;letter-spacing:1px;border-radius:10px;padding:2px 8px;}" +
+    ".content{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px 60px 0;}" +
+    ".logo{width:54px;height:54px;object-fit:contain;} .org{font-size:19px;font-weight:700;color:" + primary + ";letter-spacing:2px;margin-top:5px;text-transform:uppercase;}" +
+    ".org-sub{font-size:10px;color:#6B7280;}" +
+    ".title{font-family:'Playfair Display',serif;font-size:38px;font-weight:700;color:" + secondary + ";margin:12px 0 0;letter-spacing:2px;}" +
+    ".subtitle{font-size:13px;letter-spacing:3px;color:" + primary + ";font-weight:700;margin-top:2px;}" +
+    ".rule{width:90px;height:2px;background:" + secondary + ";margin:8px auto 12px;}" +
+    ".sub{font-size:12px;color:#6B7280;font-style:italic;}" +
+    ".name{font-family:'Great Vibes',cursive;font-size:42px;color:" + primary + ";margin:4px 0 2px;line-height:1;}" +
+    ".course{font-size:13.5px;color:#111827;margin:6px 0 2px;max-width:680px;}" +
+    ".coursename{font-size:15px;font-weight:700;color:" + primary + ";text-transform:uppercase;margin-top:3px;}" +
+    ".chips{display:flex;gap:0;margin:12px 0 4px;border-top:1px solid #E5E7EB;padding-top:8px;width:100%;max-width:760px;justify-content:center;flex-wrap:wrap;}" +
+    ".chip{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px dashed #E5E7EB;}" +
+    ".chip:last-child{border-right:none;}" +
+    ".chipicon{width:20px;height:20px;border-radius:50%;background:" + primary + ";color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;}" +
+    ".chiplbl{font-size:8px;color:#9CA3AF;text-transform:uppercase;} .chipval{font-size:11px;font-weight:700;color:#111827;}" +
+    ".certrow{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:760px;border:1px dashed " + secondary + ";border-radius:8px;padding:6px 16px;margin-top:10px;font-size:10px;color:#374151;}" +
+    ".certrow b{color:#DC2626;}" +
+    ".sigrow{display:flex;align-items:flex-end;justify-content:space-around;width:100%;max-width:780px;margin-top:26px;gap:10px;}" +
+    ".sig{text-align:center;flex:1;} .sig .sigscript{font-family:'Great Vibes',cursive;font-size:20px;color:#111827;margin-bottom:2px;}" +
+    ".sig .line{border-top:1px solid #9CA3AF;width:130px;margin:0 auto 4px;}" +
+    ".sig .nm{font-size:10.5px;font-weight:700;color:#111827;} .sig .role{font-size:8.5px;color:#9CA3AF;letter-spacing:0.5px;}" +
+    (settings?.enable_seal !== false ? ".seal{width:60px;height:60px;border-radius:50%;border:2px solid " + secondary + ";display:flex;align-items:center;justify-content:center;flex-direction:column;color:" + secondary + ";font-size:7.5px;font-weight:700;letter-spacing:0.5px;flex-shrink:0;}.seal .star{font-size:13px;line-height:1.2;}" : "") +
+    ".footerbar{position:absolute;bottom:14px;left:14px;right:14px;background:" + primary + ";color:#fff;font-size:9.5px;padding:6px 20px;border-radius:6px;text-align:center;}";
+
   const html = "<!DOCTYPE html><html><head><title>Certificate " + cert.certificate_number + "</title><style>" + css + "</style></head><body>" +
     "<div class='sheet'><div class='frame'>" +
     "<div class='corner tl'></div><div class='corner tr'></div><div class='corner bl'></div><div class='corner br'></div>" +
-    "<div class='watermark'>TAPASVI</div>" +
+    (settings?.enable_watermark !== false ? "<div class='watermark'>TAPASVI</div>" : "") +
+    (legalLines ? "<div class='legal'>" + legalLines + "</div>" : "") +
+    (settings?.enable_qr_code !== false ? "<div class='qrbox'><img src='" + qrImageUrl(qrData, 84) + "' width='84' height='84'/><div class='scanlbl'>SCAN TO VERIFY</div></div>" : "") +
     "<div class='content'>" +
     "<img class='logo' src='" + logoUrl + "'/>" +
-    "<div class='org'>TAPASVI Society</div><div class='org-sub'>Society for Rural Development, Social Issues &amp; Health</div>" +
-    "<div class='title'>Certificate of Completion</div><div class='rule'></div>" +
+    "<div class='org'>" + (org?.ngo_name || "TAPASVI Society") + "</div>" +
+    (org?.registration_number ? "<div class='org-sub'>Society Registration No.: " + org.registration_number + "</div>" : "") +
+    "<div class='title'>" + (settings?.certificate_title || "Certificate").toUpperCase() + "</div>" +
+    "<div class='subtitle'>" + (settings?.certificate_subtitle || "OF COMPLETION") + "</div>" +
+    "<div class='rule'></div>" +
     "<div class='sub'>This is to certify that</div>" +
     "<div class='name'>" + (cert.beneficiary_name || "") + "</div>" +
-    "<div class='course'>has successfully completed the <b>" + (cert.course || "") + "</b> training programme conducted at <b>" + (cert.batch_label || "") + "</b></div>" +
-    "<div class='badges'>" +
-    "<div class='badge'>Grade&nbsp;<b>" + (cert.grade || "") + "</b></div>" +
-    "<div class='badge'>Score&nbsp;<b>" + (cert.percentage || "") + "%</b></div>" +
-    "<div class='badge'>Date&nbsp;<b>" + (cert.certificate_date || "") + "</b></div>" +
-    "</div>" +
-    "<div class='sigrow'>" +
-    "<div class='sig'><div class='line'></div><div class='nm'>" + (cert.trainer || "Trainer") + "</div><div class='role'>TRAINER</div></div>" +
-    "<div class='seal'><span class='star'>&#9733;</span>OFFICIAL<br/>SEAL</div>" +
-    "<div class='sig'><div class='line'></div><div class='nm'>" + (settings?.signature_name || "Authorized Signatory") + "</div><div class='role'>" + (settings?.designation || "").toUpperCase() + "</div></div>" +
+    "<div class='course'>" + (settings?.completion_text || "has successfully completed the training program in") + "</div>" +
+    (settings?.enable_course_name !== false ? "<div class='coursename'>" + (cert.course || "") + "</div>" : "") +
+    "<div class='course'>conducted by " + (org?.ngo_name || "TAPASVI Society") + "</div>" +
+    "<div class='chips'>" + chips + "</div>" +
+    "<div class='certrow'><div>Certificate No.: <b>" + cert.certificate_number + "</b></div><div>Issue Date: " + (cert.certificate_date || "") + "</div><div>" + (settings?.verification_text || "This certificate is valid for all official purposes.") + "</div></div>" +
+    "<div class='sigrow'>" + signatures +
+    (settings?.enable_seal !== false ? "<div class='seal'><span class='star'>&#9733;</span>" + (org?.ngo_name ? org.ngo_name.split(" ")[0].toUpperCase() : "TAPASVI") + "<br/>OFFICIAL SEAL</div>" : "") +
     "</div>" +
     "</div>" +
-    "<div class='footer'><div class='certno'>CERTIFICATE NO. " + cert.certificate_number + "</div>" +
-    (settings?.enable_qr_code !== false ? "<img src='" + qrImageUrl(qrData, 74) + "' width='74' height='74'/>" : "<div></div>") +
-    "</div>" +
+    "<div class='footerbar'>" + (footerParts || (settings?.footer_text || "Generated &amp; Verified by TAPASVI DMS")) + "</div>" +
     "</div></div>" +
     "</body></html>";
   w.document.write(html);
@@ -4100,6 +4189,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   const [eligible, setEligible] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(null);
+  const [orgSettings, setOrgSettings] = useState(null);
   const [query, setQuery] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [batchFilter, setBatchFilter] = useState("all");
@@ -4113,20 +4203,36 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
 
   const loadAll = async () => {
     setLoading(true);
-    const [{ data: certData, error: certErr }, { data: marks }, { data: records }, { data: settingsData }] = await Promise.all([
+    const [{ data: certData, error: certErr }, { data: marks }, { data: records }, { data: settingsData }, { data: orgData }, { data: batchData }, { data: attRecords }, { data: attRules }] = await Promise.all([
       supabase.from("certificates").select("*").order("generated_at", { ascending: false }),
       supabase.from("assessment_marks").select("*").eq("result", "Pass").eq("certificate_eligible", "Yes"),
       supabase.from("assessment_records").select("*"),
       supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle(),
+      supabase.from("org_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("batch_trainings").select("*"),
+      supabase.from("attendance_records").select("*"),
+      supabase.from("training_attendance_rules").select("*").limit(1).maybeSingle(),
     ]);
     if (certErr) { showToast("Error loading certificates: " + certErr.message, "error"); setLoading(false); return; }
     setCerts(certData || []);
     setSettings(settingsData || null);
+    setOrgSettings(orgData || null);
+    const minAttendance = Number(settingsData?.min_attendance_pct_for_cert) || Number(attRules?.min_attendance_pct) || 75;
     const issuedSet = new Set((certData || []).map(c => c.assessment_id + "::" + c.beneficiary_id));
     const merged = (marks || []).map(m => {
       const rec = (records || []).find(r => r.id === m.assessment_id);
-      return rec ? { ...m, assessment: rec } : null;
-    }).filter(m => m && !issuedSet.has(m.assessment_id + "::" + m.beneficiary_id));
+      if (!rec) return null;
+      if (issuedSet.has(m.assessment_id + "::" + m.beneficiary_id)) return null;
+      const batch = (batchData || []).find(b => b.batch_id === rec.batch_id);
+      const mySessions = (attRecords || []).filter(a => a.batch_id === rec.batch_id && a.beneficiary_id === m.beneficiary_id);
+      const present = mySessions.filter(a => a.status === "Present" || a.status === "Late").length;
+      const attendancePct = mySessions.length > 0 ? Math.round((present / mySessions.length) * 100) : 0;
+      const reasons = [];
+      if (!batch) reasons.push("Batch record not found");
+      else if (batch.status !== "Completed") reasons.push(`Training not yet Completed (currently ${batch.status})`);
+      if (mySessions.length > 0 && attendancePct < minAttendance) reasons.push(`Attendance ${attendancePct}% is below required ${minAttendance}%`);
+      return { ...m, assessment: rec, batch, attendancePct, eligible: reasons.length === 0, reasons };
+    }).filter(Boolean);
     setEligible(merged);
     setLoading(false);
   };
@@ -4155,6 +4261,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   const generateCertificate = async (row) => {
     const dup = certs.find(c => c.assessment_id === row.assessment_id && c.beneficiary_id === row.beneficiary_id);
     if (dup) { showToast("A certificate already exists for this assessment result.", "error"); return; }
+    if (!row.eligible) { showToast("Cannot generate: " + row.reasons.join("; "), "error"); return; }
     const { number, settings: s } = await nextCertificateNumber();
     const who = currentUser?.username || currentUser?.email || "unknown";
     const now = new Date().toISOString();
@@ -4168,7 +4275,11 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
       batch_id: row.assessment.batch_id,
       batch_label: row.assessment.batch_label,
       trainer: row.assessment.trainer,
+      village: row.batch?.venue || "",
+      start_date: row.batch?.start_date || "",
+      end_date: row.batch?.end_date || "",
       grade: row.grade,
+      grade_tier: certificateGradeTier(row.percentage),
       percentage: row.percentage,
       status: "Active",
       generated_by: who, generated_at: now,
@@ -4200,7 +4311,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
         await logAppAudit("PRINT", "Certificates", `Certificate printed: ${cert.certificate_number}`);
       }
     }
-    printCertificate(cert, settings);
+    printCertificate(cert, settings, orgSettings);
   };
 
   const revokeCertificate = async (cert) => {
@@ -4214,8 +4325,29 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
     setRevokeTarget(null); setRevokeReason("");
   };
 
+  const reissueCertificate = async (cert) => {
+    const { number, settings: s } = await nextCertificateNumber();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const rec = {
+      certificate_number: number, certificate_date: now.slice(0, 10),
+      assessment_id: cert.assessment_id, beneficiary_id: cert.beneficiary_id, beneficiary_name: cert.beneficiary_name,
+      course: cert.course, batch_id: cert.batch_id, batch_label: cert.batch_label, trainer: cert.trainer,
+      village: cert.village, start_date: cert.start_date, end_date: cert.end_date,
+      grade: cert.grade, grade_tier: cert.grade_tier, percentage: cert.percentage,
+      status: "Active", generated_by: who, generated_at: now, reprint_count: 0,
+      reissued_from: cert.certificate_number,
+    };
+    const { data, error } = await supabase.from("certificates").insert(rec).select().single();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => [data, ...cs]);
+    await logAppAudit("REISSUE", "Certificates", `Certificate reissued: ${number} (replaces ${cert.certificate_number})`);
+    showToast(`Certificate reissued as ${number}.`);
+    setPreview({ ...data, settingsSnapshot: s });
+  };
+
   if (preview) {
-    return <CertificatePreview cert={preview} settings={settings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} />;
+    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} />;
   }
   if (tab === "verify") {
     return <CertificateVerify onBack={() => setTab("issued")} />;
@@ -4253,9 +4385,13 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
             {eligible.map(row => (
               <div key={row.assessment_id + row.beneficiary_id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
                 <p className="text-[13.5px] font-semibold text-[#111827]">{row.beneficiary_name}</p>
-                <p className="text-[11px] text-[#6B7280]">{row.assessment.course} · {row.assessment.batch_label} · {row.assessment.trainer} · Grade {row.grade} · {row.percentage}%</p>
+                <p className="text-[11px] text-[#6B7280]">{row.assessment.course} · {row.assessment.batch_label} · {row.assessment.trainer} · Grade {row.grade} · {row.percentage}% · Attendance {row.attendancePct}%</p>
+                {!row.eligible && (
+                  <p className="text-[11px] text-[#DC2626] mt-1.5">Cannot generate yet: {row.reasons.join("; ")}</p>
+                )}
                 {isAdmin && (
-                  <button onClick={() => generateCertificate(row)} className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#16A34A" }}>
+                  <button onClick={() => generateCertificate(row)} disabled={!row.eligible}
+                    className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white disabled:opacity-40" style={{ background: row.eligible ? "#16A34A" : "#9CA3AF" }}>
                     Generate Certificate
                   </button>
                 )}
@@ -4318,6 +4454,9 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
                     {isAdmin && c.status === "Active" && (
                       <button onClick={() => setRevokeTarget(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Revoke</button>
                     )}
+                    {isAdmin && c.status === "Revoked" && (
+                      <button onClick={() => reissueCertificate(c)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#16A34A" }}>Reissue</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -4358,8 +4497,34 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   );
 }
 
-function CertificatePreview({ cert, settings, onPrint, onClose }) {
+function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose }) {
   const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  const org = orgSettings || {};
+  const primary = settings?.primary_color || "#1E3A8A";
+  const secondary = settings?.secondary_color || "#C9A227";
+  const border = settings?.border_color || secondary;
+  const durationText = cert.start_date && cert.end_date ? `${cert.start_date} to ${cert.end_date}` : "";
+  const legalLines = [
+    org.registration_number && `Regd. No.: ${org.registration_number}`,
+  ].filter(Boolean);
+  const chips = [
+    settings?.enable_beneficiary_id !== false && cert.beneficiary_id && ["Beneficiary ID", cert.beneficiary_id],
+    settings?.enable_batch_id !== false && cert.batch_id && ["Batch ID", cert.batch_id],
+    settings?.enable_village !== false && cert.village && ["Village", cert.village],
+    settings?.enable_duration !== false && durationText && ["Duration", durationText],
+    settings?.enable_grade !== false && cert.grade && ["Grade", cert.grade],
+    settings?.enable_score !== false && cert.percentage && ["Score", cert.percentage + "%"],
+  ].filter(Boolean);
+  const signatures = [
+    (cert.trainer || settings?.trainer_sign_name) && [cert.trainer || settings.trainer_sign_name, settings?.trainer_sign_designation || "Trainer"],
+    settings?.secretary_sign_name && [settings.secretary_sign_name, settings.secretary_sign_designation || "Secretary"],
+  ].filter(Boolean);
+  const footerParts = [
+    org.website && `🌐 ${org.website}`,
+    [org.district, org.state].filter(Boolean).join(", "),
+    org.email && `✉ ${org.email}`,
+  ].filter(Boolean);
+
   return (
     <div>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&display=swap" />
@@ -4367,53 +4532,96 @@ function CertificatePreview({ cert, settings, onPrint, onClose }) {
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
         <h2 className="text-[18px] font-bold text-[#111827]">Certificate Preview</h2>
       </div>
-      <div className="relative bg-[#FDFBF5] p-2" style={{ border: "3px solid #1E3A8A" }}>
-        <div className="relative p-6 text-center" style={{ border: "1.5px solid #C9A227" }}>
+      <div className="relative bg-[#FDFBF5] p-2" style={{ border: `3px solid ${border}` }}>
+        <div className="relative p-4 pt-3 pb-14 text-center" style={{ border: `1.5px solid ${secondary}` }}>
           {["top-3 left-3 border-r-0 border-b-0", "top-3 right-3 border-l-0 border-b-0", "bottom-3 left-3 border-r-0 border-t-0", "bottom-3 right-3 border-l-0 border-t-0"].map((pos, i) => (
-            <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: "2px solid #C9A227" }} />
+            <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: `2px solid ${secondary}` }} />
           ))}
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
-            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 70, color: "#1E3A8A", opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
-          </div>
+          {settings?.enable_watermark !== false && (
+            <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
+              <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 60, color: primary, opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
+            </div>
+          )}
+          {legalLines.length > 0 && (
+            <div className="absolute top-3 left-3 text-left text-[7.5px] text-[#374151] leading-[1.5] hidden sm:block">
+              {legalLines.map(l => <div key={l}>{l}</div>)}
+            </div>
+          )}
           <div className="relative">
-            <div className="flex justify-center mb-1"><Logo size={48} /></div>
-            <p className="text-[13px] font-bold text-[#1E3A8A] tracking-widest uppercase">TAPASVI Society</p>
-            <p className="text-[9px] text-[#9CA3AF] tracking-wide">Society for Rural Development, Social Issues &amp; Health</p>
-            <p className="mt-4 text-[26px] font-bold text-[#111827]" style={{ fontFamily: "'Playfair Display', serif" }}>Certificate of Completion</p>
-            <div className="w-16 h-0.5 mx-auto my-2" style={{ background: "#C9A227" }} />
+            <div className="flex justify-center mb-1"><Logo size={44} /></div>
+            <p className="text-[13px] font-bold tracking-widest uppercase" style={{ color: primary }}>{org.ngo_name || "TAPASVI Society"}</p>
+            {org.registration_number && <p className="text-[8.5px] text-[#9CA3AF]">Society Registration No.: {org.registration_number}</p>}
+            <p className="mt-3 text-[24px] font-bold uppercase tracking-wide" style={{ fontFamily: "'Playfair Display', serif", color: secondary }}>{settings?.certificate_title || "Certificate"}</p>
+            <p className="text-[10.5px] font-bold tracking-[3px]" style={{ color: primary }}>{settings?.certificate_subtitle || "OF COMPLETION"}</p>
+            <div className="w-16 h-0.5 mx-auto my-2" style={{ background: secondary }} />
             <p className="text-[11.5px] text-[#6B7280] italic">This is to certify that</p>
-            <p className="my-1 text-[34px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: "#1E3A8A" }}>{cert.beneficiary_name}</p>
-            <p className="text-[12.5px] text-[#111827] mt-2 max-w-[420px] mx-auto">has successfully completed the <b>{cert.course}</b> training programme conducted at <b>{cert.batch_label}</b></p>
-            <div className="flex justify-center gap-2 mt-3 flex-wrap">
-              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Grade <b className="text-[#1E3A8A]">{cert.grade}</b></span>
-              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Score <b className="text-[#1E3A8A]">{cert.percentage}%</b></span>
-              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10.5px] text-[#374151]">Date <b className="text-[#1E3A8A]">{cert.certificate_date}</b></span>
-            </div>
-            <div className="flex items-end justify-center gap-4 mt-8">
-              <div className="text-center flex-1">
-                <div className="border-t border-[#9CA3AF] w-24 mx-auto mb-1" />
-                <p className="text-[10.5px] font-bold text-[#111827]">{cert.trainer || "Trainer"}</p>
-                <p className="text-[8.5px] text-[#9CA3AF] tracking-wide">TRAINER</p>
+            <p className="my-1 text-[32px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: primary }}>{cert.beneficiary_name}</p>
+            <p className="text-[12px] text-[#111827] mt-2 max-w-[420px] mx-auto">{settings?.completion_text || "has successfully completed the training program in"}</p>
+            {settings?.enable_course_name !== false && <p className="text-[13.5px] font-bold uppercase mt-1" style={{ color: primary }}>{cert.course}</p>}
+            <p className="text-[11.5px] text-[#111827] mt-1">conducted by {org.ngo_name || "TAPASVI Society"}</p>
+
+            {chips.length > 0 && (
+              <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-[#E5E7EB] flex-wrap max-w-[480px] mx-auto">
+                {chips.map(([label, val]) => (
+                  <div key={label} className="text-center px-1">
+                    <p className="text-[7px] text-[#9CA3AF] uppercase">{label}</p>
+                    <p className="text-[10.5px] font-bold text-[#111827]">{val}</p>
+                  </div>
+                ))}
               </div>
-              <div className="w-14 h-14 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: "2px solid #C9A227", color: "#C9A227" }}>
-                <span className="text-[13px]">★</span>
-                <span className="text-[6px] font-bold tracking-wide">OFFICIAL SEAL</span>
-              </div>
-              <div className="text-center flex-1">
-                <div className="border-t border-[#9CA3AF] w-24 mx-auto mb-1" />
-                <p className="text-[10.5px] font-bold text-[#111827]">{settings?.signature_name || "Authorized Signatory"}</p>
-                <p className="text-[8.5px] text-[#9CA3AF] tracking-wide">{(settings?.designation || "").toUpperCase()}</p>
-              </div>
+            )}
+
+            <div className="flex flex-col gap-1 items-center w-full max-w-[480px] mx-auto mt-3 rounded-lg px-3 py-2 text-[9px] text-[#374151]" style={{ border: `1px dashed ${secondary}` }}>
+              <div>Certificate No.: <b className="text-[#DC2626]">{cert.certificate_number}</b> &nbsp;·&nbsp; Issue Date: {cert.certificate_date}</div>
+              <div className="text-[8.5px] text-[#6B7280]">{settings?.verification_text || "This certificate is valid for all official purposes."}</div>
             </div>
-            <div className="flex justify-between items-center mt-6">
-              <p className="text-[9px] text-[#9CA3AF] tracking-wide">CERTIFICATE NO. {cert.certificate_number}</p>
-              {settings?.enable_qr_code !== false && <img src={qrImageUrl(qrData, 60)} width={60} height={60} alt="QR" />}
+
+            <div className="flex items-end justify-center gap-3 mt-6 flex-wrap">
+              {signatures[0] && (
+                <div className="text-center flex-1 min-w-[90px]">
+                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[0][0]}</p>
+                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                  <p className="text-[9px] font-bold text-[#111827]">{signatures[0][0]}</p>
+                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[0][1]}</p>
+                </div>
+              )}
+              {settings?.enable_seal !== false && (
+                <div className="w-12 h-12 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: `2px solid ${secondary}`, color: secondary }}>
+                  <span className="text-[11px]">★</span>
+                  <span className="text-[5px] font-bold tracking-wide">OFFICIAL SEAL</span>
+                </div>
+              )}
+              {signatures[1] && (
+                <div className="text-center flex-1 min-w-[90px]">
+                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[1][0]}</p>
+                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                  <p className="text-[9px] font-bold text-[#111827]">{signatures[1][0]}</p>
+                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[1][1]}</p>
+                </div>
+              )}
+              {signatures[2] && (
+                <div className="text-center flex-1 min-w-[90px]">
+                  <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[2][0]}</p>
+                  <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                  <p className="text-[9px] font-bold text-[#111827]">{signatures[2][0]}</p>
+                  <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[2][1]}</p>
+                </div>
+              )}
             </div>
-            {cert.status === "Revoked" && <p className="text-[11px] text-[#DC2626] font-bold mt-2">REVOKED</p>}
+            {cert.status === "Revoked" && <p className="text-[12px] text-[#DC2626] font-bold mt-3">CERTIFICATE REVOKED</p>}
+          </div>
+          {settings?.enable_qr_code !== false && (
+            <div className="absolute top-3 right-3 text-center">
+              <img src={qrImageUrl(qrData, 54)} width={54} height={54} alt="QR" className="border-2 p-0.5 bg-white" style={{ borderColor: secondary }} />
+              <p className="text-[6px] font-bold text-white mt-1 rounded-full px-1.5 py-0.5" style={{ background: primary }}>SCAN TO VERIFY</p>
+            </div>
+          )}
+          <div className="absolute bottom-2 left-2 right-2 rounded-md py-1.5 px-2 text-[8px] text-white text-center" style={{ background: primary }}>
+            {footerParts.length > 0 ? footerParts.join("   |   ") : (settings?.footer_text || "Generated & Verified by TAPASVI DMS")}
           </div>
         </div>
       </div>
-      <button onClick={onPrint} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>
+      <button onClick={onPrint} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: primary }}>
         Print / Download PDF
       </button>
     </div>
@@ -4423,6 +4631,7 @@ function CertificatePreview({ cert, settings, onPrint, onClose }) {
 function CertificateVerify({ onBack }) {
   const [input, setInput] = useState("");
   const [result, setResult] = useState(null);
+  const [org, setOrg] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -4431,8 +4640,12 @@ function CertificateVerify({ onBack }) {
     setLoading(true); setNotFound(false); setResult(null);
     const match = input.match(/CERT:([^|]+)/);
     const certNumber = (match ? match[1] : input).trim();
-    const { data, error } = await supabase.from("certificates").select("*").eq("certificate_number", certNumber).maybeSingle();
+    const [{ data, error }, { data: orgData }] = await Promise.all([
+      supabase.from("certificates").select("*").eq("certificate_number", certNumber).maybeSingle(),
+      supabase.from("org_settings").select("*").eq("id", 1).maybeSingle(),
+    ]);
     setLoading(false);
+    setOrg(orgData || null);
     if (error || !data) { setNotFound(true); return; }
     setResult(data);
   };
@@ -4445,7 +4658,7 @@ function CertificateVerify({ onBack }) {
       </div>
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
         <Field label="Certificate Number or scanned QR text">
-          <Input value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. TAP-000001" />
+          <Input value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. TAP-2026-000001" />
         </Field>
         <button onClick={verify} disabled={loading} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-3 disabled:opacity-60" style={{ background: "#1E3A8A" }}>
           {loading ? "Checking..." : "Verify"}
@@ -4464,14 +4677,22 @@ function CertificateVerify({ onBack }) {
           <div className="flex items-center gap-2 mb-3">
             {result.status === "Active" ? <CheckCircle size={20} className="text-[#16A34A]" /> : <XCircle size={20} className="text-[#DC2626]" />}
             <p className="text-[15px] font-bold" style={{ color: result.status === "Active" ? "#16A34A" : "#DC2626" }}>
-              {result.status === "Active" ? "Valid Certificate" : "Revoked Certificate"}
+              {result.status === "Active" ? "Valid Certificate" : "Certificate Revoked"}
             </p>
           </div>
           <p className="text-[12.5px] text-[#374151]"><b>Certificate No:</b> {result.certificate_number}</p>
           <p className="text-[12.5px] text-[#374151]"><b>Beneficiary:</b> {result.beneficiary_name}</p>
-          <p className="text-[12.5px] text-[#374151]"><b>Course:</b> {result.course}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Program / Course:</b> {result.course}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Batch:</b> {result.batch_label}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Trainer:</b> {result.trainer}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Issued By:</b> {org?.ngo_name || "TAPASVI Society"}</p>
           <p className="text-[12.5px] text-[#374151]"><b>Issue Date:</b> {result.certificate_date}</p>
-          {result.status === "Revoked" && <p className="text-[12.5px] text-[#DC2626] mt-1"><b>Revoked:</b> {result.revoked_at?.slice(0, 10)}</p>}
+          {result.status === "Revoked" && (
+            <div className="mt-2 rounded-lg bg-[#FEE2E2] p-2.5">
+              <p className="text-[12.5px] text-[#DC2626] font-bold">This certificate was revoked on {result.revoked_at?.slice(0, 10)}.</p>
+              {result.revoke_reason && <p className="text-[11.5px] text-[#DC2626] mt-0.5">Reason: {result.revoke_reason}</p>}
+            </div>
+          )}
         </div>
       )}
     </div>
