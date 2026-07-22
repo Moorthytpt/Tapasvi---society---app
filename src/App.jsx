@@ -996,12 +996,12 @@ function VillageForm({ editing, onSave, onCancel }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
-function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
+function Dashboard({ beneficiaries, training, employment, villages, isAdmin, currentUser, onQuickAction }) {
   const total = beneficiaries.length;
   const women = beneficiaries.filter(b => b.gender === "Female").length;
   const youth = beneficiaries.filter(b => b.gender !== "Female").length;
   const trained = training.length;
-  const certIssued = training.filter(t => t.certificate_issued === "Yes").length;
+  const certIssuedLegacy = training.filter(t => t.certificate_issued === "Yes").length;
   const employed = employment.filter(e => e.status === "Active").length;
   const completionRate = total > 0 ? Math.round((beneficiaries.filter(b => b.status === "Completed").length / total) * 100) : 0;
   const employmentRate = total > 0 ? Math.round((employed / total) * 100) : 0;
@@ -1029,21 +1029,177 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
   const statusColors = { Registered: "#1E3A8A", Training: "#F97316", Completed: "#16A34A", Dropped: "#D32F2F" };
   const maxVillage = Math.max(1, ...byVillage.map(v => v[1]));
 
+  // Live counts this component fetches for itself — doesn't touch any other module's data flow.
+  const [batches, setBatches] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [fieldWorkerCount, setFieldWorkerCount] = useState(0);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    (async () => {
+      const [bt, ar, am, ct, us] = await Promise.all([
+        supabase.from("batch_trainings").select("*"),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("assessment_marks").select("*"),
+        supabase.from("certificates").select("*"),
+        supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "fieldworker"),
+      ]);
+      setBatches(bt.data || []);
+      setAssessmentRecords(ar.data || []);
+      setAssessmentMarks(am.data || []);
+      setCertificates(ct.data || []);
+      setFieldWorkerCount(us.count || 0);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const activeTrainings = batches.filter(b => b.status === "Ongoing").length;
+  const completedTrainings = batches.filter(b => b.status === "Completed").length;
+  const certsIssued = certificates.filter(c => c.status === "Active").length;
+  const villagesCovered = villages.length;
+
+  const thisMonth = now.toISOString().slice(0, 7);
+  const newBeneficiariesThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
+  const newTrainingsThisMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === thisMonth).length;
+  const newAssessmentsThisMonth = assessmentRecords.filter(a => (a.assessment_date || "").slice(0, 7) === thisMonth).length;
+  const newCertsThisMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === thisMonth).length;
+  const newPlacementsThisMonth = employment.filter(e => (e.created_at || "").slice(0, 7) === thisMonth).length;
+
+  // Greeting
+  const hour = now.getHours();
+  const timeGreeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const friendlyMessages = ["Welcome back!", "Have a productive day!", "Let's make a difference today!"];
+  const [friendlyMsg] = useState(() => friendlyMessages[Math.floor(Math.random() * friendlyMessages.length)]);
+  const roleLabel = currentUser?.role === "super_admin" ? "Super Admin" : currentUser?.role === "admin" ? "Admin" : "Field Worker";
+  const dateStr = now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+  // Charts (reuse MiniBarChart / MiniDonut from the Reports module)
+  const programDonut = useMemo(() => PROGRAMS.map(p => ({ label: p.short, count: byProgram[p.key] || 0 })).filter(x => x.count > 0), [byProgram]);
+  const beneficiaryGrowth = useMemo(() => {
+    const m = reportsGroupBy(beneficiaries, b => monthKey(b.registration_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [beneficiaries]);
+  const monthlyTrainings = useMemo(() => {
+    const m = reportsGroupBy(batches, b => monthKey(b.start_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [batches]);
+  const assessmentResults = useMemo(() => ([
+    { label: "Pass", count: assessmentMarks.filter(m => m.result === "Pass").length },
+    { label: "Fail", count: assessmentMarks.filter(m => m.result === "Fail").length },
+  ].filter(x => x.count > 0)), [assessmentMarks]);
+  const certificateTrend = useMemo(() => {
+    const m = reportsGroupBy(certificates, c => monthKey(c.certificate_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [certificates]);
+  const placementTrend = useMemo(() => {
+    const m = reportsGroupBy(employment, e => monthKey(e.created_at));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [employment]);
+
+  const SUMMARY = [
+    { label: "Total Beneficiaries", value: total, delta: newBeneficiariesThisMonth, icon: Users, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, icon: BookOpen, grad: ["#DB2777", "#F472B6"] },
+    { label: "Completed Trainings", value: completedTrainings, icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, icon: ClipboardList, grad: ["#F97316", "#FB923C"] },
+    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, icon: Award, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Placements", value: employed, delta: newPlacementsThisMonth, icon: Briefcase, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Field Workers", value: fieldWorkerCount, icon: Users, grad: ["#DC2626", "#F87171"] },
+    { label: "Villages Covered", value: villagesCovered, icon: MapPin, grad: ["#16A34A", "#22C55E"] },
+  ];
+
+  const QUICK_ACTIONS = [
+    { key: "beneficiary", label: "Add Beneficiary", icon: Users, color: "#1E3A8A" },
+    { key: "training", label: "Create Training", icon: BookOpen, color: "#DB2777" },
+    { key: "attendance", label: "Mark Attendance", icon: CheckCircle, color: "#16A34A" },
+    { key: "assessment", label: "New Assessment", icon: ClipboardList, color: "#F97316" },
+    { key: "certificate", label: "Generate Certificate", icon: Award, color: "#7C3AED" },
+    { key: "employment", label: "Placement", icon: Briefcase, color: "#0EA5E9" },
+    { key: "reports", label: "Reports", icon: BarChart3, color: "#DC2626" },
+  ];
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-[18px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif"}}>Dashboard</h2>
-          <p className="text-[12px] text-[#6B7280]">TAPASVI — Program Overview</p>
+      {/* Greeting banner */}
+      <div className="rounded-2xl p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-3 relative z-10">
+          <Logo size={38} />
+          <div className="flex-1 min-w-0">
+            <p className="text-[15px] font-bold">👋 {timeGreeting}, {currentUser?.username || "there"}</p>
+            <p className="text-[11px] text-white/80">{roleLabel} · {friendlyMsg}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/20 relative z-10">
+          <p className="text-[10.5px] text-white/85">{dateStr}</p>
+          <p className="text-[10.5px] font-semibold text-white/95">{timeStr}</p>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#16A34A" tint="#DCFCE7" />
-        <StatCard icon={Award} label="Trained" value={trained} color="#1E3A8A" tint="#EFF6FF" sub={`${certIssued} certificates issued`} />
-        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F97316" tint="#FFF7ED" sub={`${employmentRate}% rate`} />
-        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F97316" tint="#FFF7ED" />
+        {SUMMARY.map(s => (
+          <div key={s.label} className="rounded-2xl p-3.5 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
+            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+              <s.icon size={15} />
+            </div>
+            <p className="text-[20px] font-bold leading-none">{s.value}</p>
+            <p className="text-[10px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
+            {s.delta > 0 && (
+              <p className="text-[9.5px] text-white/90 mt-1 flex items-center gap-0.5"><TrendingUp size={10} /> +{s.delta} this month</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Quick actions */}
+      <div className="mb-5">
+        <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-2.5">Quick Actions</h3>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
+          {QUICK_ACTIONS.map(a => (
+            <button key={a.key} onClick={() => onQuickAction && onQuickAction(a.key)}
+              className="bg-white rounded-xl border border-[#E5E7EB] p-3 flex flex-col items-center gap-1.5 hover:shadow-md hover:-translate-y-0.5 transition-all">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: a.color + "1A" }}>
+                <a.icon size={14} style={{ color: a.color }} />
+              </div>
+              <span className="text-[9.5px] font-medium text-[#374151] text-center leading-tight">{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Beneficiary Growth</h3>
+          <MiniBarChart data={beneficiaryGrowth} color="#1E3A8A" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Program Distribution</h3>
+          <MiniDonut data={programDonut} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Monthly Trainings</h3>
+          <MiniBarChart data={monthlyTrainings} color="#DB2777" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Assessment Results</h3>
+          <MiniDonut data={assessmentResults} colors={["#16A34A", "#DC2626"]} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Certificate Trend</h3>
+          <MiniBarChart data={certificateTrend} color="#7C3AED" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold text-[#111827] mb-3">Placement Trend</h3>
+          <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
@@ -6340,7 +6496,17 @@ export default function App() {
 
           {/* VIEWS */}
           {!subView && view === "dashboard" && (
-            <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
+            <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} currentUser={user}
+              onQuickAction={(key) => {
+                setSubView(null); setEditing(null);
+                if (key === "beneficiary") { setView("beneficiaries"); setSubView("beneficiary-form"); }
+                else if (key === "training") { setView("training"); setTrainingSubView(null); }
+                else if (key === "attendance") { setView("training"); setTrainingSubView(null); }
+                else if (key === "assessment") { setView("training"); setTrainingSubView("assessment-management"); }
+                else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
+                else if (key === "employment") { setView("employment"); setSubView("employment-form"); }
+                else if (key === "reports") { setView("reports"); }
+              }} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
             <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
