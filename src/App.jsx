@@ -1250,7 +1250,24 @@ function VillageForm({ editing, onSave, onCancel }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
-function Dashboard({ beneficiaries, training, employment, villages, isAdmin, currentUser, onQuickAction }) {
+function CountUp({ value, duration = 800 }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    let raf, start;
+    const target = Number(value) || 0;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      setDisplay(Math.round(target * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <>{display}</>;
+}
+
+function Dashboard({ beneficiaries, training, employment, villages, isAdmin, currentUser, onQuickAction, onViewBeneficiary }) {
   const total = beneficiaries.length;
   const women = beneficiaries.filter(b => b.gender === "Female").length;
   const youth = beneficiaries.filter(b => b.gender !== "Female").length;
@@ -1289,22 +1306,25 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
   const [assessmentMarks, setAssessmentMarks] = useState([]);
   const [certificates, setCertificates] = useState([]);
   const [fieldWorkerCount, setFieldWorkerCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState([]);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
     (async () => {
-      const [bt, ar, am, ct, us] = await Promise.all([
+      const [bt, ar, am, ct, us, al] = await Promise.all([
         supabase.from("batch_trainings").select("*"),
         supabase.from("assessment_records").select("*"),
         supabase.from("assessment_marks").select("*"),
         supabase.from("certificates").select("*"),
         supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "fieldworker"),
+        supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(8),
       ]);
       setBatches(bt.data || []);
       setAssessmentRecords(ar.data || []);
       setAssessmentMarks(am.data || []);
       setCertificates(ct.data || []);
       setFieldWorkerCount(us.count || 0);
+      setRecentActivity(al.data || []);
     })();
   }, []);
 
@@ -1317,6 +1337,10 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
   const completedTrainings = batches.filter(b => b.status === "Completed").length;
   const certsIssued = certificates.filter(c => c.status === "Active").length;
   const villagesCovered = villages.length;
+  const activeProgramsCount = Object.values(byProgram).filter(c => c > 0).length;
+  const trainersCount = new Set(batches.map(b => b.trainer_name).filter(Boolean)).size;
+  const todayStr0 = now.toISOString().slice(0, 10);
+  const todaysRegistrations = beneficiaries.filter(b => b.registration_date === todayStr0).length;
 
   const thisMonth = now.toISOString().slice(0, 7);
   const newBeneficiariesThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
@@ -1359,13 +1383,18 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 
   const SUMMARY = [
     { label: "Total Beneficiaries", value: total, delta: newBeneficiariesThisMonth, icon: Users, grad: ["#1E3A8A", "#3B82F6"] },
-    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, icon: BookOpen, grad: ["#DB2777", "#F472B6"] },
-    { label: "Completed Trainings", value: completedTrainings, icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
-    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, icon: ClipboardList, grad: ["#F97316", "#FB923C"] },
-    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, icon: Award, grad: ["#7C3AED", "#A78BFA"] },
-    { label: "Placements", value: employed, delta: newPlacementsThisMonth, icon: Briefcase, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Active Programs", value: activeProgramsCount, icon: BookOpen, grad: ["#DB2777", "#F472B6"] },
     { label: "Field Workers", value: fieldWorkerCount, icon: Users, grad: ["#DC2626", "#F87171"] },
-    { label: "Villages Covered", value: villagesCovered, icon: MapPin, grad: ["#16A34A", "#22C55E"] },
+    { label: "Trainers", value: trainersCount, icon: ClipboardList, grad: ["#F97316", "#FB923C"] },
+    { label: "Today's Registrations", value: todaysRegistrations, icon: TrendingUp, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Employment Placements", value: employed, delta: newPlacementsThisMonth, icon: Briefcase, grad: ["#0EA5E9", "#0369A1"] },
+    { label: "Women Beneficiaries", value: women, icon: Users, grad: ["#DB2777", "#EC4899"] },
+    { label: "Youth Beneficiaries", value: youth, icon: Users, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, icon: BookOpen, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Completed Trainings", value: completedTrainings, icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
+    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, icon: ClipboardList, grad: ["#F97316", "#FDBA74"] },
+    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, icon: Award, grad: ["#7C3AED", "#C4B5FD"] },
+    { label: "Villages Covered", value: villagesCovered, icon: MapPin, grad: ["#16A34A", "#065F46"] },
   ];
 
   const QUICK_ACTIONS = [
@@ -1398,12 +1427,12 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {SUMMARY.map(s => (
-          <div key={s.label} className="rounded-2xl p-3.5 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
-            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
-            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center mb-2">
+          <div key={s.label} className="rounded-[20px] p-3.5 text-white relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_32px_-10px_rgba(0,0,0,0.35)]"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})`, boxShadow: "0 8px 20px -10px rgba(0,0,0,0.25)" }}>
+            <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur flex items-center justify-center mb-2">
               <s.icon size={15} />
             </div>
-            <p className="text-[20px] font-bold leading-none">{s.value}</p>
+            <p className="text-[20px] font-bold leading-none"><CountUp value={s.value} /></p>
             <p className="text-[10px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
             {s.delta > 0 && (
               <p className="text-[9.5px] text-white/90 mt-1 flex items-center gap-0.5"><TrendingUp size={10} /> +{s.delta} this month</p>
@@ -1418,13 +1447,70 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
           {QUICK_ACTIONS.map(a => (
             <button key={a.key} onClick={() => onQuickAction && onQuickAction(a.key)}
-              className="bg-white rounded-xl border border-[#E5E7EB] p-3 flex flex-col items-center gap-1.5 hover:shadow-md hover:-translate-y-0.5 transition-all">
+              className="bg-white rounded-[20px] border border-[#E5E7EB] p-3 flex flex-col items-center gap-1.5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 active:scale-95">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: a.color + "1A" }}>
                 <a.icon size={14} style={{ color: a.color }} />
               </div>
               <span className="text-[9.5px] font-medium text-[#374151] text-center leading-tight">{a.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Recent Beneficiaries + Recent Activities */}
+      <div className="grid md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Recent Beneficiaries</h3>
+            <button onClick={() => onQuickAction && onQuickAction("beneficiaries-list")} className="text-[11px] font-semibold text-[#1E3A8A] hover:underline">View All →</button>
+          </div>
+          {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 6).length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-6">No beneficiaries yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 6).map(b => (
+                <button key={b.beneficiary_id} onClick={() => onViewBeneficiary && onViewBeneficiary(b)}
+                  className="w-full flex items-center gap-2.5 py-2 px-1.5 rounded-xl hover:bg-[#F8FAFC] transition-colors text-left">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: PROGRAM_MAP[b.program]?.color || "#1E3A8A" }}>
+                    {(b.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-semibold text-[#111827] truncate">{b.name || b.beneficiary_id}</p>
+                    <p className="text-[10px] text-[#6B7280] truncate">{PROGRAM_MAP[b.program]?.short || b.program} · {b.village || "—"}</p>
+                  </div>
+                  <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: (statusColors[b.status] || "#1E3A8A") + "18", color: statusColors[b.status] || "#1E3A8A" }}>
+                    {b.status || "Registered"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-4">
+          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-3">Recent Activity</h3>
+          {recentActivity.length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-6">No activity logged yet.</p>
+          ) : (
+            <div className="space-y-0">
+              {recentActivity.map((a, i) => {
+                const isLast = i === recentActivity.length - 1;
+                const color = a.action?.includes("FAILED") ? "#DC2626" : a.action === "CREATE" ? "#16A34A" : a.action === "DELETE" ? "#DC2626" : a.action === "LOGIN" ? "#1E3A8A" : "#7C3AED";
+                return (
+                  <div key={a.id || i} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: color }} />
+                      {!isLast && <div className="w-px flex-1 min-h-[24px]" style={{ background: "#E5E7EB" }} />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                      <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "System"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -7115,7 +7201,9 @@ export default function App() {
                 else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
                 else if (key === "employment") { setView("employment"); setSubView("employment-form"); }
                 else if (key === "reports") { setView("reports"); }
-              }} />
+                else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
+              }}
+              onViewBeneficiary={(b) => { goTo("beneficiaries"); setProfileBeneficiary(b); }} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
             <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
