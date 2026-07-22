@@ -369,15 +369,26 @@ function LoginScreen({ onLogin }) {
     setLoading(false);
   };
 
+  const authCss = `
+    @keyframes tp-fadeInUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
+    @keyframes tp-shake { 10%,90%{transform:translateX(-1px);} 20%,80%{transform:translateX(2px);} 30%,50%,70%{transform:translateX(-4px);} 40%,60%{transform:translateX(4px);} }
+    @keyframes tp-scaleIn { from { opacity:0; transform:scale(0.96); } to { opacity:1; transform:scale(1); } }
+    .tp-fade-up { animation: tp-fadeInUp 0.5s ease both; }
+    .tp-scale-in { animation: tp-scaleIn 0.4s ease both; }
+    .tp-shake { animation: tp-shake 0.4s ease; }
+    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(30,58,138,0.12); }
+  `;
+
   if (showForgot) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-        <div className="w-full max-w-[400px] bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
-          <p className="text-[14px] font-bold text-[#111827] mb-3">Forgot Password</p>
-          <p className="text-[12.5px] text-[#374151] leading-relaxed mb-4">
+      <div className="min-h-screen w-full flex items-center justify-center px-4 py-10 relative overflow-hidden" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif", background: "linear-gradient(135deg,#EFF6FF 0%,#ECFDF5 100%)" }}>
+        <style>{authCss}</style>
+        <div className="w-full max-w-[420px] tp-scale-in rounded-[24px] p-6" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.6)", boxShadow: "0 20px 50px -12px rgba(30,58,138,0.25)" }}>
+          <p className="text-[15px] font-bold text-[#111827] mb-3">Forgot Password</p>
+          <p className="text-[12.5px] text-[#374151] leading-relaxed mb-5">
             For security, only a <b>Super Admin</b> can reset your password. Please contact your Super Admin — they will set a new temporary password for you, and you'll be asked to change it on your next login.
           </p>
-          <button onClick={() => setShowForgot(false)} className="w-full rounded-lg py-2.5 text-[13px] font-semibold" style={{ background: "#1E3A8A", color: "#fff" }}>
+          <button onClick={() => setShowForgot(false)} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white transition hover:opacity-90" style={{ background: "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
             Back to Login
           </button>
         </div>
@@ -385,58 +396,123 @@ function LoginScreen({ onLogin }) {
     );
   }
 
+  const HeroPanel = (
+    <div className="hidden lg:flex flex-col justify-center px-14 relative w-1/2 min-h-screen text-white" style={{ background: "linear-gradient(160deg,#1E3A8A 0%,#15803D 100%)" }}>
+      <svg className="absolute bottom-0 left-0 w-full opacity-20" viewBox="0 0 500 150" preserveAspectRatio="none">
+        <path d="M0,80 C150,150 350,0 500,80 L500,150 L0,150 Z" fill="#ffffff" />
+      </svg>
+      <div className="relative tp-fade-up">
+        <Logo size={56} />
+        <h1 className="mt-5 text-[30px] font-bold leading-tight">TAPASVI Society</h1>
+        <p className="text-[14px] text-white/80 mt-2 max-w-[360px]">Society for Rural Development, Social Issues &amp; Health</p>
+        <div className="w-14 h-1 rounded-full bg-white/50 my-6" />
+        <p className="text-[15px] text-white/90 max-w-[380px] leading-relaxed">
+          Empowering rural communities through skill training, livelihood programs, and grassroots development — one beneficiary at a time.
+        </p>
+        <p className="text-[11px] text-white/60 mt-8 tracking-wide">DIGITAL NGO MANAGEMENT SYSTEM · v2.0</p>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
-      <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6">
-          <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
-          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
-        </div>
-        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
-          <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
-              <button key={r} type="button" onClick={() => setRole(r)}
-                className="flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition"
-                style={role === r ? { background: "#16A34A", color: "#fff", borderColor: "#16A34A" } : { borderColor: "#E5E7EB", color: "#111827" }}>
-                <Icon size={14} /> {label}
-              </button>
-            ))}
+    <div className="min-h-screen w-full flex relative overflow-hidden" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif", background: "linear-gradient(135deg,#EFF6FF 0%,#F0FDF4 60%,#ECFDF5 100%)" }}>
+      <style>{authCss}</style>
+
+      {/* subtle background waves — mobile + desktop right panel */}
+      <svg className="absolute top-0 right-0 w-full lg:w-1/2 h-64 opacity-30 pointer-events-none" viewBox="0 0 500 200" preserveAspectRatio="none">
+        <path d="M0,60 C120,120 380,0 500,60 L500,0 L0,0 Z" fill="#BFDBFE" />
+      </svg>
+      <svg className="absolute bottom-0 right-0 w-full lg:w-1/2 h-48 opacity-30 pointer-events-none" viewBox="0 0 500 150" preserveAspectRatio="none">
+        <path d="M0,90 C160,20 340,150 500,80 L500,150 L0,150 Z" fill="#BBF7D0" />
+      </svg>
+
+      {HeroPanel}
+
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
+        <div className="w-full max-w-[420px]">
+          <div className="flex flex-col items-center mb-6 tp-fade-up lg:hidden">
+            <Logo size={56} />
+            <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
+            <p className="text-[11.5px] text-[#6B7280] text-center mt-1 max-w-[300px]">Digital NGO Management System</p>
+            <p className="text-[10px] text-[#9CA3AF] mt-0.5">v2.0</p>
           </div>
-          <Field label={role === "admin" ? "Email" : "Full Name"} required>
-            <Input value={username} onChange={e => setUsername(e.target.value)}
-              placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
-              inputMode={role === "admin" ? "email" : "text"} />
-          </Field>
-          <Field label="Password" required error={error}>
-            <div className="relative">
-              <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                className={inputCls} placeholder="••••••••" style={{ paddingRight: 42 }} />
-              <button type="button" onClick={() => setShowPassword(s => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#6B7280] px-1.5">
-                {showPassword ? "Hide" : "Show"}
+
+          <form onSubmit={submit} className="tp-fade-up rounded-[24px] p-6" style={{ background: "rgba(255,255,255,0.72)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.6)", boxShadow: "0 20px 50px -12px rgba(30,58,138,0.2)", animationDelay: "0.1s" }}>
+            <p className="text-[19px] font-bold text-[#111827]">👋 Welcome Back</p>
+            <p className="text-[12.5px] text-[#6B7280] mb-5">Sign in to continue</p>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
+                <button key={r} type="button" onClick={() => setRole(r)}
+                  className="flex items-center justify-center gap-2 rounded-xl border py-2.5 text-[13px] font-semibold transition-all"
+                  style={role === r ? { background: "linear-gradient(90deg,#1E3A8A,#16A34A)", color: "#fff", borderColor: "transparent", boxShadow: "0 4px 12px -2px rgba(30,58,138,0.4)" } : { borderColor: "#E5E7EB", color: "#374151", background: "rgba(255,255,255,0.6)" }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-3">
+              <label className="text-[12px] font-medium text-[#374151] mb-1 block">{role === "admin" ? "Email" : "Full Name"}</label>
+              <div className="relative tp-input-glow rounded-xl transition-shadow">
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+                <input value={username} onChange={e => setUsername(e.target.value)}
+                  placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
+                  inputMode={role === "admin" ? "email" : "text"}
+                  className="w-full rounded-xl border border-[#E5E7EB] bg-white/80 pl-10 pr-3.5 py-3 text-[13.5px] text-[#111827] outline-none transition placeholder:text-[#9CA3AF]" />
+              </div>
+            </div>
+
+            <div className="mb-1">
+              <label className="text-[12px] font-medium text-[#374151] mb-1 block">Password</label>
+              <div className="relative tp-input-glow rounded-xl transition-shadow">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+                <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                  className="w-full rounded-xl border border-[#E5E7EB] bg-white/80 pl-10 pr-14 py-3 text-[13.5px] text-[#111827] outline-none transition placeholder:text-[#9CA3AF]"
+                  placeholder="••••••••" />
+                <button type="button" onClick={() => setShowPassword(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#1E3A8A] px-1.5">
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="tp-shake mt-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+                <AlertCircle size={14} className="text-[#DC2626] mt-0.5 shrink-0" />
+                <p className="text-[12px] text-[#DC2626] font-medium">{error}</p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mt-4 mb-1">
+              <label className="flex items-center gap-1.5 text-[12px] text-[#374151]">
+                <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+                Remember Me
+              </label>
+              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold" style={{ color: "#1E3A8A" }}>
+                Forgot Password?
               </button>
             </div>
-          </Field>
-          <div className="flex items-center justify-between mt-1 mb-1">
-            <label className="flex items-center gap-1.5 text-[12px] text-[#374151]">
-              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-              Remember Me
-            </label>
-            <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-medium" style={{ color: "#1E3A8A" }}>
-              Forgot Password?
+
+            <button type="submit" onClick={submit} disabled={loading}
+              className="w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-70"
+              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: loading ? "none" : "0 8px 20px -6px rgba(30,58,138,0.45)" }}>
+              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : "Sign In"}
             </button>
+
+            <p className="text-[10.5px] text-[#9CA3AF] text-center mt-3">
+              {role === "admin" ? "Admin: registered email & password" : "Contact Admin for your login credentials"}
+            </p>
+          </form>
+
+          <div className="mt-5 text-center tp-fade-up" style={{ animationDelay: "0.2s" }}>
+            <p className="text-[10.5px] text-[#6B7280] flex items-center justify-center gap-1.5">
+              <ShieldCheck size={12} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
+            </p>
+            <p className="text-[10px] text-[#9CA3AF] mt-1.5">
+              TAPASVI DMS v2.0 · © {new Date().getFullYear()} TAPASVI Society · Privacy Policy · Terms of Use
+            </p>
           </div>
-          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-2" style={{ background: loading ? "#888" : "#1E3A8A", color: "#fff" }}>
-            {loading ? "Signing in…" : "Sign In"}
-          </button>
-          <p className="text-[10.5px] text-[#AAA] text-center mt-3">
-            {role === "admin" ? "Admin: registered email & password" : "Contact Admin for your login credentials"}
-          </p>
-        </form>
-        <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI DMS v2.0 • Secure Access Only</p>
+        </div>
       </div>
     </div>
   );
