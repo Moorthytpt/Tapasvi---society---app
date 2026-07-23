@@ -1667,8 +1667,251 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 }
 
 /* ============================================================
-   BENEFICIARY LIST
+   FIELD WORKER DASHBOARD — dark, productivity-focused, own-data only.
+   Self-contained: fetches only records scoped to the logged-in
+   field worker (assigned_field_worker / field_worker_name / marked_by).
+   No global NGO stats, no other users' data, no financial data.
    ============================================================ */
+function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onViewBeneficiary }) {
+  const username = currentUser?.username;
+  const [batches, setBatches] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [myActivity, setMyActivity] = useState([]);
+  const [now, setNow] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [bt, al] = await Promise.all([
+        supabase.from("batch_trainings").select("*").eq("assigned_field_worker", username),
+        supabase.from("audit_logs").select("*").eq("user_email", username).order("created_at", { ascending: false }).limit(6),
+      ]);
+      const myBatches = bt.data || [];
+      setBatches(myBatches);
+      setMyActivity(al.data || []);
+      const batchIds = myBatches.map(b => b.batch_id);
+      if (batchIds.length > 0) {
+        const { data: ar } = await supabase.from("attendance_records").select("*").in("batch_id", batchIds);
+        setAttendanceRecords(ar || []);
+      } else {
+        setAttendanceRecords([]);
+      }
+      setLoading(false);
+    })();
+  }, [username]);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  const todayStr = now.toISOString().slice(0, 10);
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const dateStr = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const motivationLines = ["Let's make today count! 💪", "Every visit changes a life. 🌱", "Small steps, big impact today. 🚀", "Your work matters. Let's go! 🔥"];
+  const [motivation] = useState(() => motivationLines[Math.floor(Math.random() * motivationLines.length)]);
+
+  const todaysSchedule = batches.filter(b => b.start_date && b.end_date && b.start_date <= todayStr && b.end_date >= todayStr);
+  const attendanceMarkedTodayBatchIds = new Set(attendanceRecords.filter(a => a.session_date === todayStr).map(a => a.batch_id));
+  const attendancePendingToday = todaysSchedule.filter(b => !attendanceMarkedTodayBatchIds.has(b.batch_id));
+  const targetTotal = todaysSchedule.length;
+  const targetDone = todaysSchedule.length - attendancePendingToday.length;
+  const targetPct = targetTotal > 0 ? Math.round((targetDone / targetTotal) * 100) : 100;
+
+  const thisMonth = now.toISOString().slice(0, 7);
+  const registeredThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
+  const sessionsMarkedThisMonth = new Set(attendanceRecords.filter(a => (a.session_date || "").slice(0, 7) === thisMonth && a.marked_by === username).map(a => a.batch_id + a.session_date)).size;
+  const aadhaarPending = beneficiaries.filter(b => b.aadhaar_verified !== "Yes").length;
+
+  const PENDING_TASKS = [
+    ...(attendancePendingToday.length > 0 ? [{ label: `Mark attendance for ${attendancePendingToday.length} batch${attendancePendingToday.length > 1 ? "es" : ""} today`, icon: CheckCircle, color: "#F59E0B", onClick: () => onQuickAction("attendance") }] : []),
+    ...(aadhaarPending > 0 ? [{ label: `Verify Aadhaar for ${aadhaarPending} beneficiar${aadhaarPending > 1 ? "ies" : "y"}`, icon: AlertCircle, color: "#EF4444", onClick: () => onQuickAction("beneficiaries-list") }] : []),
+  ];
+
+  const QUICK_ACTIONS = [
+    { key: "beneficiary", label: "Register Beneficiary", icon: Users, color: "#2563EB" },
+    { key: "attendance", label: "Mark Attendance", icon: CheckCircle, color: "#10B981" },
+    { key: "training", label: "Training", icon: BookOpen, color: "#2563EB" },
+    { key: "assessment", label: "Assessment", icon: ClipboardList, color: "#F59E0B" },
+    { key: "certificate", label: "Certificates", icon: Award, color: "#8B5CF6" },
+  ];
+
+  const cardStyle = { background: "rgba(30,41,59,0.6)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.08)" };
+
+  return (
+    <div className="-m-4 p-4 min-h-screen rounded-2xl relative" style={{ background: "linear-gradient(160deg,#0B1220 0%,#0E1A2E 55%,#0B1220 100%)" }}>
+      {/* Welcome */}
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#2563EB)" }}>
+        <p className="text-[16px] font-bold">👋 {greeting}, {username || "there"}</p>
+        <p className="text-[11.5px] text-white/80 mt-0.5">{motivation}</p>
+        <p className="text-[10px] text-white/60 mt-2">{dateStr}</p>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-white/50">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-60" />
+          <p className="text-[13px]">Loading your dashboard...</p>
+        </div>
+      ) : (
+        <>
+          {/* Today's Target + Progress */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Today's Target</p>
+              <span className="text-[10px] text-white/50">{targetDone}/{targetTotal} done</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="relative w-16 h-16 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round"
+                    strokeDasharray={`${targetPct * 0.974} 1000`} style={{ transition: "stroke-dasharray 0.8s ease" }} />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-white">{targetPct}%</div>
+              </div>
+              <div className="flex-1">
+                <p className="text-[13px] text-white font-semibold">
+                  {targetTotal === 0 ? "No trainings scheduled today" : attendancePendingToday.length === 0 ? "All caught up! 🎉" : `${attendancePendingToday.length} attendance session${attendancePendingToday.length > 1 ? "s" : ""} pending`}
+                </p>
+                <p className="text-[11px] text-white/60 mt-0.5">{targetTotal} ongoing training{targetTotal !== 1 ? "s" : ""} assigned to you today</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="mb-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-white/50 mb-2 px-1">Quick Actions</p>
+            <div className="grid grid-cols-3 gap-2.5">
+              {QUICK_ACTIONS.map(a => (
+                <button key={a.key} onClick={() => onQuickAction(a.key)}
+                  className="rounded-[18px] p-3.5 flex flex-col items-center gap-2 transition-all duration-200 active:scale-95"
+                  style={cardStyle}>
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: a.color + "26" }}>
+                    <a.icon size={16} style={{ color: a.color }} />
+                  </div>
+                  <span className="text-[10px] font-medium text-white text-center leading-tight">{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Today's Schedule */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Today's Schedule</p>
+            {todaysSchedule.length === 0 ? (
+              <p className="text-[12px] text-white/50 text-center py-4">No trainings scheduled for today.</p>
+            ) : (
+              <div className="space-y-2">
+                {todaysSchedule.map(b => {
+                  const done = attendanceMarkedTodayBatchIds.has(b.batch_id);
+                  return (
+                    <div key={b.batch_id} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: "rgba(255,255,255,0.04)" }}>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: done ? "#10B98126" : "#F59E0B26" }}>
+                        <BookOpen size={15} style={{ color: done ? "#10B981" : "#F59E0B" }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12.5px] font-semibold text-white truncate">{b.training_name || b.training_type}</p>
+                        <p className="text-[10.5px] text-white/50 truncate">{b.venue}</p>
+                      </div>
+                      <span className="text-[9.5px] font-semibold px-2 py-1 rounded-full shrink-0" style={{ background: done ? "#10B98126" : "#F59E0B26", color: done ? "#10B981" : "#F59E0B" }}>
+                        {done ? "Marked" : "Pending"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Assigned Beneficiaries */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Assigned Beneficiaries</p>
+              <button onClick={() => onQuickAction("beneficiaries-list")} className="text-[11px] font-semibold text-[#60A5FA]">View All →</button>
+            </div>
+            <p className="text-[26px] font-bold text-white leading-none mb-3">{beneficiaries.length}</p>
+            <div className="space-y-1.5">
+              {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 4).map(b => (
+                <button key={b.beneficiary_id} onClick={() => onViewBeneficiary && onViewBeneficiary(b)}
+                  className="w-full flex items-center gap-2.5 py-1.5 px-1.5 rounded-lg hover:bg-white/5 transition-colors text-left">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ background: "#2563EB" }}>
+                    {(b.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <p className="text-[11.5px] text-white/90 flex-1 truncate">{b.name || b.beneficiary_id}</p>
+                  <span className="text-[9px] text-white/40">{b.village}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pending Tasks */}
+          {PENDING_TASKS.length > 0 && (
+            <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Pending Tasks</p>
+              <div className="space-y-2">
+                {PENDING_TASKS.map((t, i) => (
+                  <button key={i} onClick={t.onClick} className="w-full flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
+                    <t.icon size={16} style={{ color: t.color }} className="shrink-0" />
+                    <span className="text-[12px] text-white flex-1 text-left">{t.label}</span>
+                    <ChevronRight size={14} className="text-white/30" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Activity */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Recent Activity</p>
+            {myActivity.length === 0 ? (
+              <p className="text-[12px] text-white/50 text-center py-4">No activity yet.</p>
+            ) : (
+              <div className="space-y-0">
+                {myActivity.map((a, i) => (
+                  <div key={a.id || i} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: "#10B981" }} />
+                      {i < myActivity.length - 1 && <div className="w-px flex-1 min-h-[20px]" style={{ background: "rgba(255,255,255,0.1)" }} />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <p className="text-[11.5px] text-white/85 leading-snug">{a.details || a.action}</p>
+                      <p className="text-[9.5px] text-white/40 mt-0.5">{a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Monthly Performance */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Monthly Performance</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(37,99,235,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#60A5FA]">{registeredThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Registered this month</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(16,185,129,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#10B981]">{sessionsMarkedThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Attendance sessions marked</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Floating Action Button */}
+      <button onClick={() => onQuickAction("beneficiary")} aria-label="Register Beneficiary"
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all active:scale-90"
+        style={{ background: "linear-gradient(135deg,#2563EB,#1E3A8A)", boxShadow: "0 10px 30px -8px rgba(37,99,235,0.6)" }}>
+        <Plus size={24} />
+      </button>
+    </div>
+  );
+}
+
 function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
@@ -7398,7 +7641,7 @@ export default function App() {
           )}
 
           {/* VIEWS */}
-          {!subView && view === "dashboard" && (
+          {!subView && view === "dashboard" && isAdmin && (
             <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} currentUser={user}
               onQuickAction={(key) => {
                 setSubView(null); setEditing(null);
@@ -7409,6 +7652,19 @@ export default function App() {
                 else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
                 else if (key === "employment") { setView("employment"); setSubView("employment-form"); }
                 else if (key === "reports") { setView("reports"); }
+                else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
+              }}
+              onViewBeneficiary={(b) => { goTo("beneficiaries"); setProfileBeneficiary(b); }} />
+          )}
+          {!subView && view === "dashboard" && !isAdmin && (
+            <FieldWorkerDashboard beneficiaries={visibleBeneficiaries} currentUser={user}
+              onQuickAction={(key) => {
+                setSubView(null); setEditing(null);
+                if (key === "beneficiary") { setView("beneficiaries"); setSubView("beneficiary-form"); }
+                else if (key === "training") { setView("training"); setTrainingSubView(null); }
+                else if (key === "attendance") { setView("training"); setTrainingSubView(null); }
+                else if (key === "assessment") { setView("training"); setTrainingSubView("assessment-management"); }
+                else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
                 else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
               }}
               onViewBeneficiary={(b) => { goTo("beneficiaries"); setProfileBeneficiary(b); }} />
