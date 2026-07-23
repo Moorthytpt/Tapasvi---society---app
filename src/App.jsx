@@ -6230,6 +6230,100 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   );
 }
 
+/* ============================================================
+   MOBILE NAVIGATION DRAWER
+   Left slide-in drawer replacing the old bottom nav. Reuses the
+   exact same section/onClick config the desktop sidebar uses —
+   no new routes, no new logic, only presentation.
+   ============================================================ */
+function NavDrawer({ open, onClose, sections, currentUser, isSuperAdmin, isAdmin, view }) {
+  const touchStartX = React.useRef(null);
+  const touchDeltaX = React.useRef(0);
+  const [dragX, setDragX] = useState(0);
+
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchMove = (e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    touchDeltaX.current = dx;
+    if (dx < 0) setDragX(dx);
+  };
+  const onTouchEnd = () => {
+    if (touchDeltaX.current < -70) onClose();
+    touchStartX.current = null; touchDeltaX.current = 0; setDragX(0);
+  };
+
+  const roleLabel = isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker";
+
+  return (
+    <>
+      <style>{`
+        .tp-drawer-overlay { transition: opacity 300ms ease; }
+        .tp-drawer-panel { transition: transform 300ms cubic-bezier(0.22,1,0.36,1); will-change: transform; }
+        .tp-menu-item { position: relative; overflow: hidden; }
+        .tp-menu-item:active { background: rgba(37,99,235,0.12) !important; }
+      `}</style>
+
+      {/* Dark overlay */}
+      <div className="md:hidden fixed inset-0 z-[60] bg-black/50 tp-drawer-overlay"
+        style={{ opacity: open ? 1 : 0, pointerEvents: open ? "auto" : "none" }}
+        onClick={onClose} />
+
+      {/* Sliding panel */}
+      <div className="md:hidden fixed top-0 left-0 bottom-0 z-[65] w-[82%] max-w-[320px] bg-white tp-drawer-panel flex flex-col shadow-2xl"
+        style={{ transform: open ? `translateX(${Math.min(0, dragX)}px)` : "translateX(-100%)" }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+
+        {/* Glass header */}
+        <div className="relative overflow-hidden px-5 pt-6 pb-5 text-white" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+          <div className="flex items-center gap-3">
+            <Logo size={40} />
+            <div className="min-w-0">
+              <p className="text-[17px] font-extrabold tracking-wide">TAPASVI</p>
+              <p className="text-[10px] text-white/80 truncate">Digital NGO Management System</p>
+            </div>
+          </div>
+          <span className="inline-block mt-2.5 text-[9px] font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)" }}>v2.0</span>
+        </div>
+
+        {/* User profile */}
+        <div className="px-5 py-4 border-b border-[#F3F4F6] flex items-center gap-3">
+          <div className="relative shrink-0">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+              {(currentUser?.username || "?").charAt(0).toUpperCase()}
+            </div>
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#16A34A] border-2 border-white" title="Online" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold text-[#111827] truncate">{currentUser?.username || "User"}</p>
+            <p className="text-[11px] text-[#6B7280]">{roleLabel} · TAPASVI Society</p>
+          </div>
+        </div>
+
+        {/* Menu */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+          {sections.map(s => (
+            <div key={s.section}>
+              <p className="text-[9.5px] font-bold tracking-wider text-[#9CA3AF] px-3 mb-1">{s.section}</p>
+              <div className="space-y-1">
+                {s.items.map(item => (
+                  <button key={item.key} onClick={item.onClick}
+                    className="tp-menu-item w-full flex items-center gap-3 px-3 rounded-xl text-[13.5px] font-medium transition-all duration-200 hover:bg-[#EFF6FF]"
+                    style={{ minHeight: 52, background: item.active ? "#DCFCE7" : "transparent", color: item.danger ? "#F97316" : item.active ? "#16A34A" : "#374151" }}>
+                    {item.active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full" style={{ background: "#16A34A" }} />}
+                    <span className="text-[18px]">{item.emoji}</span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+      </div>
+    </>
+  );
+}
+
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -6514,6 +6608,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
   const [subView, setSubView] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -7102,62 +7199,120 @@ export default function App() {
     </div>
   );
 
-  const NAVITEMS = [
-    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { key: "beneficiaries", label: "Beneficiaries", icon: Users },
-    { key: "training", label: "Training", icon: BookOpen },
-    { key: "employment", label: "Employment", icon: Briefcase },
-    { key: "reports", label: "Reports", icon: BarChart3 },
-    ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
-    ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
-    ...(isSuperAdmin ? [{ key: "settings", label: "Settings", icon: SettingsIcon }] : []),
-  ];
+  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); setDrawerOpen(false); };
+  const goToTraining = (sub) => { setView("training"); setSubView(null); setTrainingSubView(sub); setDrawerOpen(false); };
 
-  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); };
+  const MENU_SECTIONS = [
+    {
+      section: "MAIN",
+      items: [
+        { key: "dashboard", label: "Dashboard", emoji: "🏠", icon: LayoutDashboard, onClick: () => goTo("dashboard"), active: view === "dashboard" },
+        { key: "beneficiaries", label: "Beneficiaries", emoji: "👥", icon: Users, onClick: () => goTo("beneficiaries"), active: view === "beneficiaries" },
+        { key: "training", label: "Training", emoji: "🎓", icon: BookOpen, onClick: () => goTo("training"), active: view === "training" && !trainingSubView },
+      ],
+    },
+    {
+      section: "OPERATIONS",
+      items: [
+        { key: "attendance", label: "Attendance", emoji: "📅", icon: CheckCircle, onClick: () => goToTraining(null) },
+        ...(isAdmin ? [{ key: "assessments", label: "Assessments", emoji: "📝", icon: ClipboardList, onClick: () => goToTraining("assessment-management"), active: trainingSubView === "assessment-management" }] : []),
+        ...(isAdmin ? [{ key: "certificates", label: "Certificates", emoji: "🏆", icon: Award, onClick: () => goToTraining("certificate-generation"), active: trainingSubView === "certificate-generation" }] : []),
+        { key: "employment", label: "Employment", emoji: "💼", icon: Briefcase, onClick: () => goTo("employment"), active: view === "employment" },
+        ...(isAdmin ? [{ key: "villages", label: "Villages", emoji: "🏘", icon: MapPin, onClick: () => goTo("villages"), active: view === "villages" }] : []),
+        { key: "reports", label: "Reports", emoji: "📊", icon: BarChart3, onClick: () => goTo("reports"), active: view === "reports" },
+      ],
+    },
+    {
+      section: "ADMINISTRATION",
+      items: [
+        ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
+        ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
+      ],
+    },
+    {
+      section: "SUPPORT",
+      items: [
+        { key: "help", label: "Help & Support", emoji: "❓", icon: AlertCircle, onClick: () => { setDrawerOpen(false); setShowHelp(true); } },
+        { key: "logout", label: "Logout", emoji: "🚪", icon: LogOut, onClick: () => { setDrawerOpen(false); handleLogout(); }, danger: true },
+      ],
+    },
+  ].filter(s => s.items.length > 0);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <style>{`* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
 
       {/* Sidebar (desktop) */}
-      <aside className="w-[220px] bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0">
+      <aside className={"bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0 transition-all duration-300"} style={{ width: sidebarCollapsed ? 76 : 240 }}>
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#F3F4F6]">
           <Logo size={30} />
-          <div>
-            <p className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
-            <p className="text-[10px] text-[#999]">{isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"}</p>
-          </div>
+          {!sidebarCollapsed && (
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-[#1E3A8A] truncate" style={{ fontFamily: "Manrope,Arial,sans-serif", fontWeight: 900 }}>TAPASVI</p>
+              <p className="text-[10px] text-[#999] truncate">{isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"}</p>
+            </div>
+          )}
         </div>
-        <nav className="flex-1 px-3 py-3 space-y-0.5">
-          {NAVITEMS.map(item => (
-            <button key={item.key} onClick={() => goTo(item.key)}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition"
-              style={view === item.key ? { background: "#16A34A", color: "#fff" } : { color: "#374151" }}>
-              <item.icon size={16} />{item.label}
-            </button>
+        <nav className="flex-1 px-3 py-3 space-y-3 overflow-y-auto">
+          {MENU_SECTIONS.filter(s => s.section !== "SUPPORT").map(s => (
+            <div key={s.section}>
+              {!sidebarCollapsed && <p className="text-[9.5px] font-bold tracking-wider text-[#9CA3AF] px-3 mb-1">{s.section}</p>}
+              <div className="space-y-0.5">
+                {s.items.map(item => (
+                  <button key={item.key} onClick={item.onClick} title={sidebarCollapsed ? item.label : undefined}
+                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-200 " + (sidebarCollapsed ? "justify-center" : "")}
+                    style={item.active ? { background: "#16A34A", color: "#fff" } : { color: "#374151" }}>
+                    <item.icon size={16} className="shrink-0" />{!sidebarCollapsed && item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
-        <div className="px-3 pb-3 space-y-0.5">
-          <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
-            <RefreshCw size={15} /> Refresh Data
+        <div className="px-3 pb-3 space-y-0.5 border-t border-[#F3F4F6] pt-3">
+          <button onClick={() => setSidebarCollapsed(c => !c)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
+            <ChevronRight size={15} className={"transition-transform duration-300 " + (sidebarCollapsed ? "" : "rotate-180")} /> {!sidebarCollapsed && "Collapse"}
           </button>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition">
-            <LogOut size={15} /> Sign Out
+          <button onClick={loadAll} className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition " + (sidebarCollapsed ? "justify-center" : "")}>
+            <RefreshCw size={15} className="shrink-0" /> {!sidebarCollapsed && "Refresh Data"}
+          </button>
+          <button onClick={handleLogout} className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition " + (sidebarCollapsed ? "justify-center" : "")}>
+            <LogOut size={15} className="shrink-0" /> {!sidebarCollapsed && "Sign Out"}
           </button>
         </div>
       </aside>
 
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E7EB] flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Logo size={24} />
-          <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setDrawerOpen(true)} aria-label="Open menu" className="p-1 -ml-1 rounded-lg active:bg-[#F3F4F6] transition">
+            <span className="block text-[19px] leading-none">☰</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <Logo size={24} />
+            <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
+          </div>
         </div>
         <button onClick={handleLogout} className="p-1.5"><LogOut size={16} className="text-[#F97316]" /></button>
       </div>
 
+      {/* Mobile Navigation Drawer */}
+      <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} sections={MENU_SECTIONS} currentUser={user} isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} view={view} />
+
+      {/* Help & Support modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center px-4" onClick={() => setShowHelp(false)}>
+          <div className="bg-white rounded-2xl max-w-[360px] w-full p-5" onClick={e => e.stopPropagation()}>
+            <p className="text-[15px] font-bold text-[#111827] mb-2">❓ Help & Support</p>
+            <p className="text-[12.5px] text-[#374151] leading-relaxed mb-1">For any issue with the TAPASVI Digital NGO Management System, please contact your organization's Admin or Super Admin — they can help with access, data corrections, or escalate technical issues.</p>
+            <p className="text-[11px] text-[#9CA3AF] mt-3">TAPASVI DMS v2.0</p>
+            <button onClick={() => setShowHelp(false)} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>Close</button>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <main className="flex-1 min-w-0 pt-[56px] md:pt-0 pb-20 md:pb-0">
+      <main className="flex-1 min-w-0 pt-[56px] md:pt-0 pb-6 md:pb-0">
         <div className="max-w-[1100px] mx-auto px-4 md:px-7 py-5">
 
           {/* FAB for new registration */}
@@ -7327,18 +7482,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Mobile bottom nav - all tabs */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-1">
-        {NAVITEMS.map(function(navItem) {
-          return (
-            <button key={navItem.key} onClick={() => goTo(navItem.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-              <navItem.icon size={17} style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }} />
-              <span className="text-[9px] font-medium" style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }}>{navItem.label}</span>
-            </button>
-          );
-        })}
-      </nav>
 
       {/* Multi-Program Auto Registration Dialog */}
       {multiProgDialog && (
