@@ -2487,6 +2487,127 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
 }
 
 /* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
+/* ============================================================
+   TRAINING SESSION SCREEN — blue theme, distinct from Attendance.
+   Purpose: conduct/manage today's training session before handing
+   off to attendance marking. Start/Pause/End are session-flow UI
+   state only (not persisted) — batch.status itself is unchanged,
+   since editing that remains an admin action elsewhere.
+   ============================================================ */
+function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onClose }) {
+  const [sessionState, setSessionState] = useState("notStarted"); // notStarted | running | paused | ended
+  const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+  const participants = (enrollments || []).filter(e => e.batch_id === batch.batch_id).length;
+
+  const durationLabel = (() => {
+    if (!batch.start_date || !batch.end_date) return "—";
+    const days = Math.round((new Date(batch.end_date) - new Date(batch.start_date)) / 86400000);
+    if (days <= 0) return "1 day";
+    if (days < 14) return `${days} days`;
+    return `${Math.round(days / 7)} weeks`;
+  })();
+
+  const INFO = [
+    ["Program", p.label],
+    ["Batch ID", batch.batch_id?.slice(0, 8) || "—"],
+    ["Village", batch.venue || "—"],
+    ["Venue", batch.venue || "—"],
+    ["Trainer", batch.trainer_name || "—"],
+    ["Date", `${batch.start_date || "—"} → ${batch.end_date || "—"}`],
+    ["Participants", participants],
+    ["Duration", durationLabel],
+    ["Session Status", batch.status || "—"],
+  ];
+
+  return (
+    <div className="max-w-[560px] mx-auto">
+      {/* Header */}
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#2563EB)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><X size={16} /></button>
+          <p className="text-[10px] text-white/70">Training / Session</p>
+        </div>
+        <p className="text-[17px] font-bold">🎓 {batch.training_name || batch.training_type}</p>
+        <p className="text-[11px] text-white/80 mt-0.5">Conduct and manage today's training session</p>
+      </div>
+
+      {/* Batch info card */}
+      <div className="rounded-[20px] p-4 mb-4" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          {INFO.map(([label, val]) => (
+            <div key={label}>
+              <p className="text-[9.5px] text-[#9CA3AF] uppercase tracking-wide">{label}</p>
+              <p className="text-[12.5px] font-semibold text-[#111827] mt-0.5">{val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {sessionState !== "ended" ? (
+        <>
+          {/* Session controls */}
+          <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Status</p>
+            <p className="text-[16px] font-bold mb-4" style={{ color: sessionState === "running" ? "#2563EB" : sessionState === "paused" ? "#F59E0B" : "#6B7280" }}>
+              {sessionState === "notStarted" ? "Not Started" : sessionState === "running" ? "🔵 In Progress" : "⏸ Paused"}
+            </p>
+
+            {sessionState === "notStarted" && (
+              <button onClick={() => setSessionState("running")}
+                className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+                style={{ background: "linear-gradient(90deg,#1E3A8A,#2563EB)", boxShadow: "0 8px 20px -6px rgba(37,99,235,0.45)" }}>
+                ▶ Start Training
+              </button>
+            )}
+            {sessionState === "running" && (
+              <div className="grid grid-cols-2 gap-2.5">
+                <button onClick={() => setSessionState("paused")}
+                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-[#F59E0B] border-2 transition active:scale-[0.98]" style={{ borderColor: "#F59E0B" }}>
+                  ⏸ Pause Session
+                </button>
+                <button onClick={() => setSessionState("ended")}
+                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
+                  🏁 End Training
+                </button>
+              </div>
+            )}
+            {sessionState === "paused" && (
+              <div className="grid grid-cols-2 gap-2.5">
+                <button onClick={() => setSessionState("running")}
+                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#2563EB" }}>
+                  ▶ Resume
+                </button>
+                <button onClick={() => setSessionState("ended")}
+                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
+                  🏁 End Training
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
+          <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
+          <p className="text-[15px] font-bold text-[#16A34A]">Training Completed Successfully</p>
+          <p className="text-[12px] text-[#15803D] mt-1 mb-4">Next, record who attended today's session.</p>
+          <button onClick={onContinueToAttendance}
+            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
+            ➡ Continue to Attendance
+          </button>
+        </div>
+      )}
+
+      {sessionState !== "ended" && (
+        <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
+          Skip to Attendance →
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const batchEnrollments = enrollments.filter(e =>
@@ -2546,15 +2667,15 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
 
   return (
     <div className="max-w-[720px] mx-auto">
-      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#15803D,#16A34A)" }}>
         <div className="flex items-center gap-2 mb-1">
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><X size={16} /></button>
-          <p className="text-[10px] text-white/70">Dashboard / Attendance / Take Attendance</p>
+          <p className="text-[10px] text-white/70">Training / Attendance</p>
         </div>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h2 className="text-[17px] font-bold">{batch.training_name}</h2>
-            <p className="text-[11px] text-white/80 mt-0.5">Track beneficiary attendance quickly and accurately.</p>
+            <h2 className="text-[17px] font-bold">✅ {batch.training_name}</h2>
+            <p className="text-[11px] text-white/80 mt-0.5">Record who attended today's session.</p>
           </div>
           <div className="text-right">
             <p className="text-[18px] font-black">{totalSessions}</p>
@@ -7699,6 +7820,13 @@ export default function App() {
               onEnroll={enrollBeneficiaries}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
+          {view === "training" && trainingSubView === "session" && activeBatch && (
+            <TrainingSessionScreen
+              batch={activeBatch}
+              enrollments={enrollments}
+              onContinueToAttendance={() => setTrainingSubView("attendance")}
+              onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
+          )}
           {view === "training" && trainingSubView === "attendance" && activeBatch && (
             <AttendanceScreen
               batch={activeBatch}
@@ -7811,7 +7939,7 @@ export default function App() {
               onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
               onDelete={b => setDeleteTarget({ type: "batch", record: b })}
               onEnroll={b => { setActiveBatch(b); setTrainingSubView("enroll"); }}
-              onAttendance={b => { setActiveBatch(b); setTrainingSubView("attendance"); }}
+              onAttendance={b => { setActiveBatch(b); setTrainingSubView("session"); }}
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
               onAttendanceReport={() => setTrainingSubView("attendance-report")}
               onAssessments={() => setTrainingSubView("assessment-management")}
