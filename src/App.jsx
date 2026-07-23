@@ -2013,13 +2013,6 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
           </div>
         </>
       )}
-
-      {/* Floating Action Button */}
-      <button onClick={() => onQuickAction("beneficiary")} aria-label="Register Beneficiary"
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all active:scale-90"
-        style={{ background: "linear-gradient(135deg,#2563EB,#1E3A8A)", boxShadow: "0 10px 30px -8px rgba(37,99,235,0.6)" }}>
-        <Plus size={24} />
-      </button>
     </div>
   );
 }
