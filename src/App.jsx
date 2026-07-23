@@ -1675,36 +1675,54 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin, cur
 function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onViewBeneficiary }) {
   const username = currentUser?.username;
   const [batches, setBatches] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
   const [myActivity, setMyActivity] = useState([]);
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const [bt, al] = await Promise.all([
-        supabase.from("batch_trainings").select("*").eq("assigned_field_worker", username),
-        supabase.from("audit_logs").select("*").eq("user_email", username).order("created_at", { ascending: false }).limit(6),
+  const loadAll = async () => {
+    const [bt, al] = await Promise.all([
+      supabase.from("batch_trainings").select("*").eq("assigned_field_worker", username),
+      supabase.from("audit_logs").select("*").eq("user_email", username).order("created_at", { ascending: false }).limit(6),
+    ]);
+    const myBatches = bt.data || [];
+    setBatches(myBatches);
+    setMyActivity(al.data || []);
+    const batchIds = myBatches.map(b => b.batch_id);
+    if (batchIds.length > 0) {
+      const [en, ar, asr] = await Promise.all([
+        supabase.from("training_enrollments").select("*").in("batch_id", batchIds),
+        supabase.from("attendance_records").select("*").in("batch_id", batchIds),
+        supabase.from("assessment_records").select("*").in("batch_id", batchIds),
       ]);
-      const myBatches = bt.data || [];
-      setBatches(myBatches);
-      setMyActivity(al.data || []);
-      const batchIds = myBatches.map(b => b.batch_id);
-      if (batchIds.length > 0) {
-        const { data: ar } = await supabase.from("attendance_records").select("*").in("batch_id", batchIds);
-        setAttendanceRecords(ar || []);
+      setEnrollments(en.data || []);
+      setAttendanceRecords(ar.data || []);
+      setAssessmentRecords(asr.data || []);
+      const assessmentIds = (asr.data || []).map(a => a.id);
+      if (assessmentIds.length > 0) {
+        const [am, ct] = await Promise.all([
+          supabase.from("assessment_marks").select("*").in("assessment_id", assessmentIds),
+          supabase.from("certificates").select("*").in("batch_id", batchIds),
+        ]);
+        setAssessmentMarks(am.data || []);
+        setCertificates(ct.data || []);
       } else {
-        setAttendanceRecords([]);
+        setAssessmentMarks([]); setCertificates([]);
       }
-      setLoading(false);
-    })();
-  }, [username]);
+    } else {
+      setEnrollments([]); setAttendanceRecords([]); setAssessmentRecords([]); setAssessmentMarks([]); setCertificates([]);
+    }
+  };
 
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { (async () => { setLoading(true); await loadAll(); setLoading(false); })(); }, [username]);
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
+
+  const handleSync = async () => { setSyncing(true); await loadAll(); setSyncing(false); };
 
   const todayStr = now.toISOString().slice(0, 10);
   const hour = now.getHours();
@@ -1713,40 +1731,80 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
   const motivationLines = ["Let's make today count! 💪", "Every visit changes a life. 🌱", "Small steps, big impact today. 🚀", "Your work matters. Let's go! 🔥"];
   const [motivation] = useState(() => motivationLines[Math.floor(Math.random() * motivationLines.length)]);
 
+  const assignedVillages = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))], [beneficiaries]);
+
   const todaysSchedule = batches.filter(b => b.start_date && b.end_date && b.start_date <= todayStr && b.end_date >= todayStr);
   const attendanceMarkedTodayBatchIds = new Set(attendanceRecords.filter(a => a.session_date === todayStr).map(a => a.batch_id));
   const attendancePendingToday = todaysSchedule.filter(b => !attendanceMarkedTodayBatchIds.has(b.batch_id));
-  const targetTotal = todaysSchedule.length;
-  const targetDone = todaysSchedule.length - attendancePendingToday.length;
-  const targetPct = targetTotal > 0 ? Math.round((targetDone / targetTotal) * 100) : 100;
+  const assessmentDoneTodayBatchIds = new Set(assessmentRecords.filter(a => a.assessment_date === todayStr).map(a => a.batch_id));
+  const certIssuedTodayBatchIds = new Set(certificates.filter(c => c.certificate_date === todayStr).map(c => c.batch_id));
+  const registeredToday = beneficiaries.filter(b => b.registration_date === todayStr).length;
+
+  // Today's checklist — real signals only, no fabricated quotas
+  const CHECKLIST = [
+    { key: "registration", label: "Registration", done: registeredToday > 0, applicable: true },
+    { key: "training", label: "Training", done: todaysSchedule.length > 0, applicable: todaysSchedule.length > 0 },
+    { key: "attendance", label: "Attendance", done: todaysSchedule.length > 0 && attendancePendingToday.length === 0, applicable: todaysSchedule.length > 0 },
+    { key: "assessment", label: "Assessment", done: todaysSchedule.some(b => assessmentDoneTodayBatchIds.has(b.batch_id)), applicable: todaysSchedule.length > 0 },
+    { key: "certificate", label: "Certificate", done: todaysSchedule.some(b => certIssuedTodayBatchIds.has(b.batch_id)), applicable: todaysSchedule.length > 0 },
+  ];
+  const applicableSteps = CHECKLIST.filter(c => c.applicable);
+  const completionPct = applicableSteps.length > 0 ? Math.round((applicableSteps.filter(c => c.done).length / applicableSteps.length) * 100) : 0;
+
+  // Smart "continue" routing — jumps to whatever's next incomplete
+  const nextAction = attendancePendingToday.length > 0 ? { key: "attendance", label: "Mark Attendance" }
+    : todaysSchedule.some(b => !assessmentDoneTodayBatchIds.has(b.batch_id)) && todaysSchedule.length > 0 ? { key: "assessment", label: "Conduct Assessment" }
+    : todaysSchedule.some(b => !certIssuedTodayBatchIds.has(b.batch_id)) && todaysSchedule.length > 0 ? { key: "certificate", label: "Generate Certificates" }
+    : { key: "beneficiary", label: "Register a Beneficiary" };
 
   const thisMonth = now.toISOString().slice(0, 7);
   const registeredThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
-  const sessionsMarkedThisMonth = new Set(attendanceRecords.filter(a => (a.session_date || "").slice(0, 7) === thisMonth && a.marked_by === username).map(a => a.batch_id + a.session_date)).size;
+  const trainingsThisMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === thisMonth).length;
+  const monthAttendance = attendanceRecords.filter(a => (a.session_date || "").slice(0, 7) === thisMonth);
+  const attendancePctMonth = monthAttendance.length > 0 ? Math.round((monthAttendance.filter(a => a.status === "Present" || a.status === "Late").length / monthAttendance.length) * 100) : null;
+  const certsThisMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === thisMonth).length;
   const aadhaarPending = beneficiaries.filter(b => b.aadhaar_verified !== "Yes").length;
+  const pendingAssessments = todaysSchedule.filter(b => !assessmentDoneTodayBatchIds.has(b.batch_id)).length;
+  const pendingCerts = assessmentMarks.filter(m => m.result === "Pass" && m.certificate_eligible === "Yes" && !certificates.some(c => c.assessment_id === m.assessment_id && c.beneficiary_id === m.beneficiary_id)).length;
+  const scoreParts = [registeredThisMonth > 0 ? 100 : 0, attendancePctMonth ?? 0, trainingsThisMonth > 0 ? 100 : 0].filter(v => v !== null);
+  const achievementPct = scoreParts.length ? Math.round(scoreParts.reduce((a, b) => a + b, 0) / scoreParts.length) : 0;
 
   const PENDING_TASKS = [
-    ...(attendancePendingToday.length > 0 ? [{ label: `Mark attendance for ${attendancePendingToday.length} batch${attendancePendingToday.length > 1 ? "es" : ""} today`, icon: CheckCircle, color: "#F59E0B", onClick: () => onQuickAction("attendance") }] : []),
+    ...(attendancePendingToday.length > 0 ? [{ label: `Mark attendance for ${attendancePendingToday.length} batch${attendancePendingToday.length > 1 ? "es" : ""} today`, icon: CheckCircle, color: "#F59E0B", urgent: true, onClick: () => onQuickAction("attendance") }] : []),
+    ...(pendingAssessments > 0 ? [{ label: `Conduct assessment for ${pendingAssessments} today's batch${pendingAssessments > 1 ? "es" : ""}`, icon: ClipboardList, color: "#F59E0B", onClick: () => onQuickAction("assessment") }] : []),
+    ...(pendingCerts > 0 ? [{ label: `Generate ${pendingCerts} pending certificate${pendingCerts > 1 ? "s" : ""}`, icon: Award, color: "#8B5CF6", onClick: () => onQuickAction("certificate") }] : []),
     ...(aadhaarPending > 0 ? [{ label: `Verify Aadhaar for ${aadhaarPending} beneficiar${aadhaarPending > 1 ? "ies" : "y"}`, icon: AlertCircle, color: "#EF4444", onClick: () => onQuickAction("beneficiaries-list") }] : []),
   ];
 
   const QUICK_ACTIONS = [
-    { key: "beneficiary", label: "Register Beneficiary", icon: Users, color: "#2563EB" },
-    { key: "attendance", label: "Mark Attendance", icon: CheckCircle, color: "#10B981" },
-    { key: "training", label: "Training", icon: BookOpen, color: "#2563EB" },
-    { key: "assessment", label: "Assessment", icon: ClipboardList, color: "#F59E0B" },
-    { key: "certificate", label: "Certificates", icon: Award, color: "#8B5CF6" },
+    { key: "beneficiary", label: "Register Beneficiary", emoji: "➕", icon: Users, color: "#2563EB" },
+    { key: "training", label: "Continue Training", emoji: "🎓", icon: BookOpen, color: "#2563EB" },
+    { key: "attendance", label: "Attendance", emoji: "✅", icon: CheckCircle, color: "#10B981" },
+    { key: "assessment", label: "Assessment", emoji: "📝", icon: ClipboardList, color: "#F59E0B" },
+    { key: "certificate", label: "Certificate", emoji: "🏆", icon: Award, color: "#8B5CF6" },
+    { key: "beneficiaries-list", label: "Assigned Beneficiaries", emoji: "👥", icon: Users, color: "#2563EB" },
   ];
 
   const cardStyle = { background: "rgba(30,41,59,0.6)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.08)" };
+  const WORKFLOW_STEPS = [
+    { key: "assigned", label: "Assigned" },
+    { key: "start", label: "Start" },
+    { key: "attendance", label: "Attendance" },
+    { key: "assessment", label: "Assessment" },
+    { key: "certificate", label: "Certificate" },
+  ];
 
   return (
     <div className="-m-4 p-4 min-h-screen rounded-2xl relative" style={{ background: "linear-gradient(160deg,#0B1220 0%,#0E1A2E 55%,#0B1220 100%)" }}>
-      {/* Welcome */}
-      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#2563EB)" }}>
-        <p className="text-[16px] font-bold">👋 {greeting}, {username || "there"}</p>
-        <p className="text-[11.5px] text-white/80 mt-0.5">{motivation}</p>
-        <p className="text-[10px] text-white/60 mt-2">{dateStr}</p>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 px-0.5">
+        <div>
+          <p className="text-[16px] font-bold text-white">{greeting}, {username || "there"} 👋</p>
+          <p className="text-[10.5px] text-white/50 mt-0.5">{dateStr} · 🏘 {assignedVillages.length > 0 ? assignedVillages.slice(0, 2).join(", ") + (assignedVillages.length > 2 ? ` +${assignedVillages.length - 2}` : "") : "No village assigned"}</p>
+        </div>
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[14px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg,#2563EB,#1E3A8A)" }}>
+          {(username || "?").charAt(0).toUpperCase()}
+        </div>
       </div>
 
       {loading ? (
@@ -1756,33 +1814,48 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
         </div>
       ) : (
         <>
-          {/* Today's Target + Progress */}
-          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Today's Target</p>
-              <span className="text-[10px] text-white/50">{targetDone}/{targetTotal} done</span>
+          {/* Start My Day */}
+          <div className="rounded-[22px] p-5 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#10B981,#2563EB)" }}>
+            <p className="text-[13px] font-bold tracking-wide">🎯 START MY DAY</p>
+            <p className="text-[11px] text-white/80 mt-1 mb-3">{motivation}</p>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {CHECKLIST.map(c => (
+                <span key={c.key} className="text-[10px] font-medium px-2.5 py-1 rounded-full" style={{ background: c.done ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.15)" }}>
+                  {c.done ? "✅" : c.applicable ? "🟡" : "⬜"} {c.label}
+                </span>
+              ))}
             </div>
-            <div className="flex items-center gap-4">
-              <div className="relative w-16 h-16 shrink-0">
-                <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
-                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round"
-                    strokeDasharray={`${targetPct * 0.974} 1000`} style={{ transition: "stroke-dasharray 0.8s ease" }} />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-white">{targetPct}%</div>
-              </div>
-              <div className="flex-1">
-                <p className="text-[13px] text-white font-semibold">
-                  {targetTotal === 0 ? "No trainings scheduled today" : attendancePendingToday.length === 0 ? "All caught up! 🎉" : `${attendancePendingToday.length} attendance session${attendancePendingToday.length > 1 ? "s" : ""} pending`}
-                </p>
-                <p className="text-[11px] text-white/60 mt-0.5">{targetTotal} ongoing training{targetTotal !== 1 ? "s" : ""} assigned to you today</p>
-              </div>
+            <button onClick={() => onQuickAction(nextAction.key)}
+              className="w-full rounded-xl py-3.5 text-[14px] font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
+              style={{ background: "white", color: "#059669" }}>
+              ▶ {nextAction.label}
+            </button>
+          </div>
+
+          {/* Today's Completion */}
+          <div className="rounded-[20px] p-4 mb-4 flex items-center gap-4" style={cardStyle}>
+            <div className="relative w-16 h-16 shrink-0">
+              <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${completionPct * 0.974} 1000`} style={{ transition: "stroke-dasharray 0.8s ease" }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-white">{completionPct}%</div>
+            </div>
+            <div>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Today's Completion</p>
+              <p className="text-[11px] text-white/50 mt-0.5">{applicableSteps.filter(c => c.done).length} of {applicableSteps.length} steps done</p>
             </div>
           </div>
 
           {/* Quick Actions */}
           <div className="mb-4">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-white/50 mb-2 px-1">Quick Actions</p>
+            <div className="flex items-center justify-between mb-2 px-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-white/50">Quick Actions</p>
+              <button onClick={handleSync} disabled={syncing} className="flex items-center gap-1 text-[10px] text-white/50">
+                <RefreshCw size={11} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync"}
+              </button>
+            </div>
             <div className="grid grid-cols-3 gap-2.5">
               {QUICK_ACTIONS.map(a => (
                 <button key={a.key} onClick={() => onQuickAction(a.key)}
@@ -1797,27 +1870,39 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
             </div>
           </div>
 
-          {/* Today's Schedule */}
+          {/* Today's Trainings + workflow tracker */}
           <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
-            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Today's Schedule</p>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Today's Trainings</p>
             {todaysSchedule.length === 0 ? (
               <p className="text-[12px] text-white/50 text-center py-4">No trainings scheduled for today.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {todaysSchedule.map(b => {
-                  const done = attendanceMarkedTodayBatchIds.has(b.batch_id);
+                  const participants = enrollments.filter(e => e.batch_id === b.batch_id).length;
+                  const attDone = attendanceMarkedTodayBatchIds.has(b.batch_id);
+                  const asmDone = assessmentDoneTodayBatchIds.has(b.batch_id);
+                  const certDone = certIssuedTodayBatchIds.has(b.batch_id);
+                  const stepDone = [true, true, attDone, asmDone, certDone]; // assigned+start always true for an ongoing batch
                   return (
-                    <div key={b.batch_id} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: "rgba(255,255,255,0.04)" }}>
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: done ? "#10B98126" : "#F59E0B26" }}>
-                        <BookOpen size={15} style={{ color: done ? "#10B981" : "#F59E0B" }} />
+                    <div key={b.batch_id} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.04)" }}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p className="text-[12.5px] font-semibold text-white truncate">{b.training_name || b.training_type} · {b.venue}</p>
+                        <button onClick={() => onQuickAction("attendance")} className="text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0" style={{ background: "#2563EB" }}>Continue</button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12.5px] font-semibold text-white truncate">{b.training_name || b.training_type}</p>
-                        <p className="text-[10.5px] text-white/50 truncate">{b.venue}</p>
+                      <p className="text-[10px] text-white/50 mb-2">{PROGRAM_MAP[b.program]?.short || b.program} · {participants} participants</p>
+                      <div className="flex items-center">
+                        {WORKFLOW_STEPS.map((s, i) => (
+                          <React.Fragment key={s.key}>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: stepDone[i] ? "#10B981" : i === stepDone.findIndex(d => !d) ? "#2563EB" : "rgba(255,255,255,0.1)", color: stepDone[i] || i === stepDone.findIndex(d => !d) ? "#fff" : "rgba(255,255,255,0.4)" }}>
+                                {stepDone[i] ? "✓" : i + 1}
+                              </div>
+                              <span className="text-[7.5px] text-white/40">{s.label}</span>
+                            </div>
+                            {i < WORKFLOW_STEPS.length - 1 && <div className="flex-1 h-0.5 mb-3" style={{ background: stepDone[i] ? "#10B981" : "rgba(255,255,255,0.1)" }} />}
+                          </React.Fragment>
+                        ))}
                       </div>
-                      <span className="text-[9.5px] font-semibold px-2 py-1 rounded-full shrink-0" style={{ background: done ? "#10B98126" : "#F59E0B26", color: done ? "#10B981" : "#F59E0B" }}>
-                        {done ? "Marked" : "Pending"}
-                      </span>
                     </div>
                   );
                 })}
@@ -1839,12 +1924,27 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ background: "#2563EB" }}>
                     {(b.name || "?").charAt(0).toUpperCase()}
                   </div>
-                  <p className="text-[11.5px] text-white/90 flex-1 truncate">{b.name || b.beneficiary_id}</p>
-                  <span className="text-[9px] text-white/40">{b.village}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11.5px] text-white/90 truncate">{b.name || b.beneficiary_id}</p>
+                    <p className="text-[9px] text-white/40 truncate">{b.beneficiary_id} · {PROGRAM_MAP[b.program]?.short || b.program}</p>
+                  </div>
+                  <span className="text-[9px] text-white/40 shrink-0">{b.village}</span>
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Assigned Villages */}
+          {assignedVillages.length > 0 && (
+            <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">🏘 Assigned Villages</p>
+              <div className="flex flex-wrap gap-2">
+                {assignedVillages.map(v => (
+                  <span key={v} className="text-[11px] font-medium text-white px-3 py-1.5 rounded-full" style={{ background: "rgba(37,99,235,0.2)" }}>{v}</span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Pending Tasks */}
           {PENDING_TASKS.length > 0 && (
@@ -1852,9 +1952,10 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
               <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Pending Tasks</p>
               <div className="space-y-2">
                 {PENDING_TASKS.map((t, i) => (
-                  <button key={i} onClick={t.onClick} className="w-full flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-white/5" style={{ background: "rgba(255,255,255,0.04)" }}>
+                  <button key={i} onClick={t.onClick} className="w-full flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-white/5" style={{ background: t.urgent ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)" }}>
                     <t.icon size={16} style={{ color: t.color }} className="shrink-0" />
                     <span className="text-[12px] text-white flex-1 text-left">{t.label}</span>
+                    {t.urgent && <span className="text-[8.5px] font-bold text-[#EF4444] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(239,68,68,0.2)" }}>URGENT</span>}
                     <ChevronRight size={14} className="text-white/30" />
                   </button>
                 ))}
@@ -1887,15 +1988,26 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
 
           {/* Monthly Performance */}
           <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
-            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Monthly Performance</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Monthly Performance</p>
+              <span className="text-[11px] font-bold text-[#10B981]">{achievementPct}% Achievement</span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl p-3 text-center" style={{ background: "rgba(37,99,235,0.15)" }}>
                 <p className="text-[20px] font-bold text-[#60A5FA]">{registeredThisMonth}</p>
-                <p className="text-[10px] text-white/60 mt-0.5">Registered this month</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Registrations</p>
               </div>
               <div className="rounded-xl p-3 text-center" style={{ background: "rgba(16,185,129,0.15)" }}>
-                <p className="text-[20px] font-bold text-[#10B981]">{sessionsMarkedThisMonth}</p>
-                <p className="text-[10px] text-white/60 mt-0.5">Attendance sessions marked</p>
+                <p className="text-[20px] font-bold text-[#10B981]">{trainingsThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Trainings</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(245,158,11,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#F59E0B]">{attendancePctMonth !== null ? attendancePctMonth + "%" : "—"}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Attendance</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(139,92,246,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#8B5CF6]">{certsThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Certificates</p>
               </div>
             </div>
           </div>
