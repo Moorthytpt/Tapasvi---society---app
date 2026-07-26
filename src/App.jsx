@@ -129,6 +129,32 @@ const OUTCOME_FIELDS = {
 OUTCOME_FIELDS.shg_recycling_enterprise = OUTCOME_FIELDS.group_enterprise;
 ["plastic_recycling_enterprise", "upcycling_handicraft"].forEach(k => { OUTCOME_FIELDS[k] = OUTCOME_FIELDS.individual_business; });
 
+/* ============================================================
+   PARTNERS — master data module for external organizations.
+   ============================================================ */
+const PARTNER_TYPES = [
+  { key: "company", label: "Company", prefix: "CMP" },
+  { key: "industry", label: "Industry", prefix: "IND" },
+  { key: "shg", label: "SHG", prefix: "SHG" },
+  { key: "ngo", label: "NGO", prefix: "NGO" },
+  { key: "csr", label: "CSR Partner", prefix: "CSR" },
+  { key: "government", label: "Government Department", prefix: "GOV" },
+  { key: "bank", label: "Bank / Financial Institution", prefix: "BNK" },
+  { key: "recycler", label: "Waste Recycler / MRF", prefix: "REC" },
+  { key: "training_partner", label: "Training Partner", prefix: "TRN" },
+  { key: "placement_partner", label: "Placement Partner", prefix: "PLC" },
+];
+const PARTNER_TYPE_MAP = Object.fromEntries(PARTNER_TYPES.map(t => [t.key, t]));
+
+function nextPartnerCode(partners, prefix) {
+  const nums = partners.filter(p => p.partner_code?.startsWith(prefix + "-")).map(p => {
+    const m = p.partner_code?.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  });
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `${prefix}-${String(next).padStart(4, "0")}`;
+}
+
 
 const IDENTITY_TYPES = [
   { value: "aadhaar", label: "Aadhaar Card", placeholder: "12-digit Aadhaar number", pattern: /^\d{12}$/, hint: "12 digits" },
@@ -7325,6 +7351,420 @@ function NavDrawer({ open, onClose, sections, currentUser, isSuperAdmin, isAdmin
   );
 }
 
+function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+  const [partners, setPartners] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sub, setSub] = useState("dashboard"); // dashboard | list | form | profile
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("partners").select("*").order("created_at", { ascending: false });
+    if (error) { showToast("Error loading partners: " + error.message, "error"); setLoading(false); return; }
+    setPartners(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const savePartner = async (form) => {
+    if (editing) {
+      const { error } = await supabase.from("partners").update(form).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPartners(ps => ps.map(p => p.id === editing.id ? { ...p, ...form } : p));
+      await logAppAudit("UPDATE", "Partners", `Updated partner: ${form.partner_name} (${form.partner_code})`);
+      showToast("Partner updated.");
+    } else {
+      const prefix = PARTNER_TYPE_MAP[form.partner_type]?.prefix || "PTR";
+      const rec = { ...form, partner_code: nextPartnerCode(partners, prefix), status: form.status || "Active", created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("partners").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setPartners(ps => [data, ...ps]);
+      await logAppAudit("CREATE", "Partners", `Added partner: ${data.partner_name} (${data.partner_code})`);
+      showToast(`Partner ${data.partner_code} added.`);
+    }
+    setEditing(null); setSub("list");
+  };
+
+  const toggleStatus = async (p) => {
+    const newStatus = p.status === "Active" ? "Inactive" : "Active";
+    const { error } = await supabase.from("partners").update({ status: newStatus }).eq("id", p.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setPartners(ps => ps.map(x => x.id === p.id ? { ...x, status: newStatus } : x));
+    await logAppAudit(newStatus === "Active" ? "ACTIVATE" : "DEACTIVATE", "Partners", `${p.partner_name} → ${newStatus}`);
+    showToast(`${p.partner_name} ${newStatus === "Active" ? "activated" : "deactivated"}.`);
+  };
+
+  const totalPartners = partners.length;
+  const activeCount = partners.filter(p => p.status === "Active").length;
+  const inactiveCount = totalPartners - activeCount;
+  const countByType = (key) => partners.filter(p => p.partner_type === key).length;
+  const recentPartners = [...partners].slice(0, 5);
+
+  const KPI = [
+    { label: "Total Partners", value: totalPartners, icon: Building2, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Companies", value: countByType("company"), icon: Briefcase, grad: ["#DB2777", "#F472B6"] },
+    { label: "Industries", value: countByType("industry"), icon: Building2, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "SHGs", value: countByType("shg"), icon: Users, grad: ["#F97316", "#FDBA74"] },
+    { label: "NGOs", value: countByType("ngo"), icon: Users, grad: ["#16A34A", "#4ADE80"] },
+    { label: "CSR Partners", value: countByType("csr"), icon: Award, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Govt Departments", value: countByType("government"), icon: ShieldCheck, grad: ["#DC2626", "#F87171"] },
+    { label: "Banks", value: countByType("bank"), icon: Briefcase, grad: ["#7C3AED", "#C4B5FD"] },
+    { label: "Waste Recyclers", value: countByType("recycler"), icon: Leaf, grad: ["#16A34A", "#065F46"] },
+    { label: "Active Partners", value: activeCount, icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
+    { label: "Inactive Partners", value: inactiveCount, icon: XCircle, grad: ["#6B7280", "#9CA3AF"] },
+  ];
+
+  if (sub === "form") {
+    return <PartnerForm editing={editing} onSave={savePartner} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
+  }
+  if (sub === "profile" && viewing) {
+    return <PartnerProfile partner={viewing} onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
+  }
+  if (sub === "list") {
+    return (
+      <PartnerList partners={partners} isAdmin={isAdmin} loading={loading}
+        onAdd={() => { setEditing(null); setSub("form"); }}
+        onView={p => { setViewing(p); setSub("profile"); }}
+        onEdit={p => { setEditing(p); setSub("form"); }}
+        onToggleStatus={toggleStatus}
+        onExport={() => downloadCSV(partners.map(p => ({
+          "Partner Code": p.partner_code, "Name": p.partner_name, "Type": PARTNER_TYPE_MAP[p.partner_type]?.label || p.partner_type,
+          "Contact": p.contact_person, "Mobile": p.mobile, "District": p.districts, "Programs": p.programs_supported, "Status": p.status,
+        })), `TAPASVI_Partners_${new Date().toISOString().slice(0, 10)}.csv`)}
+        onBack={() => setSub("dashboard")} />
+    );
+  }
+
+  // Dashboard
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Partners</h2>
+          <p className="text-[12px] text-[#6B7280]">Master data for external organizations</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        {KPI.map(s => (
+          <div key={s.label} className="rounded-2xl p-3.5 text-white relative overflow-hidden transition-all duration-300 hover:-translate-y-1"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})`, boxShadow: "0 8px 20px -10px rgba(0,0,0,0.25)" }}>
+            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center mb-2"><s.icon size={15} /></div>
+            <p className="text-[20px] font-bold leading-none">{loading ? "…" : s.value}</p>
+            <p className="text-[10px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-5">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Quick Actions</p>
+        <div className="grid grid-cols-3 gap-2.5">
+          <button onClick={() => { setEditing(null); setSub("form"); }} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 flex flex-col items-center gap-2 hover:shadow-md transition">
+            <Plus size={18} className="text-[#1E3A8A]" /><span className="text-[11px] font-medium text-[#111827]">Add Partner</span>
+          </button>
+          <button onClick={() => setSub("list")} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 flex flex-col items-center gap-2 hover:shadow-md transition">
+            <Users size={18} className="text-[#16A34A]" /><span className="text-[11px] font-medium text-[#111827]">View Partners</span>
+          </button>
+          <button onClick={() => downloadCSV(partners.map(p => ({ Code: p.partner_code, Name: p.partner_name, Type: p.partner_type, Status: p.status })), "TAPASVI_Partners.csv")}
+            className="bg-white rounded-2xl border border-[#E5E7EB] p-4 flex flex-col items-center gap-2 hover:shadow-md transition">
+            <Download size={18} className="text-[#7C3AED]" /><span className="text-[11px] font-medium text-[#111827]">Export</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Recent Partners</p>
+          <button onClick={() => setSub("list")} className="text-[11px] font-semibold text-[#1E3A8A]">View All →</button>
+        </div>
+        {recentPartners.length === 0 ? (
+          <p className="text-[12px] text-[#9CA3AF] text-center py-6">No partners added yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {recentPartners.map(p => (
+              <button key={p.id} onClick={() => { setViewing(p); setSub("profile"); }} className="w-full flex items-center gap-2.5 py-2 px-1.5 rounded-lg hover:bg-[#F8FAFC] text-left">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ background: "#1E3A8A" }}>
+                  {(p.partner_name || "?").charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-[#111827] truncate">{p.partner_name}</p>
+                  <p className="text-[10px] text-[#6B7280]">{p.partner_code} · {PARTNER_TYPE_MAP[p.partner_type]?.label}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onToggleStatus, onExport, onBack }) {
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const districtOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.districts || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
+  const programOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.programs_supported || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
+
+  const filtered = partners.filter(p => {
+    if (typeFilter !== "all" && p.partner_type !== typeFilter) return false;
+    if (districtFilter !== "all" && !(p.districts || "").includes(districtFilter)) return false;
+    if (programFilter !== "all" && !(p.programs_supported || "").includes(programFilter)) return false;
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      if (!(p.partner_name?.toLowerCase().includes(q) || p.contact_person?.toLowerCase().includes(q) || p.mobile?.includes(q))) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Partner List</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} partners</p>
+        </div>
+        <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+        <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}><Plus size={14} /> Add</button>
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, contact person, mobile..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Types</option>
+          {PARTNER_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Districts</option>
+          {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Programs</option>
+          {programOptions.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Status</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" /><p className="text-[13px]">Loading...</p></div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><Building2 size={28} className="mx-auto mb-3 opacity-40" /><p className="text-[13px]">No partners found.</p></div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(p => (
+            <div key={p.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-[#111827]">{p.partner_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{p.partner_code}</span></p>
+                  <p className="text-[11px] text-[#6B7280] mt-0.5">{PARTNER_TYPE_MAP[p.partner_type]?.label} · {p.contact_person || "—"} · {p.mobile || "—"} · {p.districts || "—"}</p>
+                  {p.programs_supported && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">Programs: {p.programs_supported}</p>}
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: p.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: p.status === "Active" ? "#16A34A" : "#6B7280" }}>
+                  {p.status}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => onView(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                {isAdmin && <button onClick={() => onEdit(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
+                {isAdmin && (
+                  <button onClick={() => onToggleStatus(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                    {p.status === "Active" ? "Deactivate" : "Activate"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerForm({ editing, onSave, onCancel }) {
+  const blank = {
+    partner_name: "", partner_type: "company", registration_number: "", gst: "", pan: "",
+    contact_person: "", designation: "", mobile: "", alternate_mobile: "", email: "", website: "",
+    state: "Andhra Pradesh", districts: "", mandal: "", coverage_notes: "",
+    programs_supported: "", address: "", village_city: "", pincode: "",
+    status: "Active", remarks: "",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [selectedDistricts, setSelectedDistricts] = useState(new Set((editing?.districts || "").split(",").map(s => s.trim()).filter(Boolean)));
+  const [selectedPrograms, setSelectedPrograms] = useState(new Set((editing?.programs_supported || "").split(",").map(s => s.trim()).filter(Boolean)));
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const toggleDistrict = (d) => setSelectedDistricts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  const toggleProgram = (p) => setSelectedPrograms(s => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
+
+  const validate = () => {
+    const e = {};
+    if (!form.partner_name.trim()) e.partner_name = "Required";
+    if (form.mobile && !/^\d{10}$/.test(form.mobile)) e.mobile = "Must be 10 digits";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = () => {
+    if (!validate()) return;
+    onSave({ ...form, districts: [...selectedDistricts].join(", "), programs_supported: [...selectedPrograms].join(", ") });
+  };
+
+  return (
+    <div className="max-w-[640px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Partner" : "Add Partner"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        <SectionHeader title="Basic Information" color="#1E3A8A" />
+        {editing && (
+          <Field label="Partner Code"><Input value={editing.partner_code} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} /></Field>
+        )}
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Partner Name" required error={errors.partner_name}><Input value={form.partner_name} onChange={set("partner_name")} /></Field>
+          <Field label="Partner Type"><Select value={form.partner_type} onChange={set("partner_type")} options={PARTNER_TYPES.map(t => ({ value: t.key, label: t.label }))} /></Field>
+          <Field label="Registration Number"><Input value={form.registration_number} onChange={set("registration_number")} /></Field>
+          <Field label="GST (Optional)"><Input value={form.gst} onChange={set("gst")} /></Field>
+          <Field label="PAN (Optional)"><Input value={form.pan} onChange={set("pan")} /></Field>
+        </div>
+
+        <SectionHeader title="Contact" color="#1E3A8A" />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Contact Person"><Input value={form.contact_person} onChange={set("contact_person")} /></Field>
+          <Field label="Designation"><Input value={form.designation} onChange={set("designation")} /></Field>
+          <Field label="Mobile" error={errors.mobile}><Input value={form.mobile} onChange={e => setForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) }))} inputMode="numeric" /></Field>
+          <Field label="Alternate Mobile"><Input value={form.alternate_mobile} onChange={set("alternate_mobile")} inputMode="numeric" /></Field>
+          <Field label="Email"><Input type="email" value={form.email} onChange={set("email")} /></Field>
+          <Field label="Website"><Input value={form.website} onChange={set("website")} /></Field>
+        </div>
+
+        <SectionHeader title="Coverage Area" color="#1E3A8A" />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="State"><Input value={form.state} onChange={set("state")} /></Field>
+          <Field label="Mandal (Optional)"><Input value={form.mandal} onChange={set("mandal")} /></Field>
+        </div>
+        <Field label="Districts (Multi Select)">
+          <div className="flex flex-wrap gap-1.5">
+            {DISTRICTS_AP.map(d => (
+              <button key={d} type="button" onClick={() => toggleDistrict(d)}
+                className="px-2.5 py-1 rounded-full text-[11px] font-medium"
+                style={selectedDistricts.has(d) ? { background: "#1E3A8A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+                {d}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Coverage Notes"><textarea value={form.coverage_notes} onChange={set("coverage_notes")} rows={2} className={inputCls} /></Field>
+
+        <SectionHeader title="Programs Supported" color="#1E3A8A" />
+        <Field label="Programs (Multi Select)">
+          <div className="flex flex-wrap gap-1.5">
+            {PROGRAMS.map(p => (
+              <button key={p.key} type="button" onClick={() => toggleProgram(p.label)}
+                className="px-2.5 py-1 rounded-full text-[11px] font-medium"
+                style={selectedPrograms.has(p.label) ? { background: p.color, color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+                {p.short}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <SectionHeader title="Address" color="#1E3A8A" />
+        <Field label="Address"><textarea value={form.address} onChange={set("address")} rows={2} className={inputCls} /></Field>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Village/City"><Input value={form.village_city} onChange={set("village_city")} /></Field>
+          <Field label="Pincode"><Input value={form.pincode} onChange={set("pincode")} /></Field>
+        </div>
+
+        <SectionHeader title="Status" color="#1E3A8A" />
+        <Field label="Status"><Select value={form.status} onChange={set("status")} options={["Active", "Inactive"]} /></Field>
+        <Field label="Remarks"><textarea value={form.remarks} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save</button>
+          <button onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PartnerProfile({ partner: p, onEdit, onBack }) {
+  return (
+    <div className="max-w-[640px] mx-auto">
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">{p.partner_name}</h2>
+          <p className="text-[11.5px] text-[#6B7280] font-mono">{p.partner_code} · {PARTNER_TYPE_MAP[p.partner_type]?.label}</p>
+        </div>
+        <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <SectionHeader title="Basic Information" color="#1E3A8A" />
+        <div className="grid grid-cols-2 gap-y-3">
+          <InfoRow label="Registration No." value={p.registration_number} />
+          <InfoRow label="GST" value={p.gst} />
+          <InfoRow label="PAN" value={p.pan} />
+          <InfoRow label="Status" value={p.status} />
+        </div>
+
+        <SectionHeader title="Contact Details" color="#1E3A8A" />
+        <div className="grid grid-cols-2 gap-y-3">
+          <InfoRow label="Contact Person" value={p.contact_person} />
+          <InfoRow label="Designation" value={p.designation} />
+          <InfoRow label="Mobile" value={p.mobile} />
+          <InfoRow label="Alternate Mobile" value={p.alternate_mobile} />
+          <InfoRow label="Email" value={p.email} />
+          <InfoRow label="Website" value={p.website} />
+        </div>
+
+        <SectionHeader title="Coverage Area" color="#1E3A8A" />
+        <div className="grid grid-cols-2 gap-y-3">
+          <InfoRow label="State" value={p.state} />
+          <InfoRow label="Mandal" value={p.mandal} />
+          <InfoRow label="Districts" value={p.districts} />
+        </div>
+        {p.coverage_notes && <p className="text-[12px] text-[#6B7280] mt-2">{p.coverage_notes}</p>}
+
+        <SectionHeader title="Programs Supported" color="#1E3A8A" />
+        <p className="text-[12.5px] text-[#111827]">{p.programs_supported || "—"}</p>
+
+        <SectionHeader title="Address" color="#1E3A8A" />
+        <p className="text-[12.5px] text-[#111827]">{p.address}{p.village_city ? `, ${p.village_city}` : ""}{p.pincode ? ` — ${p.pincode}` : ""}</p>
+
+        {p.remarks && (
+          <>
+            <SectionHeader title="Remarks" color="#1E3A8A" />
+            <p className="text-[12.5px] text-[#111827]">{p.remarks}</p>
+          </>
+        )}
+      </div>
+
+      {/* Reserved for future tabs: Documents, Linked Beneficiaries, Reports, Activity Timeline */}
+      <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
+        <p className="text-[11px] text-[#9CA3AF]">Documents · Linked Beneficiaries · Reports · Activity Timeline — coming soon</p>
+      </div>
+    </div>
+  );
+}
+
+
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8249,6 +8689,7 @@ export default function App() {
       section: "ADMINISTRATION",
       items: [
         ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
+        ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
         ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
       ],
     },
@@ -8527,6 +8968,9 @@ export default function App() {
           )}
           {!subView && view === "reports" && (
             <ReportsModule currentUser={user} isAdmin={isAdmin} showToast={showToast} />
+          )}
+          {!subView && view === "partners" && isAdmin && (
+            <PartnersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
