@@ -7773,8 +7773,7 @@ export default function App() {
       b.status !== "Archived" &&
       (
         (form.identity_number && b.identity_number === form.identity_number) ||
-        (form.aadhaar_number && b.aadhaar_number === form.aadhaar_number) ||
-        (form.phone && b.phone === form.phone)
+        (form.aadhaar_number && b.aadhaar_number === form.aadhaar_number)
       )
     );
   };
