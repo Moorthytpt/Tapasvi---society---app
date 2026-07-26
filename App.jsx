@@ -112,7 +112,7 @@ function pdfIndividual(b, aadhaarDisplay) {
     "<p><b>Field Worker:</b> " + (b.field_worker_name || "") + "</p>",
     "<p><b>Date:</b> " + (b.registration_date || b.survey_date || "") + "</p>",
   ].join("");
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var css = "@page{margin:90px 20px 40px 20px;} body{font-family:Arial,sans-serif;padding:0;} " +
     ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 20px;background:#fff;} " +
     ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
@@ -131,7 +131,7 @@ function pdfIndividual(b, aadhaarDisplay) {
 function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
   var w = window.open("", "_blank");
   if (!w) return;
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var siteHost = window.location.host;
   var total = rows.length;
   var completed = rows.filter(function(b){ return b.status === "Completed"; }).length;
@@ -204,7 +204,7 @@ function printTable(rows, title, cols) {
   var w = window.open("", "_blank");
   if (!w) return;
   var headers = cols || (rows.length ? Object.keys(rows[0]) : []);
-  var logoUrl = window.location.origin + "/icon-512.png";
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
   var css = "@page{margin:90px 16px 50px 16px;} body{font-family:Arial,sans-serif;padding:0;font-size:11px;} " +
     ".print-header{position:fixed;top:0;left:0;right:0;height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 16px;background:#fff;} " +
     ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} .print-header .sub{font-size:9.5px;color:#6B7280;} " +
@@ -226,10 +226,10 @@ function printTable(rows, title, cols) {
    UI ATOMS
    ============================================================ */
 
-function Logo({ size = 40 }) {
+function Logo({ size = 40, style, className }) {
   return (
-    <img src="/icon-512.png" alt="TAPASVI" width={size} height={size}
-      style={{ objectFit: "contain", display: "block" }} />
+    <img src="/icon-512-transparent.png" alt="TAPASVI" width={size} height={size} className={className}
+      style={{ objectFit: "contain", display: "block", ...style }} />
   );
 }
 
@@ -315,6 +315,30 @@ function LoginScreen({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [dark, setDark] = useState(() => localStorage.getItem("tapasvi_login_theme") === "dark");
+  const [ripples, setRipples] = useState([]);
+
+  const toggleDark = () => {
+    setDark(d => {
+      localStorage.setItem("tapasvi_login_theme", !d ? "dark" : "light");
+      return !d;
+    });
+  };
+
+  const addRipple = (e) => {
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const id = Date.now();
+    const ripple = { id, x: e.clientX - rect.left, y: e.clientY - rect.top, size: Math.max(rect.width, rect.height) * 1.6 };
+    setRipples(r => [...r, ripple]);
+    setTimeout(() => setRipples(r => r.filter(x => x.id !== id)), 600);
+  };
+
+  const finishLogin = (payload) => {
+    setSuccess(true);
+    setTimeout(() => onLogin(payload), 650);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -337,7 +361,9 @@ function LoginScreen({ onLogin }) {
       }
       await supabase.from("app_users").update({ last_login: new Date().toISOString() }).eq("email", data.user.email);
       await supabase.from("audit_logs").insert({ user_email: data.user.email, action: "LOGIN", module: "Auth", details: `Logged in as ${roleData.role === "super_admin" ? "Super Admin" : "Admin"}`, created_at: new Date().toISOString() });
-      onLogin({ role: roleData.role, username: data.user.email, supabaseUser: data.user });
+      setLoading(false);
+      finishLogin({ role: roleData.role, username: data.user.email, supabaseUser: data.user });
+      return;
     } else {
       // Field Worker: check username + password against app_users table
       const { data: fwData, error: fwError } = await supabase
@@ -364,20 +390,48 @@ function LoginScreen({ onLogin }) {
       }
       await supabase.from("app_users").update({ last_login: new Date().toISOString() }).eq("id", fwData.id);
       await supabase.from("audit_logs").insert({ user_email: fwData.full_name, action: "LOGIN", module: "Auth", details: "Logged in as Field Worker", created_at: new Date().toISOString() });
-      onLogin({ role: "fieldworker", username: fwData.full_name, mustChangePassword: !!fwData.must_change_password, userId: fwData.id });
+      setLoading(false);
+      finishLogin({ role: "fieldworker", username: fwData.full_name, mustChangePassword: !!fwData.must_change_password, userId: fwData.id });
+      return;
     }
-    setLoading(false);
   };
+
+  const authCss = `
+    @keyframes tp-fadeInUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
+    @keyframes tp-shake { 10%,90%{transform:translateX(-1px);} 20%,80%{transform:translateX(2px);} 30%,50%,70%{transform:translateX(-4px);} 40%,60%{transform:translateX(4px);} }
+    @keyframes tp-scaleIn { from { opacity:0; transform:scale(0.96); } to { opacity:1; transform:scale(1); } }
+    @keyframes tp-ripple { from { transform: scale(0); opacity: 0.35; } to { transform: scale(1); opacity: 0; } }
+    @keyframes tp-check { from { stroke-dashoffset: 48; } to { stroke-dashoffset: 0; } }
+    .tp-fade-up { animation: tp-fadeInUp 0.5s ease both; }
+    .tp-scale-in { animation: tp-scaleIn 0.4s ease both; }
+    .tp-shake { animation: tp-shake 0.4s ease; }
+    .tp-input-glow:focus-within { box-shadow: 0 0 0 4px rgba(22,163,74,0.2), 0 0 22px rgba(30,58,138,0.16); }
+    .tp-input-glow:focus-within .tp-field-input { border-color: #16A34A !important; }
+    .tp-field-input { box-shadow: inset 0 1px 3px rgba(0,0,0,${dark ? "0.18" : "0.04"}); }
+    .tp-field-input::placeholder { color: ${dark ? "#6B7280" : "#9CA3AF"}; opacity: 0.85; }
+    .tp-theme-icon { display: inline-block; transition: transform 0.4s ease; }
+    @keyframes tp-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-14px); } }
+    .tp-particle { animation: tp-float 10s ease-in-out infinite; }
+    @keyframes tp-logo-float { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-3px); } }
+    .tp-logo-float { animation: tp-logo-float 4s ease-in-out infinite; }
+    .tp-ripple-span { position:absolute; border-radius:9999px; background:#fff; pointer-events:none; animation: tp-ripple 0.6s ease-out; }
+    .tp-check-circle { animation: tp-scaleIn 0.35s ease both; }
+    .tp-check-path { stroke-dasharray: 48; stroke-dashoffset: 48; animation: tp-check 0.4s 0.15s ease forwards; }
+  `;
+  const dc = dark
+    ? { pageBg: "linear-gradient(150deg,#060B18 0%,#0B1220 22%,#0E1E1A 55%,#0A1A2E 78%,#081018 100%)", cardBg: "rgba(17,24,39,0.72)", cardBorder: "rgba(255,255,255,0.08)", text: "#F3F4F6", subtext: "#9CA3AF", inputBg: "rgba(31,41,55,0.7)", inputBorder: "#374151", inputText: "#F3F4F6" }
+    : { pageBg: "linear-gradient(135deg,#EFF6FF 0%,#F0FDF4 60%,#ECFDF5 100%)", cardBg: "rgba(255,255,255,0.72)", cardBorder: "rgba(255,255,255,0.6)", text: "#111827", subtext: "#6B7280", inputBg: "rgba(255,255,255,0.8)", inputBorder: "#E5E7EB", inputText: "#111827" };
 
   if (showForgot) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-        <div className="w-full max-w-[400px] bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
-          <p className="text-[14px] font-bold text-[#111827] mb-3">Forgot Password</p>
-          <p className="text-[12.5px] text-[#374151] leading-relaxed mb-4">
+      <div className="min-h-screen w-full flex items-center justify-center px-4 py-10 relative overflow-hidden" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif", background: dc.pageBg }}>
+        <style>{authCss}</style>
+        <div className="w-full max-w-[420px] tp-scale-in rounded-[24px] p-6" style={{ background: dc.cardBg, backdropFilter: "blur(16px)", border: `1px solid ${dc.cardBorder}`, boxShadow: "0 20px 50px -12px rgba(30,58,138,0.25)" }}>
+          <p className="text-[15px] font-bold mb-3" style={{ color: dc.text }}>Forgot Password</p>
+          <p className="text-[12.5px] leading-relaxed mb-5" style={{ color: dc.subtext }}>
             For security, only a <b>Super Admin</b> can reset your password. Please contact your Super Admin — they will set a new temporary password for you, and you'll be asked to change it on your next login.
           </p>
-          <button onClick={() => setShowForgot(false)} className="w-full rounded-lg py-2.5 text-[13px] font-semibold" style={{ background: "#1E3A8A", color: "#fff" }}>
+          <button onClick={() => setShowForgot(false)} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white transition hover:opacity-90" style={{ background: "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
             Back to Login
           </button>
         </div>
@@ -385,58 +439,193 @@ function LoginScreen({ onLogin }) {
     );
   }
 
+  const HeroPanel = (
+    <div className="hidden lg:flex flex-col justify-center px-14 relative w-1/2 min-h-screen text-white" style={{ background: "linear-gradient(160deg,#1E3A8A 0%,#15803D 100%)" }}>
+      <svg className="absolute bottom-0 left-0 w-full opacity-20" viewBox="0 0 500 150" preserveAspectRatio="none">
+        <path d="M0,80 C150,150 350,0 500,80 L500,150 L0,150 Z" fill="#ffffff" />
+      </svg>
+      <div className="relative tp-fade-up">
+        <Logo size={56} />
+        <h1 className="mt-5 text-[30px] font-bold leading-tight">TAPASVI Society</h1>
+        <p className="text-[14px] text-white/80 mt-2 max-w-[360px]">Society for Rural Development, Social Issues &amp; Health</p>
+        <div className="w-14 h-1 rounded-full bg-white/50 my-6" />
+        <p className="text-[15px] text-white/90 max-w-[380px] leading-relaxed">
+          Empowering rural communities through skill training, livelihood programs, and grassroots development — one beneficiary at a time.
+        </p>
+        <p className="text-[11px] text-white/60 mt-8 tracking-wide">DIGITAL NGO MANAGEMENT SYSTEM · v2.0</p>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#F8FAFC] px-4 py-10 overflow-y-auto" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
-      <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#1E3A8A] via-[#F97316] to-[#16A34A]" />
-      <div className="w-full max-w-[400px]">
-        <div className="flex flex-col items-center mb-6">
-          <Logo size={60} />
-          <h1 className="mt-3 text-[22px] font-bold text-[#16A34A] text-center">TAPASVI</h1>
-          <p className="text-[11.5px] text-[#666] text-center mt-1 max-w-[280px]">Society for Rural Development, Social Issues & Health</p>
-        </div>
-        <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-md p-6">
-          <p className="text-[13px] font-semibold text-[#111827] mb-4">Sign in to continue</p>
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
-              <button key={r} type="button" onClick={() => setRole(r)}
-                className="flex items-center justify-center gap-2 rounded-lg border py-2.5 text-[13px] font-medium transition"
-                style={role === r ? { background: "#16A34A", color: "#fff", borderColor: "#16A34A" } : { borderColor: "#E5E7EB", color: "#111827" }}>
-                <Icon size={14} /> {label}
-              </button>
-            ))}
+    <div className="min-h-screen w-full flex relative overflow-hidden transition-colors duration-300" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif", background: dc.pageBg }}>
+      <style>{authCss}</style>
+
+      {/* Theme toggle */}
+      <button onClick={toggleDark} aria-label="Toggle dark mode"
+        className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
+        style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(10px)", color: dc.text }}>
+        <span className="tp-theme-icon" style={{ transform: dark ? "rotate(180deg)" : "rotate(0deg)" }}>{dark ? "☀️" : "🌙"}</span>
+      </button>
+
+      {/* Success overlay */}
+      {success && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ background: "rgba(15,23,42,0.55)", backdropFilter: "blur(3px)" }}>
+          <div className="tp-check-circle bg-white rounded-3xl px-8 py-7 flex flex-col items-center gap-3 shadow-2xl">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="24" fill="none" stroke="#16A34A" strokeWidth="3" />
+              <path className="tp-check-path" d="M15 27 L22 34 L37 18" fill="none" stroke="#16A34A" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <p className="text-[13.5px] font-bold text-[#111827]">Signed in successfully</p>
           </div>
-          <Field label={role === "admin" ? "Email" : "Full Name"} required>
-            <Input value={username} onChange={e => setUsername(e.target.value)}
-              placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
-              inputMode={role === "admin" ? "email" : "text"} />
-          </Field>
-          <Field label="Password" required error={error}>
-            <div className="relative">
-              <input type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                className={inputCls} placeholder="••••••••" style={{ paddingRight: 42 }} />
-              <button type="button" onClick={() => setShowPassword(s => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#6B7280] px-1.5">
-                {showPassword ? "Hide" : "Show"}
+        </div>
+      )}
+
+      {/* subtle ambient mesh glow */}
+      <div className="absolute -top-20 -left-20 w-72 h-72 rounded-full pointer-events-none" style={{ background: dark ? "#16A34A" : "#4ADE80", opacity: dark ? 0.096 : 0.144, filter: "blur(80px)" }} />
+      <div className="absolute -bottom-24 -right-10 w-80 h-80 rounded-full pointer-events-none" style={{ background: dark ? "#1E3A8A" : "#3B82F6", opacity: dark ? 0.112 : 0.12, filter: "blur(90px)" }} />
+
+      {/* very light floating particles — dark mode only, for subtle depth */}
+      {dark && [
+        { top: "18%", left: "12%", size: 4, delay: "0s", color: "#4ADE80" },
+        { top: "30%", left: "82%", size: 3, delay: "1.2s", color: "#60A5FA" },
+        { top: "62%", left: "8%", size: 3, delay: "2.4s", color: "#4ADE80" },
+        { top: "75%", left: "88%", size: 4, delay: "0.8s", color: "#60A5FA" },
+        { top: "48%", left: "50%", size: 2.5, delay: "1.8s", color: "#4ADE80" },
+      ].map((p, i) => (
+        <span key={i} className="tp-particle absolute rounded-full pointer-events-none" style={{ top: p.top, left: p.left, width: p.size, height: p.size, background: p.color, opacity: 0.35, animationDelay: p.delay, filter: "blur(0.5px)" }} />
+      ))}
+
+      {/* subtle background waves — mobile + desktop right panel */}
+      <svg className="absolute top-0 right-0 w-full lg:w-1/2 h-64 opacity-30 pointer-events-none" viewBox="0 0 500 200" preserveAspectRatio="none">
+        <path d="M0,60 C120,120 380,0 500,60 L500,0 L0,0 Z" fill={dark ? "#1E3A8A" : "#BFDBFE"} />
+      </svg>
+      <svg className="absolute bottom-0 right-0 w-full lg:w-1/2 h-48 opacity-30 pointer-events-none" viewBox="0 0 500 150" preserveAspectRatio="none">
+        <path d="M0,90 C160,20 340,150 500,80 L500,150 L0,150 Z" fill={dark ? "#166534" : "#BBF7D0"} />
+      </svg>
+
+      {HeroPanel}
+
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-10 relative z-10">
+        <div className="w-full max-w-[420px]">
+          <div className="flex flex-col items-center gap-2.5 mb-[12px] tp-fade-up lg:hidden">
+            <Logo size={144} className="tp-logo-float" style={{ filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.22))" }} />
+            <h1 className="text-[30px] font-black text-center leading-none tracking-wide"
+              style={{ backgroundImage: "linear-gradient(90deg,#16A34A,#22C55E,#4ADE80)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", letterSpacing: "0.04em" }}>
+              TAPASVI
+            </h1>
+            <div className="flex items-center justify-center mt-1.5">
+              <div className="flex items-center gap-3 rounded-full"
+                style={{
+                  minHeight: 50,
+                  padding: "12px 32px",
+                  background: dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.42)",
+                  backdropFilter: "blur(16px)",
+                  border: `1px solid ${dark ? "rgba(74,222,128,0.22)" : "rgba(22,163,74,0.16)"}`,
+                  boxShadow: "0 0 20px rgba(34,197,94,0.22), inset 0 1px 0 rgba(255,255,255,0.08)",
+                }}>
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: "#4ADE80" }} />
+                  <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#16A34A" }} />
+                </span>
+                <span className="text-[11.5px] font-medium tracking-wide" style={{ color: dc.text }}>Digital NGO Management System</span>
+                <span className="flex items-center text-[9.5px] font-semibold px-2.5 rounded-full shrink-0 self-stretch" style={{ background: dark ? "rgba(22,163,74,0.22)" : "#DCFCE7", color: "#16A34A" }}>
+                  v2.0
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={submit} className="tp-fade-up rounded-[28px] p-6 transition-colors duration-300" style={{ transform: "translateY(-16px)", background: dc.cardBg, backdropFilter: "blur(26px)", border: `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.4)"}`, boxShadow: "0 22px 55px -18px rgba(30,58,138,0.24)", animationDelay: "0.1s" }}>
+            <p className="text-[19px] font-bold mb-0.5" style={{ color: dc.text }}>👋 Welcome Back</p>
+            <p className="text-[12.5px] mb-5" style={{ color: dc.subtext }}>Sign in to continue</p>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[["admin", "Admin", Lock], ["fieldworker", "Field Worker", User]].map(([r, label, Icon]) => (
+                <button key={r} type="button" onClick={() => setRole(r)} aria-pressed={role === r} aria-label={`Sign in as ${label}`}
+                  className="flex items-center justify-center gap-2 rounded-xl border py-2.5 text-[13px] font-semibold transition-all duration-300 hover:scale-[1.02] active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
+                  style={role === r ? { background: "linear-gradient(90deg,#1E3A8A,#16A34A)", color: "#fff", borderColor: "transparent", boxShadow: "0 4px 12px -2px rgba(30,58,138,0.4)" } : { borderColor: dc.inputBorder, color: dc.subtext, background: dc.inputBg }}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-3">
+              <label htmlFor="tp-username" className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>{role === "admin" ? "Email" : "Full Name"}</label>
+              <div className="group relative tp-input-glow rounded-xl transition-shadow">
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200 group-focus-within:text-[#16A34A]" style={{ color: dc.subtext }} />
+                <input id="tp-username" value={username} onChange={e => setUsername(e.target.value)}
+                  placeholder={role === "admin" ? "admin@tapasvi.org" : "మీ పూర్తి పేరు టైప్ చేయండి"}
+                  inputMode={role === "admin" ? "email" : "text"}
+                  aria-label={role === "admin" ? "Email" : "Full Name"}
+                  className="tp-field-input w-full rounded-xl pl-10 pr-3.5 py-3 text-[13.5px] outline-none transition"
+                  style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }} />
+              </div>
+            </div>
+
+            <div className="mb-1">
+              <label htmlFor="tp-password" className="text-[12px] font-medium mb-1 block" style={{ color: dc.subtext }}>Password</label>
+              <div className="group relative tp-input-glow rounded-xl transition-shadow">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200 group-focus-within:text-[#16A34A]" style={{ color: dc.subtext }} />
+                <input id="tp-password" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                  aria-label="Password"
+                  className="tp-field-input w-full rounded-xl pl-10 pr-14 py-3 text-[13.5px] outline-none transition"
+                  style={{ background: dc.inputBg, border: `1px solid ${dc.inputBorder}`, color: dc.inputText }}
+                  placeholder="••••••••" />
+                <button type="button" onClick={() => setShowPassword(s => !s)} aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#1E3A8A] px-1.5 transition-all duration-200"
+                  style={{ transform: "translateY(-50%) scale(1)" }}>
+                  <span key={showPassword ? "hide" : "show"} className="tp-scale-in inline-block">{showPassword ? "Hide" : "Show"}</span>
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="tp-shake mt-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2" role="alert" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+                <AlertCircle size={14} className="text-[#DC2626] mt-0.5 shrink-0" />
+                <p className="text-[12px] text-[#DC2626] font-medium">{error}</p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mt-4 mb-1">
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: dc.subtext }}>
+                <span className="relative inline-flex items-center justify-center w-[22px] h-[22px] rounded-md transition-all duration-200"
+                  style={{ background: remember ? "linear-gradient(135deg,#1E3A8A,#16A34A)" : "transparent", border: remember ? "none" : `1.5px solid ${dc.inputBorder}` }}>
+                  <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} aria-label="Remember Me" className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {remember && <Check size={14} className="tp-scale-in text-white" strokeWidth={3} />}
+                </span>
+                Remember Me
+              </label>
+              <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-semibold transition-all hover:underline" style={{ color: "#60A5FA" }}>
+                Forgot Password?
               </button>
             </div>
-          </Field>
-          <div className="flex items-center justify-between mt-1 mb-1">
-            <label className="flex items-center gap-1.5 text-[12px] text-[#374151]">
-              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-              Remember Me
-            </label>
-            <button type="button" onClick={() => setShowForgot(true)} className="text-[12px] font-medium" style={{ color: "#1E3A8A" }}>
-              Forgot Password?
+
+            <button type="submit" onClick={addRipple} disabled={loading} aria-label="Sign In"
+              className="group relative overflow-hidden w-full rounded-xl py-3.5 text-[14.5px] font-bold mt-3 text-white flex items-center justify-center gap-2 transition-all duration-300 ease-out active:scale-[0.97] active:duration-150 disabled:opacity-70 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:shadow-[0_14px_30px_-8px_rgba(22,163,74,0.4)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              style={{ background: loading ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)", boxShadow: "none" }}>
+              {ripples.map(r => (
+                <span key={r.id} className="tp-ripple-span" style={{ left: r.x - r.size / 2, top: r.y - r.size / 2, width: r.size, height: r.size }} />
+              ))}
+              {loading ? (<><RefreshCw size={16} className="animate-spin" /> Signing in…</>) : (
+                <>Sign In <span className="inline-block w-0 opacity-0 -translate-x-1 transition-all duration-300 group-hover:w-4 group-hover:opacity-100 group-hover:translate-x-0 group-active:w-4 group-active:opacity-100">→</span></>
+              )}
             </button>
+
+            <p className="text-[10.5px] text-center mt-3 tracking-wide" style={{ color: dc.subtext }}>
+              Secure Access for Authorized Users
+            </p>
+          </form>
+
+          <div className="mt-5 text-center tp-fade-up" style={{ animationDelay: "0.2s", opacity: 0.65 }}>
+            <p className="text-[10px] flex items-center justify-center gap-1.5 tracking-wide" style={{ color: dc.subtext }}>
+              <ShieldCheck size={11} className="text-[#16A34A]" /> Secure Login · 256-bit SSL Protected
+            </p>
+            <p className="text-[9.5px] mt-1.5 tracking-wide" style={{ color: dark ? "#6B7280" : "#9CA3AF" }}>
+              TAPASVI DMS v2.0 · © {new Date().getFullYear()} TAPASVI Society
+            </p>
           </div>
-          <button type="submit" onClick={submit} disabled={loading} className="w-full rounded-lg py-3 text-[14px] font-bold mt-2" style={{ background: loading ? "#888" : "#1E3A8A", color: "#fff" }}>
-            {loading ? "Signing in…" : "Sign In"}
-          </button>
-          <p className="text-[10.5px] text-[#AAA] text-center mt-3">
-            {role === "admin" ? "Admin: registered email & password" : "Contact Admin for your login credentials"}
-          </p>
-        </form>
-        <p className="text-[10px] text-[#BBB] text-center mt-4">TAPASVI DMS v2.0 • Secure Access Only</p>
+        </div>
       </div>
     </div>
   );
@@ -510,7 +699,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     identity_type: "aadhaar", identity_number: "",
     education: "", house_no: "", village: "", mandal: "",
     district: "Tirupati", state: "Andhra Pradesh",
-    category: "BC", disability: "No", shg: "No",
+    category: "BC", disability: "No", shg: "No", skill_interest: "",
     field_worker_name: "", notes: "",
     aadhaar_number: "", aadhaar_verified: "No", ekyc_status: "No",
   };
@@ -578,13 +767,82 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const submit = e => {
     e.preventDefault();
     if (!validate()) return;
+    try { localStorage.removeItem(DRAFT_KEY); } catch (_) { /* non-fatal */ }
     onSave({
       ...form, program: activeProgram,
       aadhaar_number: form.identity_type === "aadhaar" ? form.identity_number : (form.aadhaar_number || ""),
     });
   };
 
+  const [step, setStep] = useState(1);
+  const TOTAL_STEPS = 6;
+  const STEP_LABELS = ["Personal", "Address", "Education", "Program", "Identity", "Review"];
   const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
+
+  // Auto-save draft (new registrations only) — pure UX convenience, no schema change, no effect on submit logic.
+  const DRAFT_KEY = "tapasvi_beneficiary_draft";
+  useEffect(() => {
+    if (editing) return;
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setForm(f => ({ ...f, ...parsed.form }));
+        if (parsed.activeProgram) setActiveProgram(parsed.activeProgram);
+      }
+    } catch (_) { /* ignore corrupt draft */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (editing) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, activeProgram })); } catch (_) { /* storage full/unavailable — non-fatal */ }
+  }, [form, activeProgram, editing]);
+
+  const validateStep = (s) => {
+    const e = {};
+    if (s === 1) {
+      if (!form.name.trim()) e.name = "Required";
+      if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required (1-120)";
+      if (!form.phone.trim()) e.phone = "Required";
+      else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
+    } else if (s === 2) {
+      if (!form.village.trim()) e.village = "Required";
+      if (!form.mandal.trim()) e.mandal = "Required";
+    } else if (s === 4) {
+      if (!form.field_worker_name.trim()) e.field_worker_name = "Required";
+    } else if (s === 5) {
+      if (!form.identity_number.trim()) e.identity_number = "Document number required";
+      else if (!identityInfo.pattern.test(form.identity_number)) e.identity_number = `Invalid format. ${identityInfo.hint}`;
+      else {
+        const dup = beneficiaries.find(b =>
+          b.identity_type === form.identity_type && b.identity_number === form.identity_number &&
+          b.program === activeProgram && b.beneficiary_id !== editing?.beneficiary_id
+        );
+        if (dup) e.identity_number = `Already registered: ${dup.name} (${dup.beneficiary_id})`;
+      }
+    }
+    setErrors(prev => ({ ...prev, ...e, ...Object.fromEntries(Object.keys(prev).filter(k => !e[k]).map(k => [k, undefined])) }));
+    return Object.keys(e).length === 0;
+  };
+
+  const goNext = () => { if (validateStep(step)) setStep(s => Math.min(TOTAL_STEPS, s + 1)); };
+  const goBack = () => setStep(s => Math.max(1, s - 1));
+
+  const jump = (s) => setStep(s);
+
+  const StepDot = ({ n, label }) => {
+    const active = step === n;
+    const done = step > n;
+    return (
+      <button type="button" onClick={() => jump(n)} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all"
+          style={active ? { background: p.color, color: "#fff", boxShadow: `0 0 0 4px ${p.color}22` } : done ? { background: p.color + "22", color: p.color } : { background: "#F3F4F6", color: "#9CA3AF" }}>
+          {done ? "✓" : n}
+        </div>
+        <span className="text-[9px] font-medium truncate max-w-full" style={{ color: active ? p.color : "#9CA3AF" }}>{label}</span>
+      </button>
+    );
+  };
 
   return (
     <div className="max-w-[720px] mx-auto">
@@ -592,8 +850,8 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         <div className="flex items-center gap-3">
           <Logo size={32} />
           <div>
-            <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "Quick Registration"}</h2>
-            <p className="text-[11.5px] text-[#6B7280]">Complete in 2–3 minutes</p>
+            <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Beneficiary" : "New Registration"}</h2>
+            <p className="text-[11.5px] text-[#6B7280]">Step {step} of {TOTAL_STEPS} · {STEP_LABELS[step - 1]}</p>
           </div>
         </div>
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
@@ -611,121 +869,203 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
         </div>
       )}
 
-      {!editing && !dynProgramsLoading && resolvedPrograms.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
-            <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
-              className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
-              style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
-              <Icon size={18} />{pr.short}
-            </button>
-          );})}
-        </div>
-      )}
-
       {(editing || (!dynProgramsLoading && !noActiveProgramsAvailable)) && (
+      <>
+        {/* Progress bar */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden mb-3">
+            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(step / TOTAL_STEPS) * 100}%`, background: p.color }} />
+          </div>
+          <div className="flex gap-1">
+            {STEP_LABELS.map((label, i) => <StepDot key={label} n={i + 1} label={label} />)}
+          </div>
+        </div>
+
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden">
-        <div className="p-5">
+        <div className="p-5 min-h-[340px]">
 
-          <SectionHeader title="System Information" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Registration ID" hint="Auto-generated">
-              <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono text-[12px]"} />
-            </Field>
-            <Field label="Date">
-              <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-            <Field label="Program">
-              <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-            <Field label="Field Worker" required error={errors.field_worker_name}>
-              <Input value={form.field_worker_name}
-                onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
-                readOnly={currentUser.role === "fieldworker"}
-                className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
-            </Field>
-          </div>
+          {step === 1 && (
+            <>
+              {!editing && resolvedPrograms.length > 0 && (
+                <>
+                  <SectionHeader title="Select Program" color={p.color} />
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {resolvedPrograms.map(pr => { const Icon = pr.icon; return (
+                      <button key={pr.key} type="button" onClick={() => setActiveProgram(pr.key)}
+                        className="flex flex-col items-center gap-1.5 rounded-xl border py-3 px-3 text-[11.5px] font-semibold transition flex-1 min-w-[90px]"
+                        style={activeProgram === pr.key ? { background: pr.tint, borderColor: pr.color, color: pr.color } : { borderColor: "#E5E7EB", color: "#6B7280", background: "white" }}>
+                        <Icon size={18} />{pr.short}
+                      </button>
+                    );})}
+                  </div>
+                </>
+              )}
+              <SectionHeader title="Personal Information" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Beneficiary Name" required error={errors.name}>
+                  <Input value={form.name} onChange={set("name")} placeholder="Full name" autoFocus />
+                </Field>
+                <Field label="Gender" required>
+                  <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
+                </Field>
+                <Field label="Age" required error={errors.age}>
+                  <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
+                </Field>
+                <Field label="Mobile Number" required error={errors.phone}>
+                  <Input value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                    placeholder="10-digit mobile" inputMode="numeric" />
+                </Field>
+              </div>
+            </>
+          )}
 
-          <SectionHeader title="Personal Information" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="Beneficiary Name" required error={errors.name}>
-              <Input value={form.name} onChange={set("name")} placeholder="Full name" />
-            </Field>
-            <Field label="Gender" required>
-              <Select value={form.gender} onChange={set("gender")} options={["Male","Female","Other"]} />
-            </Field>
-            <Field label="Age" required error={errors.age}>
-              <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
-            </Field>
-            <Field label="Mobile Number" required error={errors.phone}>
-              <Input value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g,"").slice(0,10) }))}
-                placeholder="10-digit mobile" inputMode="numeric" />
-            </Field>
-          </div>
+          {step === 2 && (
+            <>
+              <SectionHeader title="Address" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="House No">
+                  <Input value={form.house_no || ""} onChange={set("house_no")} placeholder="e.g. 4-6" />
+                </Field>
+                <Field label="Village" required error={errors.village}>
+                  <Input value={form.village} onChange={set("village")} placeholder="Village name" />
+                </Field>
+                <Field label="Mandal" required error={errors.mandal}>
+                  <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
+                </Field>
+                <Field label="District">
+                  <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
+                </Field>
+                <Field label="State">
+                  <Input value="Andhra Pradesh" readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+              </div>
+            </>
+          )}
 
-          <SectionHeader title="Identity Proof" color={p.color} />
-          <div className="bg-[#F8FAFC] rounded-xl border border-[#E5E7EB] p-4 mb-2">
-            <div className="grid grid-cols-2 gap-x-4">
-              <Field label="Document Type" required>
-                <Select value={form.identity_type} onChange={set("identity_type")}
-                  options={IDENTITY_TYPES.map(i => ({ value: i.value, label: i.label }))} />
+          {step === 3 && (
+            <>
+              <SectionHeader title="Social Information" color={p.color} />
+              <div className="grid grid-cols-3 gap-x-4">
+                <Field label="Category">
+                  <Select value={form.category} onChange={set("category")} options={["SC", "ST", "BC", "OC", "Minority"]} />
+                </Field>
+                <Field label="Disability">
+                  <Select value={form.disability} onChange={set("disability")} options={["No", "Yes"]} />
+                </Field>
+                <Field label="SHG Member">
+                  <Select value={form.shg} onChange={set("shg")} options={["No", "Yes"]} />
+                </Field>
+              </div>
+              <SectionHeader title="Education & Skills" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Education">
+                  <Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select education level" />
+                </Field>
+                <Field label="Skill Interest">
+                  <Select value={form.skill_interest} onChange={set("skill_interest")} options={SKILL_OPTIONS} placeholder="Select area of interest" />
+                </Field>
+              </div>
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <SectionHeader title="Program Details" color={p.color} />
+              <div className="grid grid-cols-2 gap-x-4">
+                <Field label="Registration ID" hint="Auto-generated">
+                  <Input value={editing?.beneficiary_id || "Auto"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono text-[12px]"} />
+                </Field>
+                <Field label="Registration Date">
+                  <Input value={form.registration_date} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+                <Field label="Program">
+                  <Input value={p.label} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
+                </Field>
+                <Field label="Field Worker" required error={errors.field_worker_name}>
+                  <Input value={form.field_worker_name}
+                    onChange={currentUser.role === "fieldworker" ? undefined : set("field_worker_name")}
+                    readOnly={currentUser.role === "fieldworker"}
+                    className={currentUser.role === "fieldworker" ? inputCls + " bg-[#F3F4F6] text-[#6B7280]" : inputCls} />
+                </Field>
+              </div>
+              <p className="text-[10.5px] text-[#6B7280] mt-2">ℹ Training batch enrollment happens after registration, from Training → Enroll.</p>
+            </>
+          )}
+
+          {step === 5 && (
+            <>
+              <SectionHeader title="Identity Proof" color={p.color} />
+              <div className="bg-[#F8FAFC] rounded-xl border border-[#E5E7EB] p-4 mb-2">
+                <div className="grid grid-cols-2 gap-x-4">
+                  <Field label="Document Type" required>
+                    <Select value={form.identity_type} onChange={set("identity_type")}
+                      options={IDENTITY_TYPES.map(i => ({ value: i.value, label: i.label }))} />
+                  </Field>
+                  <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
+                    <Input value={form.identity_number}
+                      onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
+                      placeholder={identityInfo.placeholder}
+                      inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
+                  </Field>
+                </div>
+              </div>
+
+              <Field label="Notes">
+                <textarea value={form.notes || ""} onChange={set("notes")} rows={2} className={inputCls} placeholder="Field worker observations..." />
               </Field>
-              <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
-                <Input value={form.identity_number}
-                  onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
-                  placeholder={identityInfo.placeholder}
-                  inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
-              </Field>
-            </div>
-            <p className="text-[10.5px] text-[#6B7280]">ℹ Additional documents can be added from Beneficiary Profile later.</p>
-          </div>
+            </>
+          )}
 
-          <SectionHeader title="Address" color={p.color} />
-          <div className="grid grid-cols-2 gap-x-4">
-            <Field label="House No">
-              <Input value={form.house_no || ""} onChange={set("house_no")} placeholder="e.g. 4-6" />
-            </Field>
-            <Field label="Village" required error={errors.village}>
-              <Input value={form.village} onChange={set("village")} placeholder="Village name" />
-            </Field>
-            <Field label="Mandal" required error={errors.mandal}>
-              <Input value={form.mandal} onChange={set("mandal")} placeholder="Mandal name" />
-            </Field>
-            <Field label="District">
-              <Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} />
-            </Field>
-            <Field label="State">
-              <Input value="Andhra Pradesh" readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
-            </Field>
-          </div>
-
-          <SectionHeader title="Social Information" color={p.color} />
-          <div className="grid grid-cols-3 gap-x-4">
-            <Field label="Category">
-              <Select value={form.category} onChange={set("category")} options={["SC","ST","BC","OC","Minority"]} />
-            </Field>
-            <Field label="Disability">
-              <Select value={form.disability} onChange={set("disability")} options={["No","Yes"]} />
-            </Field>
-            <Field label="SHG Member">
-              <Select value={form.shg} onChange={set("shg")} options={["No","Yes"]} />
-            </Field>
-          </div>
-
-          <Field label="Notes">
-            <textarea value={form.notes||""} onChange={set("notes")} rows={2} className={inputCls} placeholder="Field worker observations..." />
-          </Field>
+          {step === 6 && (
+            <>
+              <SectionHeader title="Review & Submit" color={p.color} />
+              <div className="space-y-3">
+                {[
+                  { label: "Personal Information", step: 1, rows: [["Name", form.name], ["Gender", form.gender], ["Age", form.age], ["Mobile", form.phone]] },
+                  { label: "Address", step: 2, rows: [["House No", form.house_no], ["Village", form.village], ["Mandal", form.mandal], ["District", form.district]] },
+                  { label: "Education & Social", step: 3, rows: [["Category", form.category], ["Education", form.education], ["Skill Interest", form.skill_interest]] },
+                  { label: "Program Details", step: 4, rows: [["Program", p.label], ["Field Worker", form.field_worker_name], ["Registration Date", form.registration_date]] },
+                  { label: "Identity Proof", step: 5, rows: [["Document Type", identityInfo.label], ["Document Number", form.identity_number]] },
+                ].map(section => (
+                  <div key={section.label} className="rounded-xl border border-[#E5E7EB] p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[12px] font-bold text-[#111827]">{section.label}</p>
+                      <button type="button" onClick={() => jump(section.step)} className="text-[11px] font-semibold" style={{ color: p.color }}>Edit</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      {section.rows.map(([k, v]) => (
+                        <div key={k} className="text-[11px]"><span className="text-[#9CA3AF]">{k}: </span><span className="text-[#111827] font-medium">{v || "—"}</span></div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
         </div>
-        <div className="px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
-          <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white" style={{ background: p.color }}>
-            {editing ? "Update Record" : "Save Registration"}
-          </button>
-          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-[#F3F4F6]">Cancel</button>
-          {!editing && <span className="text-[10.5px] text-[#9CA3AF] ml-auto">* ID auto-generated on save</span>}
+
+        <div className="sticky bottom-0 px-5 py-4 bg-[#F8FAFC] border-t border-[#E5E7EB] flex items-center gap-3">
+          {step > 1 && (
+            <button type="button" onClick={goBack} className="rounded-xl border border-[#E5E7EB] px-5 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-white">
+              Previous
+            </button>
+          )}
+          {step < TOTAL_STEPS && (
+            <button type="button" onClick={goNext} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white ml-auto" style={{ background: p.color }}>
+              Next
+            </button>
+          )}
+          {step === TOTAL_STEPS && (
+            <button type="submit" onClick={submit} className="rounded-xl px-6 py-2.5 text-[13.5px] font-bold text-white ml-auto" style={{ background: p.color }}>
+              {editing ? "Update Record" : "Save Registration"}
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-5 py-2.5 text-[13.5px] font-medium text-[#374151] hover:bg-white">Cancel</button>
         </div>
       </form>
+      </>
       )}
     </div>
   );
@@ -910,12 +1250,48 @@ function VillageForm({ editing, onSave, onCancel }) {
 /* ============================================================
    DASHBOARD
    ============================================================ */
-function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
+function CountUp({ value, duration = 800 }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    let raf, start;
+    const target = Number(value) || 0;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      setDisplay(Math.round(target * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <>{display}</>;
+}
+
+function Sparkline({ data, color }) {
+  if (!data || data.length < 2) return <div className="h-6" />;
+  const vals = data.map(d => d.count);
+  const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${28 - ((v - min) / range) * 26}`).join(" ");
+  return (
+    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="w-full h-7">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function Dashboard({ beneficiaries, training, employment, villages, isAdmin, currentUser, onQuickAction, onViewBeneficiary }) {
+  const [dark, setDark] = useState(() => localStorage.getItem("tapasvi_dashboard_theme") === "dark");
+  const toggleDark = () => setDark(d => { localStorage.setItem("tapasvi_dashboard_theme", !d ? "dark" : "light"); return !d; });
+  const dc = dark
+    ? { pageText: "#F3F4F6", subtext: "#9CA3AF", cardBg: "rgba(17,24,39,0.7)", cardBorder: "rgba(255,255,255,0.08)", sectionBg: "#0B1220" }
+    : { pageText: "#111827", subtext: "#6B7280", cardBg: "rgba(255,255,255,0.75)", cardBorder: "rgba(229,231,235,0.8)", sectionBg: "#F8FAFC" };
+
   const total = beneficiaries.length;
   const women = beneficiaries.filter(b => b.gender === "Female").length;
   const youth = beneficiaries.filter(b => b.gender !== "Female").length;
   const trained = training.length;
-  const certIssued = training.filter(t => t.certificate_issued === "Yes").length;
+  const certIssuedLegacy = training.filter(t => t.certificate_issued === "Yes").length;
   const employed = employment.filter(e => e.status === "Active").length;
   const completionRate = total > 0 ? Math.round((beneficiaries.filter(b => b.status === "Completed").length / total) * 100) : 0;
   const employmentRate = total > 0 ? Math.round((employed / total) * 100) : 0;
@@ -933,6 +1309,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [beneficiaries]);
 
+  const byDistrict = useMemo(() => reportsGroupBy(beneficiaries, b => b.district), [beneficiaries]);
+
   const byStatus = useMemo(() => {
     const m = {};
     STATUS_OPTIONS.forEach(s => m[s] = 0);
@@ -943,41 +1321,298 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
   const statusColors = { Registered: "#1E3A8A", Training: "#F97316", Completed: "#16A34A", Dropped: "#D32F2F" };
   const maxVillage = Math.max(1, ...byVillage.map(v => v[1]));
 
+  // Live counts this component fetches for itself — doesn't touch any other module's data flow.
+  const [batches, setBatches] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [fieldWorkerCount, setFieldWorkerCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    (async () => {
+      const [bt, ar, am, ct, us, al] = await Promise.all([
+        supabase.from("batch_trainings").select("*"),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("assessment_marks").select("*"),
+        supabase.from("certificates").select("*"),
+        supabase.from("users").select("id", { count: "exact", head: true }).eq("role", "fieldworker"),
+        supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(8),
+      ]);
+      setBatches(bt.data || []);
+      setAssessmentRecords(ar.data || []);
+      setAssessmentMarks(am.data || []);
+      setCertificates(ct.data || []);
+      setFieldWorkerCount(us.count || 0);
+      setRecentActivity(al.data || []);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const activeTrainings = batches.filter(b => b.status === "Ongoing").length;
+  const completedTrainings = batches.filter(b => b.status === "Completed").length;
+  const certsIssued = certificates.filter(c => c.status === "Active").length;
+  const villagesCovered = villages.length;
+  const activeProgramsCount = Object.values(byProgram).filter(c => c > 0).length;
+  const trainersCount = new Set(batches.map(b => b.trainer_name).filter(Boolean)).size;
+  const todayStr0 = now.toISOString().slice(0, 10);
+  const todaysRegistrations = beneficiaries.filter(b => b.registration_date === todayStr0).length;
+
+  const thisMonth = now.toISOString().slice(0, 7);
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = lastMonthDate.toISOString().slice(0, 7);
+  const newBeneficiariesThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
+  const beneficiariesLastMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === lastMonth).length;
+  const newTrainingsThisMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === thisMonth).length;
+  const trainingsLastMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === lastMonth).length;
+  const newAssessmentsThisMonth = assessmentRecords.filter(a => (a.assessment_date || "").slice(0, 7) === thisMonth).length;
+  const assessmentsLastMonth = assessmentRecords.filter(a => (a.assessment_date || "").slice(0, 7) === lastMonth).length;
+  const newCertsThisMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === thisMonth).length;
+  const certsLastMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === lastMonth).length;
+  const newPlacementsThisMonth = employment.filter(e => (e.created_at || "").slice(0, 7) === thisMonth).length;
+  const placementsLastMonth = employment.filter(e => (e.created_at || "").slice(0, 7) === lastMonth).length;
+
+  const growthPct = (curr, prev) => prev > 0 ? Math.round(((curr - prev) / prev) * 100) : (curr > 0 ? 100 : null);
+
+  // Greeting
+  const hour = now.getHours();
+  const timeGreeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const friendlyMessages = ["Welcome back!", "Have a productive day!", "Let's make a difference today!"];
+  const [friendlyMsg] = useState(() => friendlyMessages[Math.floor(Math.random() * friendlyMessages.length)]);
+  const roleLabel = currentUser?.role === "super_admin" ? "Super Admin" : currentUser?.role === "admin" ? "Admin" : "Field Worker";
+  const dateStr = now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+  // Charts (reuse MiniBarChart / MiniDonut from the Reports module)
+  const programDonut = useMemo(() => PROGRAMS.map(p => ({ label: p.short, count: byProgram[p.key] || 0 })).filter(x => x.count > 0), [byProgram]);
+  const beneficiaryGrowth = useMemo(() => {
+    const m = reportsGroupBy(beneficiaries, b => monthKey(b.registration_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [beneficiaries]);
+  const monthlyTrainings = useMemo(() => {
+    const m = reportsGroupBy(batches, b => monthKey(b.start_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [batches]);
+  const assessmentResults = useMemo(() => ([
+    { label: "Pass", count: assessmentMarks.filter(m => m.result === "Pass").length },
+    { label: "Fail", count: assessmentMarks.filter(m => m.result === "Fail").length },
+  ].filter(x => x.count > 0)), [assessmentMarks]);
+  const certificateTrend = useMemo(() => {
+    const m = reportsGroupBy(certificates, c => monthKey(c.certificate_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [certificates]);
+  const placementTrend = useMemo(() => {
+    const m = reportsGroupBy(employment, e => monthKey(e.created_at));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label)).slice(-6);
+  }, [employment]);
+
+  const SUMMARY = [
+    { label: "Total Beneficiaries", value: total, delta: newBeneficiariesThisMonth, growth: growthPct(newBeneficiariesThisMonth, beneficiariesLastMonth), trend: beneficiaryGrowth, icon: Users, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Active Programs", value: activeProgramsCount, icon: BookOpen, grad: ["#DB2777", "#F472B6"] },
+    { label: "Field Workers", value: fieldWorkerCount, icon: Users, grad: ["#DC2626", "#F87171"] },
+    { label: "Trainers", value: trainersCount, icon: ClipboardList, grad: ["#F97316", "#FB923C"] },
+    { label: "Today's Registrations", value: todaysRegistrations, icon: TrendingUp, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Employment Placements", value: employed, delta: newPlacementsThisMonth, growth: growthPct(newPlacementsThisMonth, placementsLastMonth), trend: placementTrend, icon: Briefcase, grad: ["#0EA5E9", "#0369A1"] },
+    { label: "Women Beneficiaries", value: women, icon: Users, grad: ["#DB2777", "#EC4899"] },
+    { label: "Youth Beneficiaries", value: youth, icon: Users, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Active Trainings", value: activeTrainings, delta: newTrainingsThisMonth, growth: growthPct(newTrainingsThisMonth, trainingsLastMonth), trend: monthlyTrainings, icon: BookOpen, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Completed Trainings", value: completedTrainings, icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
+    { label: "Assessments", value: assessmentRecords.length, delta: newAssessmentsThisMonth, growth: growthPct(newAssessmentsThisMonth, assessmentsLastMonth), icon: ClipboardList, grad: ["#F97316", "#FDBA74"] },
+    { label: "Certificates Issued", value: certsIssued, delta: newCertsThisMonth, growth: growthPct(newCertsThisMonth, certsLastMonth), trend: certificateTrend, icon: Award, grad: ["#7C3AED", "#C4B5FD"] },
+    { label: "Villages Covered", value: villagesCovered, icon: MapPin, grad: ["#16A34A", "#065F46"] },
+  ];
+
+  const QUICK_ACTIONS = [
+    { key: "beneficiary", label: "Add Beneficiary", icon: Users, color: "#1E3A8A" },
+    { key: "training", label: "Create Training", icon: BookOpen, color: "#DB2777" },
+    { key: "attendance", label: "Mark Attendance", icon: CheckCircle, color: "#16A34A" },
+    { key: "assessment", label: "New Assessment", icon: ClipboardList, color: "#F97316" },
+    { key: "certificate", label: "Generate Certificate", icon: Award, color: "#7C3AED" },
+    { key: "employment", label: "Placement", icon: Briefcase, color: "#0EA5E9" },
+    { key: "reports", label: "Reports", icon: BarChart3, color: "#DC2626" },
+  ];
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-[18px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif"}}>Dashboard</h2>
-          <p className="text-[12px] text-[#6B7280]">TAPASVI — Program Overview</p>
+    <div className="transition-colors duration-300 -m-4 p-4 rounded-2xl" style={{ background: dc.sectionBg }}>
+      {/* Theme toggle */}
+      <div className="flex justify-end mb-2">
+        <button onClick={toggleDark} aria-label="Toggle dashboard theme"
+          className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-105"
+          style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(10px)" }}>
+          {dark ? "☀️" : "🌙"}
+        </button>
+      </div>
+
+      {/* Greeting banner */}
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)", boxShadow: "0 12px 30px -12px rgba(30,58,138,0.4)" }}>
+        <div className="flex items-center gap-3 relative z-10">
+          <Logo size={38} />
+          <div className="flex-1 min-w-0">
+            <p className="text-[15px] font-bold">👋 {timeGreeting}, {currentUser?.username || "there"}</p>
+            <p className="text-[11px] text-white/80">{roleLabel} · {friendlyMsg}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/20 relative z-10">
+          <p className="text-[10.5px] text-white/85">{dateStr}</p>
+          <p className="text-[10.5px] font-semibold text-white/95">{timeStr}</p>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <StatCard icon={Users} label="Total Beneficiaries" value={total} color="#16A34A" tint="#DCFCE7" />
-        <StatCard icon={Award} label="Trained" value={trained} color="#1E3A8A" tint="#EFF6FF" sub={`${certIssued} certificates issued`} />
-        <StatCard icon={Briefcase} label="Employed" value={employed} color="#F97316" tint="#FFF7ED" sub={`${employmentRate}% rate`} />
-        <StatCard icon={TrendingUp} label="Completion Rate" value={`${completionRate}%`} color="#F97316" tint="#FFF7ED" />
+        {SUMMARY.map(s => (
+          <div key={s.label} className="rounded-[20px] p-3.5 text-white relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_32px_-10px_rgba(0,0,0,0.35)]"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})`, boxShadow: "0 8px 20px -10px rgba(0,0,0,0.25)" }}>
+            <div className="flex items-start justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur flex items-center justify-center">
+                <s.icon size={15} />
+              </div>
+              {s.growth !== undefined && s.growth !== null && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5" style={{ background: s.growth >= 0 ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.2)" }}>
+                  {s.growth >= 0 ? "↑" : "↓"} {Math.abs(s.growth)}%
+                </span>
+              )}
+            </div>
+            <p className="text-[20px] font-bold leading-none"><CountUp value={s.value} /></p>
+            <p className="text-[10px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
+            {s.delta > 0 && (
+              <p className="text-[9.5px] text-white/90 mt-1 flex items-center gap-0.5"><TrendingUp size={10} /> +{s.delta} this month</p>
+            )}
+            {s.trend && s.trend.length >= 2 && (
+              <div className="mt-1.5 opacity-80"><Sparkline data={s.trend} color="#ffffff" /></div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Quick actions */}
+      <div className="mb-5">
+        <h3 className="text-[12px] font-bold uppercase tracking-wide mb-2.5" style={{ color: dc.subtext }}>Quick Actions</h3>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2.5">
+          {QUICK_ACTIONS.map(a => (
+            <button key={a.key} onClick={() => onQuickAction && onQuickAction(a.key)}
+              className="rounded-[20px] p-3 flex flex-col items-center gap-1.5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 active:scale-95" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}` }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: a.color + "1A" }}>
+                <a.icon size={14} style={{ color: a.color }} />
+              </div>
+              <span className="text-[9.5px] font-medium text-center leading-tight" style={{ color: dc.pageText }}>{a.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent Beneficiaries + Recent Activities */}
+      <div className="grid md:grid-cols-2 gap-3 mb-5">
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[12px] font-bold uppercase tracking-wide" style={{ color: dc.subtext }}>Recent Beneficiaries</h3>
+            <button onClick={() => onQuickAction && onQuickAction("beneficiaries-list")} className="text-[11px] font-semibold text-[#1E3A8A] hover:underline">View All →</button>
+          </div>
+          {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 6).length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-6">No beneficiaries yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 6).map(b => (
+                <button key={b.beneficiary_id} onClick={() => onViewBeneficiary && onViewBeneficiary(b)}
+                  className="w-full flex items-center gap-2.5 py-2 px-1.5 rounded-xl hover:bg-[#F8FAFC] transition-colors text-left">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: PROGRAM_MAP[b.program]?.color || "#1E3A8A" }}>
+                    {(b.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-semibold truncate" style={{ color: dc.pageText }}>{b.name || b.beneficiary_id}</p>
+                    <p className="text-[10px] truncate" style={{ color: dc.subtext }}>{PROGRAM_MAP[b.program]?.short || b.program} · {b.village || "—"}</p>
+                  </div>
+                  <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: (statusColors[b.status] || "#1E3A8A") + "18", color: statusColors[b.status] || "#1E3A8A" }}>
+                    {b.status || "Registered"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-3" style={{ color: dc.subtext }}>Recent Activity</h3>
+          {recentActivity.length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-6">No activity logged yet.</p>
+          ) : (
+            <div className="space-y-0">
+              {recentActivity.map((a, i) => {
+                const isLast = i === recentActivity.length - 1;
+                const color = a.action?.includes("FAILED") ? "#DC2626" : a.action === "CREATE" ? "#16A34A" : a.action === "DELETE" ? "#DC2626" : a.action === "LOGIN" ? "#1E3A8A" : "#7C3AED";
+                return (
+                  <div key={a.id || i} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: color }} />
+                      {!isLast && <div className="w-px flex-1 min-h-[24px]" style={{ background: "#E5E7EB" }} />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <p className="text-[11.5px] leading-snug" style={{ color: dc.pageText }}>{a.details || a.action}</p>
+                      <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "System"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid md:grid-cols-2 gap-3 mb-5">
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Beneficiary Growth</h3>
+          <MiniBarChart data={beneficiaryGrowth} color="#1E3A8A" />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Program Distribution</h3>
+          <MiniDonut data={programDonut} />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Monthly Trainings</h3>
+          <MiniBarChart data={monthlyTrainings} color="#DB2777" />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Assessment Results</h3>
+          <MiniDonut data={assessmentResults} colors={["#16A34A", "#DC2626"]} />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Certificate Trend</h3>
+          <MiniBarChart data={certificateTrend} color="#7C3AED" />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>Placement Trend</h3>
+          <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
+        <div className="rounded-[20px] p-4 transition-colors duration-300 md:col-span-2" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold mb-3" style={{ color: dc.pageText }}>District-wise Beneficiaries</h3>
+          <MiniBarChart data={byDistrict} color="#1E3A8A" />
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 mb-5">
         {/* Women vs Youth */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Gender Split</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Gender Split</h3>
           <div className="flex items-end gap-4 h-28">
             {[["Women", women, "#F97316"], ["Youth (M)", youth, "#1E3A8A"]].map(([label, count, color]) => (
               <div key={label} className="flex flex-col items-center gap-2 flex-1">
-                <span className="text-[16px] font-bold text-[#111827]">{count}</span>
+                <span className="text-[16px] font-bold" style={{ color: dc.pageText }}>{count}</span>
                 <div className="w-full rounded-t-lg" style={{ height: `${Math.max(8, (count / Math.max(1, total)) * 80)}px`, background: color }} />
-                <span className="text-[11px] text-[#6B7280]">{label}</span>
+                <span className="text-[11px]" style={{ color: dc.subtext }}>{label}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Program wise */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Program-wise Beneficiaries</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Program-wise Beneficiaries</h3>
           <div className="space-y-3">
             {PROGRAMS.map(p => (
               <div key={p.key} className="flex items-center gap-3">
@@ -986,7 +1621,7 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[12px] font-medium text-[#111827]">{p.short}</span>
+                    <span className="text-[12px] font-medium" style={{ color: dc.pageText }}>{p.short}</span>
                     <span className="text-[12px] font-bold" style={{ color: p.color }}>{byProgram[p.key] || 0}</span>
                   </div>
                   <div className="h-1.5 rounded-full bg-[#F3F4F6] overflow-hidden">
@@ -999,8 +1634,8 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
         </div>
 
         {/* Status breakdown */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-          <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Training Status</h3>
+        <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+          <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Training Status</h3>
           <div className="grid grid-cols-2 gap-3">
             {STATUS_OPTIONS.map(s => (
               <div key={s} className="rounded-lg p-3 flex items-center justify-between" style={{ background: statusColors[s] + "18" }}>
@@ -1013,15 +1648,15 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 
         {/* Village wise */}
         {isAdmin && (
-          <div className="bg-white rounded-xl border border-[#E5E7EB] p-4">
-            <h3 className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-4">Village-wise Performance</h3>
+          <div className="rounded-[20px] p-4 transition-colors duration-300" style={{ background: dc.cardBg, border: `1px solid ${dc.cardBorder}`, backdropFilter: "blur(12px)" }}>
+            <h3 className="text-[12px] font-bold uppercase tracking-wide mb-4" style={{ color: dc.subtext }}>Village-wise Performance</h3>
             {byVillage.length === 0 ? <p className="text-[12px] text-[#AAA]">No data yet.</p> : byVillage.map(([v, c]) => (
               <div key={v} className="flex items-center gap-3 py-1.5">
-                <span className="text-[12px] text-[#111827] w-28 shrink-0 truncate">{v}</span>
+                <span className="text-[12px] w-28 shrink-0 truncate" style={{ color: dc.pageText }}>{v}</span>
                 <div className="flex-1 h-2 rounded-full bg-[#F3F4F6] overflow-hidden">
                   <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${(c / maxVillage) * 100}%` }} />
                 </div>
-                <span className="text-[12px] font-bold text-[#111827] w-6 text-right">{c}</span>
+                <span className="text-[12px] font-bold w-6 text-right" style={{ color: dc.pageText }}>{c}</span>
               </div>
             ))}
           </div>
@@ -1032,8 +1667,356 @@ function Dashboard({ beneficiaries, training, employment, villages, isAdmin }) {
 }
 
 /* ============================================================
-   BENEFICIARY LIST
+   FIELD WORKER DASHBOARD — dark, productivity-focused, own-data only.
+   Self-contained: fetches only records scoped to the logged-in
+   field worker (assigned_field_worker / field_worker_name / marked_by).
+   No global NGO stats, no other users' data, no financial data.
    ============================================================ */
+function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onViewBeneficiary }) {
+  const username = currentUser?.username;
+  const [batches, setBatches] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [myActivity, setMyActivity] = useState([]);
+  const [now, setNow] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  const loadAll = async () => {
+    const [bt, al] = await Promise.all([
+      supabase.from("batch_trainings").select("*").eq("assigned_field_worker", username),
+      supabase.from("audit_logs").select("*").eq("user_email", username).order("created_at", { ascending: false }).limit(6),
+    ]);
+    const myBatches = bt.data || [];
+    setBatches(myBatches);
+    setMyActivity(al.data || []);
+    const batchIds = myBatches.map(b => b.batch_id);
+    if (batchIds.length > 0) {
+      const [en, ar, asr] = await Promise.all([
+        supabase.from("training_enrollments").select("*").in("batch_id", batchIds),
+        supabase.from("attendance_records").select("*").in("batch_id", batchIds),
+        supabase.from("assessment_records").select("*").in("batch_id", batchIds),
+      ]);
+      setEnrollments(en.data || []);
+      setAttendanceRecords(ar.data || []);
+      setAssessmentRecords(asr.data || []);
+      const assessmentIds = (asr.data || []).map(a => a.id);
+      if (assessmentIds.length > 0) {
+        const [am, ct] = await Promise.all([
+          supabase.from("assessment_marks").select("*").in("assessment_id", assessmentIds),
+          supabase.from("certificates").select("*").in("batch_id", batchIds),
+        ]);
+        setAssessmentMarks(am.data || []);
+        setCertificates(ct.data || []);
+      } else {
+        setAssessmentMarks([]); setCertificates([]);
+      }
+    } else {
+      setEnrollments([]); setAttendanceRecords([]); setAssessmentRecords([]); setAssessmentMarks([]); setCertificates([]);
+    }
+  };
+
+  useEffect(() => { (async () => { setLoading(true); await loadAll(); setLoading(false); })(); }, [username]);
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(t); }, []);
+
+  const handleSync = async () => { setSyncing(true); await loadAll(); setSyncing(false); };
+
+  const todayStr = now.toISOString().slice(0, 10);
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const dateStr = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const motivationLines = ["Let's make today count! 💪", "Every visit changes a life. 🌱", "Small steps, big impact today. 🚀", "Your work matters. Let's go! 🔥"];
+  const [motivation] = useState(() => motivationLines[Math.floor(Math.random() * motivationLines.length)]);
+
+  const assignedVillages = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))], [beneficiaries]);
+
+  const todaysSchedule = batches.filter(b => b.start_date && b.end_date && b.start_date <= todayStr && b.end_date >= todayStr);
+  const attendanceMarkedTodayBatchIds = new Set(attendanceRecords.filter(a => a.session_date === todayStr).map(a => a.batch_id));
+  const attendancePendingToday = todaysSchedule.filter(b => !attendanceMarkedTodayBatchIds.has(b.batch_id));
+  const assessmentDoneTodayBatchIds = new Set(assessmentRecords.filter(a => a.assessment_date === todayStr).map(a => a.batch_id));
+  const certIssuedTodayBatchIds = new Set(certificates.filter(c => c.certificate_date === todayStr).map(c => c.batch_id));
+  const registeredToday = beneficiaries.filter(b => b.registration_date === todayStr).length;
+
+  // Today's checklist — real signals only, no fabricated quotas
+  const CHECKLIST = [
+    { key: "registration", label: "Registration", done: registeredToday > 0, applicable: true },
+    { key: "training", label: "Training", done: todaysSchedule.length > 0, applicable: todaysSchedule.length > 0 },
+    { key: "attendance", label: "Attendance", done: todaysSchedule.length > 0 && attendancePendingToday.length === 0, applicable: todaysSchedule.length > 0 },
+    { key: "assessment", label: "Assessment", done: todaysSchedule.some(b => assessmentDoneTodayBatchIds.has(b.batch_id)), applicable: todaysSchedule.length > 0 },
+    { key: "certificate", label: "Certificate", done: todaysSchedule.some(b => certIssuedTodayBatchIds.has(b.batch_id)), applicable: todaysSchedule.length > 0 },
+  ];
+  const applicableSteps = CHECKLIST.filter(c => c.applicable);
+  const completionPct = applicableSteps.length > 0 ? Math.round((applicableSteps.filter(c => c.done).length / applicableSteps.length) * 100) : 0;
+
+  // Smart "continue" routing — jumps to whatever's next incomplete
+  const nextAction = attendancePendingToday.length > 0 ? { key: "attendance", label: "Mark Attendance" }
+    : todaysSchedule.some(b => !assessmentDoneTodayBatchIds.has(b.batch_id)) && todaysSchedule.length > 0 ? { key: "assessment", label: "Conduct Assessment" }
+    : todaysSchedule.some(b => !certIssuedTodayBatchIds.has(b.batch_id)) && todaysSchedule.length > 0 ? { key: "certificate", label: "Generate Certificates" }
+    : { key: "beneficiary", label: "Register a Beneficiary" };
+
+  const thisMonth = now.toISOString().slice(0, 7);
+  const registeredThisMonth = beneficiaries.filter(b => (b.registration_date || "").slice(0, 7) === thisMonth).length;
+  const trainingsThisMonth = batches.filter(b => (b.start_date || "").slice(0, 7) === thisMonth).length;
+  const monthAttendance = attendanceRecords.filter(a => (a.session_date || "").slice(0, 7) === thisMonth);
+  const attendancePctMonth = monthAttendance.length > 0 ? Math.round((monthAttendance.filter(a => a.status === "Present" || a.status === "Late").length / monthAttendance.length) * 100) : null;
+  const certsThisMonth = certificates.filter(c => (c.certificate_date || "").slice(0, 7) === thisMonth).length;
+  const aadhaarPending = beneficiaries.filter(b => b.aadhaar_verified !== "Yes").length;
+  const pendingAssessments = todaysSchedule.filter(b => !assessmentDoneTodayBatchIds.has(b.batch_id)).length;
+  const pendingCerts = assessmentMarks.filter(m => m.result === "Pass" && m.certificate_eligible === "Yes" && !certificates.some(c => c.assessment_id === m.assessment_id && c.beneficiary_id === m.beneficiary_id)).length;
+  const scoreParts = [registeredThisMonth > 0 ? 100 : 0, attendancePctMonth ?? 0, trainingsThisMonth > 0 ? 100 : 0].filter(v => v !== null);
+  const achievementPct = scoreParts.length ? Math.round(scoreParts.reduce((a, b) => a + b, 0) / scoreParts.length) : 0;
+
+  const PENDING_TASKS = [
+    ...(attendancePendingToday.length > 0 ? [{ label: `Mark attendance for ${attendancePendingToday.length} batch${attendancePendingToday.length > 1 ? "es" : ""} today`, icon: CheckCircle, color: "#F59E0B", urgent: true, onClick: () => onQuickAction("attendance") }] : []),
+    ...(pendingAssessments > 0 ? [{ label: `Conduct assessment for ${pendingAssessments} today's batch${pendingAssessments > 1 ? "es" : ""}`, icon: ClipboardList, color: "#F59E0B", onClick: () => onQuickAction("assessment") }] : []),
+    ...(pendingCerts > 0 ? [{ label: `Generate ${pendingCerts} pending certificate${pendingCerts > 1 ? "s" : ""}`, icon: Award, color: "#8B5CF6", onClick: () => onQuickAction("certificate") }] : []),
+    ...(aadhaarPending > 0 ? [{ label: `Verify Aadhaar for ${aadhaarPending} beneficiar${aadhaarPending > 1 ? "ies" : "y"}`, icon: AlertCircle, color: "#EF4444", onClick: () => onQuickAction("beneficiaries-list") }] : []),
+  ];
+
+  const QUICK_ACTIONS = [
+    { key: "beneficiary", label: "Register Beneficiary", emoji: "➕", icon: Users, color: "#2563EB" },
+    { key: "training", label: "Continue Training", emoji: "🎓", icon: BookOpen, color: "#2563EB" },
+    { key: "attendance", label: "Attendance", emoji: "✅", icon: CheckCircle, color: "#10B981" },
+    { key: "assessment", label: "Assessment", emoji: "📝", icon: ClipboardList, color: "#F59E0B" },
+    { key: "certificate", label: "Certificate", emoji: "🏆", icon: Award, color: "#8B5CF6" },
+    { key: "beneficiaries-list", label: "Assigned Beneficiaries", emoji: "👥", icon: Users, color: "#2563EB" },
+  ];
+
+  const cardStyle = { background: "rgba(30,41,59,0.6)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.08)" };
+  const WORKFLOW_STEPS = [
+    { key: "assigned", label: "Assigned" },
+    { key: "start", label: "Start" },
+    { key: "attendance", label: "Attendance" },
+    { key: "assessment", label: "Assessment" },
+    { key: "certificate", label: "Certificate" },
+  ];
+
+  return (
+    <div className="-m-4 p-4 min-h-screen rounded-2xl relative" style={{ background: "linear-gradient(160deg,#0B1220 0%,#0E1A2E 55%,#0B1220 100%)" }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3 px-0.5">
+        <div>
+          <p className="text-[16px] font-bold text-white">{greeting}, {username || "there"} 👋</p>
+          <p className="text-[10.5px] text-white/50 mt-0.5">{dateStr} · 🏘 {assignedVillages.length > 0 ? assignedVillages.slice(0, 2).join(", ") + (assignedVillages.length > 2 ? ` +${assignedVillages.length - 2}` : "") : "No village assigned"}</p>
+        </div>
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[14px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg,#2563EB,#1E3A8A)" }}>
+          {(username || "?").charAt(0).toUpperCase()}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-white/50">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-60" />
+          <p className="text-[13px]">Loading your dashboard...</p>
+        </div>
+      ) : (
+        <>
+          {/* Start My Day */}
+          <div className="rounded-[22px] p-5 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(135deg,#10B981,#2563EB)" }}>
+            <p className="text-[13px] font-bold tracking-wide">🎯 START MY DAY</p>
+            <p className="text-[11px] text-white/80 mt-1 mb-3">{motivation}</p>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {CHECKLIST.map(c => (
+                <span key={c.key} className="text-[10px] font-medium px-2.5 py-1 rounded-full" style={{ background: c.done ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.15)" }}>
+                  {c.done ? "✅" : c.applicable ? "🟡" : "⬜"} {c.label}
+                </span>
+              ))}
+            </div>
+            <button onClick={() => onQuickAction(nextAction.key)}
+              className="w-full rounded-xl py-3.5 text-[14px] font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
+              style={{ background: "white", color: "#059669" }}>
+              ▶ {nextAction.label}
+            </button>
+          </div>
+
+          {/* Today's Completion */}
+          <div className="rounded-[20px] p-4 mb-4 flex items-center gap-4" style={cardStyle}>
+            <div className="relative w-16 h-16 shrink-0">
+              <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10B981" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${completionPct * 0.974} 1000`} style={{ transition: "stroke-dasharray 0.8s ease" }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold text-white">{completionPct}%</div>
+            </div>
+            <div>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Today's Completion</p>
+              <p className="text-[11px] text-white/50 mt-0.5">{applicableSteps.filter(c => c.done).length} of {applicableSteps.length} steps done</p>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-white/50">Quick Actions</p>
+              <button onClick={handleSync} disabled={syncing} className="flex items-center gap-1 text-[10px] text-white/50">
+                <RefreshCw size={11} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync"}
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2.5">
+              {QUICK_ACTIONS.map(a => (
+                <button key={a.key} onClick={() => onQuickAction(a.key)}
+                  className="rounded-[18px] p-3.5 flex flex-col items-center gap-2 transition-all duration-200 active:scale-95"
+                  style={cardStyle}>
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: a.color + "26" }}>
+                    <a.icon size={16} style={{ color: a.color }} />
+                  </div>
+                  <span className="text-[10px] font-medium text-white text-center leading-tight">{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Today's Trainings + workflow tracker */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Today's Trainings</p>
+            {todaysSchedule.length === 0 ? (
+              <p className="text-[12px] text-white/50 text-center py-4">No trainings scheduled for today.</p>
+            ) : (
+              <div className="space-y-3">
+                {todaysSchedule.map(b => {
+                  const participants = enrollments.filter(e => e.batch_id === b.batch_id).length;
+                  const attDone = attendanceMarkedTodayBatchIds.has(b.batch_id);
+                  const asmDone = assessmentDoneTodayBatchIds.has(b.batch_id);
+                  const certDone = certIssuedTodayBatchIds.has(b.batch_id);
+                  const stepDone = [true, true, attDone, asmDone, certDone]; // assigned+start always true for an ongoing batch
+                  return (
+                    <div key={b.batch_id} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.04)" }}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <p className="text-[12.5px] font-semibold text-white truncate">{b.training_name || b.training_type} · {b.venue}</p>
+                        <button onClick={() => onQuickAction("attendance")} className="text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0" style={{ background: "#2563EB" }}>Continue</button>
+                      </div>
+                      <p className="text-[10px] text-white/50 mb-2">{PROGRAM_MAP[b.program]?.short || b.program} · {participants} participants</p>
+                      <div className="flex items-center">
+                        {WORKFLOW_STEPS.map((s, i) => (
+                          <React.Fragment key={s.key}>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: stepDone[i] ? "#10B981" : i === stepDone.findIndex(d => !d) ? "#2563EB" : "rgba(255,255,255,0.1)", color: stepDone[i] || i === stepDone.findIndex(d => !d) ? "#fff" : "rgba(255,255,255,0.4)" }}>
+                                {stepDone[i] ? "✓" : i + 1}
+                              </div>
+                              <span className="text-[7.5px] text-white/40">{s.label}</span>
+                            </div>
+                            {i < WORKFLOW_STEPS.length - 1 && <div className="flex-1 h-0.5 mb-3" style={{ background: stepDone[i] ? "#10B981" : "rgba(255,255,255,0.1)" }} />}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Assigned Beneficiaries */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Assigned Beneficiaries</p>
+              <button onClick={() => onQuickAction("beneficiaries-list")} className="text-[11px] font-semibold text-[#60A5FA]">View All →</button>
+            </div>
+            <p className="text-[26px] font-bold text-white leading-none mb-3">{beneficiaries.length}</p>
+            <div className="space-y-1.5">
+              {[...beneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 4).map(b => (
+                <button key={b.beneficiary_id} onClick={() => onViewBeneficiary && onViewBeneficiary(b)}
+                  className="w-full flex items-center gap-2.5 py-1.5 px-1.5 rounded-lg hover:bg-white/5 transition-colors text-left">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ background: "#2563EB" }}>
+                    {(b.name || "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11.5px] text-white/90 truncate">{b.name || b.beneficiary_id}</p>
+                    <p className="text-[9px] text-white/40 truncate">{b.beneficiary_id} · {PROGRAM_MAP[b.program]?.short || b.program}</p>
+                  </div>
+                  <span className="text-[9px] text-white/40 shrink-0">{b.village}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Assigned Villages */}
+          {assignedVillages.length > 0 && (
+            <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">🏘 Assigned Villages</p>
+              <div className="flex flex-wrap gap-2">
+                {assignedVillages.map(v => (
+                  <span key={v} className="text-[11px] font-medium text-white px-3 py-1.5 rounded-full" style={{ background: "rgba(37,99,235,0.2)" }}>{v}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pending Tasks */}
+          {PENDING_TASKS.length > 0 && (
+            <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Pending Tasks</p>
+              <div className="space-y-2">
+                {PENDING_TASKS.map((t, i) => (
+                  <button key={i} onClick={t.onClick} className="w-full flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-white/5" style={{ background: t.urgent ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)" }}>
+                    <t.icon size={16} style={{ color: t.color }} className="shrink-0" />
+                    <span className="text-[12px] text-white flex-1 text-left">{t.label}</span>
+                    {t.urgent && <span className="text-[8.5px] font-bold text-[#EF4444] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(239,68,68,0.2)" }}>URGENT</span>}
+                    <ChevronRight size={14} className="text-white/30" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Activity */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-3">Recent Activity</p>
+            {myActivity.length === 0 ? (
+              <p className="text-[12px] text-white/50 text-center py-4">No activity yet.</p>
+            ) : (
+              <div className="space-y-0">
+                {myActivity.map((a, i) => (
+                  <div key={a.id || i} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: "#10B981" }} />
+                      {i < myActivity.length - 1 && <div className="w-px flex-1 min-h-[20px]" style={{ background: "rgba(255,255,255,0.1)" }} />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <p className="text-[11.5px] text-white/85 leading-snug">{a.details || a.action}</p>
+                      <p className="text-[9.5px] text-white/40 mt-0.5">{a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Monthly Performance */}
+          <div className="rounded-[20px] p-4 mb-4" style={cardStyle}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-bold uppercase tracking-wide text-white/70">Monthly Performance</p>
+              <span className="text-[11px] font-bold text-[#10B981]">{achievementPct}% Achievement</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(37,99,235,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#60A5FA]">{registeredThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Registrations</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(16,185,129,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#10B981]">{trainingsThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Trainings</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(245,158,11,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#F59E0B]">{attendancePctMonth !== null ? attendancePctMonth + "%" : "—"}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Attendance</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: "rgba(139,92,246,0.15)" }}>
+                <p className="text-[20px] font-bold text-[#8B5CF6]">{certsThisMonth}</p>
+                <p className="text-[10px] text-white/60 mt-0.5">Certificates</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
@@ -1234,28 +2217,47 @@ function TrainingDashboard({ batches, enrollments }) {
   const ongoing   = batches.filter(b => b.status === "Ongoing").length;
   const completed = batches.filter(b => b.status === "Completed").length;
   const totalPart = enrollments.length;
-  const compRate  = totalPart > 0 ? Math.round((enrollments.filter(e => e.attendance_pct >= 75).length / totalPart) * 100) : 0;
+  const withAttendance = enrollments.filter(e => e.attendance_pct !== null && e.attendance_pct !== undefined);
+  const avgAttendance = withAttendance.length > 0 ? Math.round(withAttendance.reduce((s, e) => s + Number(e.attendance_pct || 0), 0) / withAttendance.length) : null;
+
+  // Self-fetched, scoped to the batches this user can see — doesn't touch any existing query.
+  const [assessmentsCompleted, setAssessmentsCompleted] = useState(null);
+  const [certificatesIssued, setCertificatesIssued] = useState(null);
+  const batchIds = useMemo(() => batches.map(b => b.batch_id), [batches]);
+
+  useEffect(() => {
+    if (batchIds.length === 0) { setAssessmentsCompleted(0); setCertificatesIssued(0); return; }
+    (async () => {
+      const [{ data: ar }, { data: ct }] = await Promise.all([
+        supabase.from("assessment_records").select("id, batch_id, status").in("batch_id", batchIds),
+        supabase.from("certificates").select("id, batch_id, status").in("batch_id", batchIds),
+      ]);
+      setAssessmentsCompleted((ar || []).filter(a => a.status === "Completed").length);
+      setCertificatesIssued((ct || []).filter(c => c.status === "Active").length);
+    })();
+  }, [batchIds]);
 
   const stats = [
-    { label: "Total Trainings", value: total,    color: "#1E3A8A", tint: "#EFF6FF", icon: BookOpen },
-    { label: "Upcoming",        value: upcoming,  color: "#6366F1", tint: "#EEF2FF", icon: Clock },
-    { label: "Ongoing",         value: ongoing,   color: "#F97316", tint: "#FFF7ED", icon: TrendingUp },
-    { label: "Completed",       value: completed, color: "#16A34A", tint: "#DCFCE7", icon: CheckCircle },
-    { label: "Participants",    value: totalPart, color: "#0369A1", tint: "#E0F2FE", icon: Users },
-    { label: "Completion Rate", value: compRate + "%", color: "#7C3AED", tint: "#F5F3FF", icon: Award },
+    { label: "Total Trainings", value: total, icon: BookOpen, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Active Trainings", value: ongoing, icon: TrendingUp, grad: ["#F97316", "#FB923C"] },
+    { label: "Upcoming Trainings", value: upcoming, icon: Clock, grad: ["#6366F1", "#818CF8"] },
+    { label: "Completed Trainings", value: completed, icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Total Enrollments", value: totalPart, icon: Users, grad: ["#0EA5E9", "#38BDF8"] },
+    { label: "Attendance %", value: avgAttendance !== null ? avgAttendance + "%" : "—", icon: ClipboardList, grad: ["#DB2777", "#F472B6"] },
+    { label: "Assessments Completed", value: assessmentsCompleted ?? "…", icon: Award, grad: ["#7C3AED", "#A78BFA"] },
+    { label: "Certificates Issued", value: certificatesIssued ?? "…", icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       {stats.map(s => (
-        <div key={s.label} className="bg-white rounded-xl border border-[#E5E7EB] p-4 flex items-center gap-3" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.tint }}>
-            <s.icon size={18} style={{ color: s.color }} />
+        <div key={s.label} className="rounded-[20px] p-4 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
+          style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
+          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center mb-2.5">
+            <s.icon size={16} />
           </div>
-          <div>
-            <p className="text-[20px] font-bold text-[#111827] leading-none">{s.value}</p>
-            <p className="text-[11px] text-[#6B7280] mt-0.5">{s.label}</p>
-          </div>
+          <p className="text-[21px] font-bold leading-none">{s.value}</p>
+          <p className="text-[10.5px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
         </div>
       ))}
     </div>
@@ -1485,13 +2487,182 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
 }
 
 /* ── ATTENDANCE SCREEN ──────────────────────────────────────── */
-function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
+/* ============================================================
+   TRAINING SESSION SCREEN — blue theme, distinct from Attendance.
+   Purpose: conduct/manage today's training session before handing
+   off to attendance marking. Start/Pause/End are session-flow UI
+   state only (not persisted) — batch.status itself is unchanged,
+   since editing that remains an admin action elsewhere.
+   ============================================================ */
+function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContinueToAttendance, onClose }) {
+  // "running"/"ended" are local UI state for THIS visit only — they reset if the screen is reopened.
+  // Whether "today's session" is already done is derived from real attendance_records (session_date),
+  // not from any local flag, so it survives refresh/navigation and resets naturally each new calendar day.
+  const [running, setRunning] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [startedAt, setStartedAt] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
+  const myEnrollments = (enrollments || []).filter(e => e.batch_id === batch.batch_id);
+  const participants = myEnrollments.length;
+
   const todayStr = new Date().toISOString().slice(0, 10);
+  const todaysSessionDone = (attendanceRecords || []).some(r => r.batch_id === batch.batch_id && r.session_date === todayStr);
+  const isFinalDay = batch.end_date === todayStr;
+
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [running, startedAt]);
+
+  const timerLabel = (() => {
+    const h = String(Math.floor(elapsed / 3600)).padStart(2, "0");
+    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+    const s = String(elapsed % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  })();
+
+  const durationLabel = (() => {
+    if (!batch.start_date || !batch.end_date) return "—";
+    const days = Math.round((new Date(batch.end_date) - new Date(batch.start_date)) / 86400000);
+    if (days <= 0) return "1 day";
+    if (days < 14) return `${days} days`;
+    return `${Math.round(days / 7)} weeks`;
+  })();
+
+  const INFO = [
+    ["Program", p.label],
+    ["Batch ID", batch.batch_id?.slice(0, 8) || "—"],
+    ["Village", batch.venue || "—"],
+    ["Venue", batch.venue || "—"],
+    ["Trainer", batch.trainer_name || "—"],
+    ["Date", `${batch.start_date || "—"} → ${batch.end_date || "—"}`],
+    ["Participants", participants],
+    ["Duration", durationLabel],
+    ["Session Status", batch.status || "—"],
+  ];
+
+  return (
+    <div className="max-w-[560px] mx-auto">
+      {/* Header */}
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#2563EB)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><X size={16} /></button>
+          <p className="text-[10px] text-white/70">Training / Session</p>
+        </div>
+        <p className="text-[17px] font-bold">🎓 {batch.training_name || batch.training_type}</p>
+        <p className="text-[11px] text-white/80 mt-0.5">Conduct and manage today's training session</p>
+      </div>
+
+      {/* Batch info card */}
+      <div className="rounded-[20px] p-4 mb-4" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          {INFO.map(([label, val]) => (
+            <div key={label}>
+              <p className="text-[9.5px] text-[#9CA3AF] uppercase tracking-wide">{label}</p>
+              <p className="text-[12.5px] font-semibold text-[#111827] mt-0.5">{val}</p>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setShowParticipants(s => !s)} className="w-full text-center text-[11.5px] font-semibold text-[#2563EB] mt-3 pt-3 border-t border-[#F3F4F6]">
+          {showParticipants ? "Hide Participants ▲" : `View Participants (${participants}) ▼`}
+        </button>
+        {showParticipants && (
+          <div className="mt-2 space-y-1.5 max-h-[180px] overflow-y-auto">
+            {myEnrollments.length === 0 ? (
+              <p className="text-[11.5px] text-[#9CA3AF] text-center py-2">No one enrolled yet.</p>
+            ) : myEnrollments.map(e => (
+              <div key={e.enrollment_id} className="flex items-center gap-2 py-1">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: p.color }}>
+                  {(e.beneficiary_name || "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[11.5px] text-[#374151]">{e.beneficiary_name || e.beneficiary_id}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {batch.status === "Completed" ? (
+        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(243,244,246,0.9)", border: "1px solid #E5E7EB" }}>
+          <CheckCircle size={36} className="mx-auto mb-2 text-[#6B7280]" />
+          <p className="text-[15px] font-bold text-[#374151]">Training Already Completed</p>
+          <p className="text-[12px] text-[#6B7280] mt-1 mb-4">This batch has finished. Training cannot be started or re-run.</p>
+          <button onClick={onContinueToAttendance}
+            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
+            ✓ Mark Attendance
+          </button>
+        </div>
+      ) : (todaysSessionDone && !running) || ended ? (
+        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
+          <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
+          <p className="text-[15px] font-bold text-[#16A34A]">Today's Class Completed</p>
+          <p className="text-[12px] text-[#15803D] mt-1 mb-4">
+            {isFinalDay
+              ? "This was the batch's final day. Once assessment and certificates are done, an Admin will mark the batch Completed."
+              : "Great work! \"Start Today's Session\" will be available again tomorrow for this batch."}
+          </p>
+          <button onClick={onContinueToAttendance}
+            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
+            ✓ Review Today's Attendance
+          </button>
+        </div>
+      ) : (
+        <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
+          {running ? (
+            <>
+              <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Timer</p>
+              <p className="text-[30px] font-black text-[#2563EB] mb-3 tabular-nums">{timerLabel}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Status</p>
+              <p className="text-[15px] font-bold mb-4 text-[#6B7280]">⚪ Today's Session Not Started</p>
+            </>
+          )}
+
+          {!running && (
+            <button onClick={() => { setRunning(true); setStartedAt(Date.now()); setElapsed(0); }}
+              className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+              style={{ background: "linear-gradient(90deg,#1E3A8A,#2563EB)", boxShadow: "0 8px 20px -6px rgba(37,99,235,0.45)" }}>
+              ▶ Start Today's Session
+            </button>
+          )}
+          {running && (
+            <button onClick={() => setEnded(true)}
+              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
+              🏁 End Today's Session
+            </button>
+          )}
+        </div>
+      )}
+
+      {batch.status !== "Completed" && !todaysSessionDone && !ended && (
+        <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
+          Skip to Attendance →
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+function AttendanceScreen({ batch, batches, onSwitchBatch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const myBatches = useMemo(() => (batches || []).filter(b => isAdmin || b.assigned_field_worker === currentUser?.username), [batches, isAdmin, currentUser]);
+  const [query, setQuery] = useState("");
   const batchEnrollments = enrollments.filter(e =>
     e.batch_id === batch.batch_id &&
     (e.enrollment_status || "Active") !== "Cancelled" &&
     (isAdmin || !e.enrolled_by || e.enrolled_by === currentUser?.username)
   );
+  const visibleEnrollments = query.trim()
+    ? batchEnrollments.filter(e => (e.beneficiary_name || "").toLowerCase().includes(query.toLowerCase()) || (e.beneficiary_id || "").toLowerCase().includes(query.toLowerCase()))
+    : batchEnrollments;
   const batchRecords = attendanceRecords.filter(r => r.batch_id === batch.batch_id);
 
   const [sessionDate, setSessionDate] = useState(todayStr);
@@ -1508,7 +2679,7 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
     return init;
   });
 
-  // Re-initialize marks whenever the session date changes
+  // Re-initialize marks whenever the session date or batch changes
   useEffect(() => {
     const init = {};
     batchEnrollments.forEach(e => {
@@ -1517,10 +2688,17 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
     });
     setMarks(init);
     // eslint-disable-next-line
-  }, [sessionDate]);
+  }, [sessionDate, batch.batch_id]);
 
-  const statusOptions = ["Present", "Absent", "Late"];
-  const statusColors = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316" };
+  const statusOptions = ["Present", "Absent", "Late", "Leave"];
+  const statusColors = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316", Leave: "#8B5CF6" };
+  const statusIcons = { Present: "🟢", Absent: "🔴", Late: "🟡", Leave: "🟣" };
+
+  const markCounts = useMemo(() => {
+    const c = { Present: 0, Absent: 0, Late: 0, Leave: 0 };
+    Object.values(marks).forEach(v => { if (c[v] !== undefined) c[v]++; });
+    return c;
+  }, [marks]);
 
   // Auto-calculated per-beneficiary stats from full session history in this batch
   const statsFor = (beneficiaryId) => {
@@ -1544,20 +2722,36 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
 
   return (
     <div className="max-w-[720px] mx-auto">
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
-        <div className="flex-1">
-          <h2 className="text-[17px] font-bold text-[#111827]">Mark Attendance</h2>
-          <p className="text-[12px] text-[#6B7280]">{batch.training_name}</p>
+      <div className="rounded-[20px] p-4 mb-4 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#15803D,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><X size={16} /></button>
+          <p className="text-[10px] text-white/70">Training / Attendance</p>
         </div>
-        <div className="text-right">
-          <p className="text-[16px] font-black text-[#1E3A8A]">{totalSessions}</p>
-          <p className="text-[10px] text-[#6B7280]">Total Sessions</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[17px] font-bold">✅ {batch.training_name}</h2>
+            <p className="text-[11px] text-white/80 mt-0.5">Record who attended today's session.</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[18px] font-black">{totalSessions}</p>
+            <p className="text-[9.5px] text-white/75">Total Sessions</p>
+          </div>
         </div>
       </div>
 
+      {/* Batch selector */}
+      {myBatches.length > 1 && (
+        <div className="mb-3">
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">BATCH</label>
+          <select value={batch.batch_id} onChange={e => { const b = myBatches.find(x => x.batch_id === e.target.value); if (b) onSwitchBatch(b); }}
+            className={selectCls + " text-[13px]"}>
+            {myBatches.map(b => <option key={b.batch_id} value={b.batch_id}>{b.training_name} · {b.venue}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Session date picker */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[160px]">
           <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">SESSION DATE</label>
           <input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)}
@@ -1586,24 +2780,42 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
-        {batchEnrollments.length === 0 ? (
+      {/* Search */}
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search beneficiary..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+
+      {/* Live counter summary */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {statusOptions.map(st => (
+          <div key={st} className="rounded-xl p-2.5 text-center" style={{ background: statusColors[st] + "15" }}>
+            <p className="text-[16px] font-bold" style={{ color: statusColors[st] }}>{markCounts[st]}</p>
+            <p className="text-[9px] font-medium" style={{ color: statusColors[st] }}>{st}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-[20px] border border-[#E5E7EB] overflow-hidden shadow-sm">
+        {visibleEnrollments.length === 0 ? (
           <div className="text-center py-12 text-[#9CA3AF]">
             <Users size={24} className="mx-auto mb-2 opacity-40" />
-            <p className="text-[13px]">No beneficiaries enrolled yet.</p>
+            <p className="text-[13px]">{query ? "No matching beneficiaries." : "No beneficiaries enrolled yet."}</p>
           </div>
         ) : (
           <div className="divide-y divide-[#F3F4F6] max-h-[55vh] overflow-y-auto">
-            {batchEnrollments.map(e => {
+            {visibleEnrollments.map(e => {
               const s = statsFor(e.beneficiary_id);
               return (
-                <div key={e.enrollment_id} className="px-4 py-3">
+                <div key={e.enrollment_id} className="px-4 py-3.5">
                   <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0" style={{ background: "#1E3A8A" }}>
+                      {(e.beneficiary_name || e.beneficiary_id || "?").charAt(0).toUpperCase()}
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{e.beneficiary_name || e.beneficiary_id}</p>
                       <p className="text-[11px] text-[#6B7280]">
-                        {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · {s.present}P / {s.absent}A · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
-                        {e.enrolled_by && <> · Enrolled by {e.enrolled_by}</>}
+                        {e.beneficiary_id} · {PROGRAM_MAP[e.program]?.short || e.program} · {s.total} sessions · <b style={{ color: s.pct >= 80 ? "#16A34A" : "#DC2626" }}>{s.pct}%</b>
                       </p>
                     </div>
                     {isAdmin && onCancelEnrollment && (
@@ -1614,28 +2826,32 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
                       </button>
                     )}
                   </div>
-                  <div className="flex gap-2 mt-2">
-                    {statusOptions.map(st => (
-                      <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
-                        className="flex-1 py-2 rounded-lg text-[12px] font-bold transition"
-                        style={marks[e.beneficiary_id] === st
-                          ? { background: statusColors[st], color: "white" }
-                          : { background: "#F3F4F6", color: "#6B7280" }}>
-                        {st}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-4 gap-1.5 mt-3">
+                    {statusOptions.map(st => {
+                      const selected = marks[e.beneficiary_id] === st;
+                      return (
+                        <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
+                          className="py-2.5 rounded-xl text-[10.5px] font-bold transition-all active:scale-95"
+                          style={selected
+                            ? { background: statusColors[st], color: "white", boxShadow: `0 4px 12px -2px ${statusColors[st]}66` }
+                            : { background: "#F3F4F6", color: "#6B7280" }}>
+                          <span className="block text-[14px] mb-0.5">{statusIcons[st]}</span>{st}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-        <div className="p-4 border-t border-[#F3F4F6] flex gap-3">
+        <div className="sticky bottom-0 p-4 border-t border-[#F3F4F6] bg-white flex gap-3">
           <button onClick={save} disabled={saving || batchEnrollments.length === 0}
-            className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: saving ? "#888" : "#1E3A8A" }}>
+            className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: saving ? "#9CA3AF" : "linear-gradient(90deg,#15803D,#16A34A)" }}>
             {saving ? "Saving..." : `Save Attendance — ${sessionDate}`}
           </button>
-          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#374151]">Close</button>
+          <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-3 text-[13px] font-medium text-[#374151]">Close</button>
         </div>
       </div>
     </div>
@@ -1711,6 +2927,8 @@ function CertificateScreen({ batch, enrollments, onIssueCertificates, onClose })
 function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynPrograms, onClose }) {
   const [programFilter, setProgramFilter] = useState("all");
   const [batchFilter, setBatchFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [beneficiaryQuery, setBeneficiaryQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -1724,6 +2942,7 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
   const batchMap = useMemo(() => Object.fromEntries(batches.map(b => [b.batch_id, b])), [batches]);
   const beneficiaryMap = useMemo(() => Object.fromEntries(beneficiaries.map(b => [b.beneficiary_id, b])), [beneficiaries]);
+  const villageOptions = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))].sort(), [beneficiaries]);
 
   const batchesInProgram = useMemo(() => {
     if (programFilter === "all") return batches;
@@ -1734,6 +2953,8 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
     let r = attendanceRecords;
     if (programFilter !== "all") r = r.filter(rec => batchMap[rec.batch_id]?.program === programFilter);
     if (batchFilter !== "all") r = r.filter(rec => rec.batch_id === batchFilter);
+    if (villageFilter !== "all") r = r.filter(rec => beneficiaryMap[rec.beneficiary_id]?.village === villageFilter);
+    if (statusFilter !== "all") r = r.filter(rec => rec.status === statusFilter);
     if (fromDate) r = r.filter(rec => rec.session_date >= fromDate);
     if (toDate) r = r.filter(rec => rec.session_date <= toDate);
     if (beneficiaryQuery.trim()) {
@@ -1744,7 +2965,12 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
       });
     }
     return [...r].sort((a, b) => (b.session_date || "").localeCompare(a.session_date || ""));
-  }, [attendanceRecords, programFilter, batchFilter, fromDate, toDate, beneficiaryQuery, batchMap, beneficiaryMap]);
+  }, [attendanceRecords, programFilter, batchFilter, villageFilter, statusFilter, fromDate, toDate, beneficiaryQuery, batchMap, beneficiaryMap]);
+
+  const resetFilters = () => {
+    setProgramFilter("all"); setBatchFilter("all"); setVillageFilter("all"); setStatusFilter("all");
+    setBeneficiaryQuery(""); setFromDate(""); setToDate("");
+  };
 
   const rowsForExport = () => filtered.map(rec => {
     const bt = batchMap[rec.batch_id];
@@ -1755,6 +2981,8 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
       "Program": PROGRAM_MAP[bt?.program]?.short || bt?.program || "—",
       "Beneficiary ID": rec.beneficiary_id,
       "Beneficiary Name": ben?.name || "—",
+      "Village": ben?.village || "—",
+      "Trainer": bt?.trainer_name || "—",
       "Status": rec.status,
       "Marked By": rec.marked_by || "—",
     };
@@ -1765,24 +2993,68 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
   const totalPresent = filtered.filter(r => r.status === "Present" || r.status === "Late").length;
   const totalAbsent = filtered.filter(r => r.status === "Absent").length;
+  const attendancePct = filtered.length > 0 ? Math.round((totalPresent / filtered.length) * 100) : 0;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayRecords = attendanceRecords.filter(r => r.session_date === todayStr);
+  const todayPresent = todayRecords.filter(r => r.status === "Present" || r.status === "Late").length;
+  const todayAbsent = todayRecords.filter(r => r.status === "Absent").length;
+  const activeBatches = batches.filter(b => b.status === "Ongoing").length;
+  const todaysTrainings = batches.filter(b => b.start_date && b.end_date && b.start_date <= todayStr && b.end_date >= todayStr).length;
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  const SUMMARY = [
+    { label: "Today's Attendance", value: todayRecords.length, sub: `${todayStr}`, icon: ClipboardList, grad: ["#1E3A8A", "#3B82F6"] },
+    { label: "Present", value: todayPresent, sub: "Today", icon: CheckCircle, grad: ["#16A34A", "#4ADE80"] },
+    { label: "Absent", value: todayAbsent, sub: "Today", icon: XCircle, grad: ["#DC2626", "#F87171"] },
+    { label: "Attendance %", value: attendancePct + "%", sub: "Filtered range", icon: TrendingUp, grad: ["#DB2777", "#F472B6"] },
+    { label: "Active Batches", value: activeBatches, sub: "Ongoing", icon: BookOpen, grad: ["#F97316", "#FB923C"] },
+    { label: "Today's Trainings", value: todaysTrainings, sub: "In session", icon: Clock, grad: ["#7C3AED", "#A78BFA"] },
+  ];
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-5">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
-        <div className="flex-1">
-          <h2 className="text-[18px] font-bold text-[#111827]">Attendance Report</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} records · {totalPresent} present · {totalAbsent} absent</p>
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><ChevronRight size={16} className="rotate-180" /></button>
+          <p className="text-[10px] text-white/70">Dashboard / Attendance</p>
         </div>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
-          <FileSpreadsheet size={13} /> CSV
-        </button>
-        <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
-          <Printer size={13} /> PDF
-        </button>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[19px] font-bold">Attendance Management</h2>
+            <p className="text-[11.5px] text-white/85 mt-0.5">Track beneficiary attendance quickly and accurately.</p>
+          </div>
+          <p className="text-[10.5px] text-white/80">{todayLabel}</p>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4 grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+        {SUMMARY.map(s => (
+          <div key={s.label} className="rounded-[20px] p-4 text-white relative overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all"
+            style={{ background: `linear-gradient(135deg,${s.grad[0]},${s.grad[1]})` }}>
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center mb-2.5">
+              <s.icon size={16} />
+            </div>
+            <p className="text-[21px] font-bold leading-none">{s.value}</p>
+            <p className="text-[10.5px] text-white/85 mt-1.5 leading-tight">{s.label}</p>
+            <p className="text-[9px] text-white/65 mt-0.5">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] text-[#6B7280]">{filtered.length} records · {totalPresent} present · {totalAbsent} absent</p>
+        <div className="flex gap-2">
+          <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+            <FileSpreadsheet size={13} /> Excel
+          </button>
+          <button onClick={exportPDF} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+            <Printer size={13} /> PDF / Print
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-4 mb-4 grid grid-cols-2 gap-3">
         <div>
           <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">PROGRAM</label>
           <select value={programFilter} onChange={e => { setProgramFilter(e.target.value); setBatchFilter("all"); }} className={selectCls + " text-[12.5px]"}>
@@ -1795,6 +3067,22 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
           <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
             <option value="all">All Batches</option>
             {batchesInProgram.map(b => <option key={b.batch_id} value={b.batch_id}>{b.training_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">VILLAGE</label>
+          <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Villages</option>
+            {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">STATUS</label>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " text-[12.5px]"}>
+            <option value="all">All Status</option>
+            <option value="Present">Present</option>
+            <option value="Absent">Absent</option>
+            <option value="Late">Late</option>
           </select>
         </div>
         <div>
@@ -1812,23 +3100,30 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
             <input value={beneficiaryQuery} onChange={e => setBeneficiaryQuery(e.target.value)} placeholder="Search beneficiary..." className={inputCls + " pl-9 text-[12.5px]"} />
           </div>
         </div>
+        <div className="col-span-2 flex justify-end">
+          <button onClick={resetFilters} className="text-[11.5px] font-semibold text-[#6B7280] px-3 py-1.5 rounded-lg border border-[#E5E7EB] hover:bg-[#F3F4F6]">
+            Reset Filters
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+      <div className="bg-white rounded-[20px] border border-[#E5E7EB] overflow-hidden shadow-sm">
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-[#9CA3AF]">
-            <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
-            <p className="text-[13px]">No attendance records match these filters.</p>
+            <ClipboardList size={30} className="mx-auto mb-3 opacity-40" />
+            <p className="text-[13px]">No attendance records found.</p>
           </div>
         ) : (
           <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
             <table className="w-full text-[12px]">
-              <thead className="sticky top-0 bg-white">
+              <thead className="sticky top-0 bg-[#F8FAFC] z-10">
                 <tr className="border-b border-[#E5E7EB]">
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Date</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Training</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Beneficiary</th>
-                  <th className="text-left px-3 py-2 text-[#6B7280] font-semibold">Status</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Date</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Training</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Beneficiary</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Village</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Trainer</th>
+                  <th className="text-left px-3 py-2.5 text-[#6B7280] font-semibold">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1838,11 +3133,13 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
                   const color = rec.status === "Present" ? "#16A34A" : rec.status === "Late" ? "#F97316" : "#DC2626";
                   const tint = rec.status === "Present" ? "#DCFCE7" : rec.status === "Late" ? "#FFF7ED" : "#FEF2F2";
                   return (
-                    <tr key={rec.id} className="border-b border-[#F3F4F6]">
-                      <td className="px-3 py-2 whitespace-nowrap">{rec.session_date}</td>
-                      <td className="px-3 py-2">{bt?.training_name || rec.batch_id}</td>
-                      <td className="px-3 py-2">{ben?.name || rec.beneficiary_id} <span className="text-[#9CA3AF]">({rec.beneficiary_id})</span></td>
-                      <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold" style={{ background: tint, color }}>{rec.status}</span></td>
+                    <tr key={rec.id} className="border-b border-[#F3F4F6] hover:bg-[#F8FAFC] transition-colors">
+                      <td className="px-3 py-2.5 text-[#374151]">{rec.session_date}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{bt?.training_name || rec.batch_id}</td>
+                      <td className="px-3 py-2.5 text-[#111827] font-medium">{ben?.name || rec.beneficiary_id}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{ben?.village || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#374151]">{bt?.trainer_name || "—"}</td>
+                      <td className="px-3 py-2.5"><Badge label={rec.status} color={color} tint={tint} /></td>
                     </tr>
                   );
                 })}
@@ -1859,7 +3156,7 @@ function AttendanceReport({ attendanceRecords, batches, beneficiaries, dynProgra
 
 function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUser,
   onAdd, onEdit, onDelete, onEnroll, onAttendance, onCertificates,
-  onExport, onPrint, dynPrograms, onAttendanceReport }) {
+  onExport, onPrint, dynPrograms, onAttendanceReport, onAssessments, onCertificateGeneration }) {
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1912,14 +3209,24 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
 
   const getEnrollCount = batchId => visibleEnrollments.filter(e => e.batch_id === batchId).length;
 
+  const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">Training Management</h2>
-          <p className="text-[12px] text-[#6B7280]">{filtered.length} trainings</p>
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <p className="text-[10px] text-white/70 mb-1">Dashboard / Training Management</p>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-[19px] font-bold">Training Management</h2>
+            <p className="text-[11.5px] text-white/85 mt-0.5">Manage training batches, enrollments and progress.</p>
+          </div>
+          <p className="text-[10.5px] text-white/80">{todayLabel}</p>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <p className="text-[12px] text-[#6B7280]">{filtered.length} trainings</p>
         <div className="flex gap-2 flex-wrap">
           {isAdmin && (
             <>
@@ -1934,12 +3241,22 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                   <ClipboardList size={13} /> Attendance Report
                 </button>
               )}
+              {onAssessments && (
+                <button onClick={onAssessments} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                  <Award size={13} /> Assessments
+                </button>
+              )}
+              {onCertificateGeneration && (
+                <button onClick={onCertificateGeneration} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827] hover:bg-white">
+                  <CheckCircle size={13} /> Certificate Generation
+                </button>
+              )}
             </>
           )}
           {isAdmin && (
             <button onClick={onAdd}
-              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white"
-              style={{ background: "#1E3A8A" }}>
+              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white transition hover:opacity-90"
+              style={{ background: "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
               <Plus size={14} /> New Training
             </button>
           )}
@@ -1950,7 +3267,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
       <TrainingDashboard batches={visibleBatches} enrollments={visibleEnrollments} />
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4 flex-wrap">
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3 flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[180px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
           <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }}
@@ -1985,7 +3302,7 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
             const enrollCount = getEnrollCount(batch.batch_id);
             const capacity = batch.max_capacity ? `${enrollCount}/${batch.max_capacity}` : enrollCount;
             return (
-              <div key={batch.batch_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
+              <div key={batch.batch_id} className="bg-white rounded-[20px] border border-[#E5E7EB] shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all overflow-hidden">
                 <div className="px-4 py-4" style={{ borderLeft: `4px solid ${p.color}` }}>
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
@@ -2016,11 +3333,20 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                             + Enroll
                           </button>
                         )}
-                        <button onClick={() => onAttendance(batch)} title="Mark Attendance"
-                          className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
-                          style={{ background: "#F97316" }}>
-                          Attend
-                        </button>
+                        {batch.status !== "Completed" && batch.status !== "Cancelled" && (
+                          <button onClick={() => onAttendance(batch)} title={batch.status === "Ongoing" ? "Continue Training" : "Start Training"}
+                            className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#2563EB" }}>
+                            {batch.status === "Ongoing" ? "▶ Continue" : "▶ Start"}
+                          </button>
+                        )}
+                        {batch.status === "Completed" && (
+                          <button onClick={() => onAttendance(batch)} title="Mark Attendance"
+                            className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#16A34A" }}>
+                            ✓ Attendance
+                          </button>
+                        )}
                       </div>
                       <div className="flex gap-1">
                         {batch.status === "Completed" && (
@@ -2220,6 +3546,57 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
   });
   const otherPrograms = Object.values(otherProgramsMap);
 
+  // Live data this profile fetches for itself — attendance, assessments, certificates, placement.
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [employmentRecords, setEmploymentRecords] = useState([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLiveLoading(true);
+      const [ar, am, asr, ct, em] = await Promise.all([
+        supabase.from("attendance_records").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("assessment_marks").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("certificates").select("*").eq("beneficiary_id", b.beneficiary_id),
+        supabase.from("employment").select("*").eq("beneficiary_id", b.beneficiary_id),
+      ]);
+      setAttendanceRecords(ar.data || []);
+      setAssessmentMarks(am.data || []);
+      setAssessmentRecords(asr.data || []);
+      setCertificates(ct.data || []);
+      setEmploymentRecords(em.data || []);
+      setLiveLoading(false);
+    })();
+  }, [b.beneficiary_id]);
+
+  const myEnrollments = (enrollments || []).filter(e => e.beneficiary_id === b.beneficiary_id);
+  const presentCount = attendanceRecords.filter(a => a.status === "Present" || a.status === "Late").length;
+  const attendancePct = attendanceRecords.length > 0 ? Math.round((presentCount / attendanceRecords.length) * 100) : null;
+  const latestMark = [...assessmentMarks].sort((x, y) => (y.created_at || "").localeCompare(x.created_at || ""))[0];
+  const activeCert = certificates.find(c => c.status === "Active");
+  const activeEmployment = employmentRecords.find(e => e.status === "Active");
+  const completedEnrollments = myEnrollments.filter(e => e.enrollment_status === "Completed").length;
+  const trainingProgressPct = myEnrollments.length > 0 ? Math.round((completedEnrollments / myEnrollments.length) * 100) : 0;
+
+  const derivedStatus = activeEmployment ? "Placed" : activeCert ? "Certified" : completedEnrollments > 0 ? "Completed" : myEnrollments.length > 0 ? "Training" : (b.status || "Registered");
+  const derivedStatusColor = { Placed: "#0EA5E9", Certified: "#7C3AED", Completed: "#16A34A", Training: "#F97316", Registered: "#1E3A8A" }[derivedStatus] || "#1E3A8A";
+
+  const firstEnrollmentDate = myEnrollments.length > 0 ? [...myEnrollments].sort((x, y) => (x.enrolled_at || "").localeCompare(y.enrolled_at || ""))[0]?.enrolled_at : null;
+  const firstAssessmentDate = assessmentMarks.length > 0 ? (assessmentRecords.find(r => r.id === assessmentMarks[0].assessment_id)?.assessment_date) : null;
+
+  const TIMELINE = [
+    { label: "Registration", date: b.registration_date, done: true },
+    { label: "Training Started", date: firstEnrollmentDate?.slice(0, 10), done: myEnrollments.length > 0 },
+    { label: "Attendance Recorded", date: attendanceRecords[0]?.session_date, done: attendanceRecords.length > 0 },
+    { label: "Assessment Completed", date: firstAssessmentDate, done: assessmentMarks.length > 0 },
+    { label: "Certificate Issued", date: activeCert?.certificate_date, done: !!activeCert },
+    { label: "Placement", date: activeEmployment?.created_at?.slice(0, 10), done: !!activeEmployment },
+  ];
+
   const InfoRow = ({ label, value }) => (
     <div className="flex py-2 border-b border-[#F3F4F6] last:border-0">
       <span className="text-[11.5px] text-[#6B7280] w-36 shrink-0">{label}</span>
@@ -2244,19 +3621,64 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       </div>
 
       {/* Profile Header Card */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4 flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
-          style={{ background: p.color }}>
-          {(b.name || "?").charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
-          <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
-          <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge label={b.status || "Registered"} color={statusColors[b.status] || "#1E3A8A"} tint={(statusColors[b.status] || "#1E3A8A") + "18"} />
-            {b.field_worker_name && <span className="text-[10.5px] text-[#6B7280]">👤 {b.field_worker_name}</span>}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
+            style={{ background: p.color }}>
+            {(b.name || "?").charAt(0).toUpperCase()}
           </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
+            <p className="text-[12px] text-[#6B7280] mt-0.5">{b.age ? `${b.age} years` : "—"} · {b.gender || "—"}</p>
+            <p className="text-[12px] text-[#6B7280]">📞 {b.phone || "—"}</p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge label={derivedStatus} color={derivedStatusColor} tint={derivedStatusColor + "18"} />
+              {b.field_worker_name && <span className="text-[10.5px] text-[#6B7280]">👤 {b.field_worker_name}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <div><p className="text-[9.5px] text-[#9CA3AF] uppercase">Village</p><p className="text-[12px] font-semibold text-[#111827]">{b.village || "—"}</p></div>
+          <div><p className="text-[9.5px] text-[#9CA3AF] uppercase">Registration Date</p><p className="text-[12px] font-semibold text-[#111827]">{b.registration_date || "—"}</p></div>
+        </div>
+      </div>
+
+      {/* Live Summary Cards */}
+      <div className="grid grid-cols-3 gap-2.5 mb-4">
+        {[
+          { label: "Attendance", value: attendancePct !== null ? attendancePct + "%" : "—", color: "#1E3A8A" },
+          { label: "Assessment Score", value: latestMark ? latestMark.percentage + "%" : "—", color: "#F97316" },
+          { label: "Grade", value: latestMark ? latestMark.grade : "—", color: "#7C3AED" },
+          { label: "Certificate", value: activeCert ? "Issued" : "Pending", color: activeCert ? "#16A34A" : "#9CA3AF" },
+          { label: "Placement", value: activeEmployment ? "Placed" : "Pending", color: activeEmployment ? "#0EA5E9" : "#9CA3AF" },
+          { label: "Training Progress", value: myEnrollments.length ? trainingProgressPct + "%" : "—", color: "#DB2777" },
+        ].map(card => (
+          <div key={card.label} className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center">
+            <p className="text-[14px] font-bold" style={{ color: card.color }}>{liveLoading ? "…" : card.value}</p>
+            <p className="text-[9px] text-[#6B7280] mt-0.5 leading-tight">{card.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Timeline */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-4">📍 Journey Timeline</h4>
+        <div className="space-y-0">
+          {TIMELINE.map((t, i) => (
+            <div key={t.label} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                  style={t.done ? { background: "#16A34A", color: "#fff" } : { background: "#F3F4F6", color: "#9CA3AF" }}>
+                  {t.done ? "✓" : i + 1}
+                </div>
+                {i < TIMELINE.length - 1 && <div className="w-0.5 flex-1 min-h-[24px]" style={{ background: t.done ? "#16A34A" : "#E5E7EB" }} />}
+              </div>
+              <div className="pb-4 flex-1">
+                <p className="text-[12.5px] font-semibold text-[#111827]">{t.label}</p>
+                <p className="text-[10.5px]" style={{ color: t.done ? "#16A34A" : "#9CA3AF" }}>{t.done ? (t.date || "Completed") : "Pending"}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -2356,29 +3778,84 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       </div>
 
       {/* Training History */}
-      {(() => {
-        const myEnrollments = (enrollments || []).filter(e => e.beneficiary_id === b.beneficiary_id);
-        if (myEnrollments.length === 0) return null;
-        return (
-          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-            <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Training History</h4>
-            <div className="space-y-2.5">
-              {myEnrollments.map(e => (
-                <div key={e.enrollment_id} className="bg-[#F8FAFC] rounded-xl p-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
-                    <div className="flex gap-2">
-                      {e.attendance_pct > 0 && <Badge label={`${e.attendance_pct}% Attendance`} color="#1E3A8A" tint="#EFF6FF" />}
-                      {e.certificate_status === "Issued" && <Badge label="Certificate ✓" color="#16A34A" tint="#DCFCE7" />}
-                    </div>
-                  </div>
-                  {e.certificate_no && <p className="text-[10.5px] font-mono text-[#6B7280] mt-1">{e.certificate_no}</p>}
+      {myEnrollments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+          <h4 className="text-[13px] font-bold text-[#111827] mb-3">🎓 Training History</h4>
+          <div className="space-y-2.5">
+            {myEnrollments.map(e => (
+              <div key={e.enrollment_id} className="bg-[#F8FAFC] rounded-xl p-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{e.training_name || e.batch_id}</p>
+                  <Badge label={e.enrollment_status || "Active"} color={e.enrollment_status === "Completed" ? "#16A34A" : "#1E3A8A"} tint={e.enrollment_status === "Completed" ? "#DCFCE7" : "#EFF6FF"} />
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-3">🕓 Recent Activity</h4>
+        {liveLoading ? (
+          <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Attendance</p>
+              {attendanceRecords.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No records yet.</p> : (
+                <div className="space-y-1.5">
+                  {attendanceRecords.slice(0, 5).map((a, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{a.session_date}</span>
+                      <Badge label={a.status} color={a.status === "Present" ? "#16A34A" : a.status === "Late" ? "#F97316" : "#DC2626"} tint={a.status === "Present" ? "#DCFCE7" : a.status === "Late" ? "#FFF7ED" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Assessments</p>
+              {assessmentMarks.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No assessments yet.</p> : (
+                <div className="space-y-1.5">
+                  {assessmentMarks.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{assessmentRecords.find(r => r.id === m.assessment_id)?.assessment_type || "Assessment"} · {m.percentage}%</span>
+                      <Badge label={m.result} color={m.result === "Pass" ? "#16A34A" : "#DC2626"} tint={m.result === "Pass" ? "#DCFCE7" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Certificates</p>
+              {certificates.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">None issued yet.</p> : (
+                <div className="space-y-1.5">
+                  {certificates.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151] font-mono">{c.certificate_number}</span>
+                      <Badge label={c.status} color={c.status === "Active" ? "#16A34A" : "#DC2626"} tint={c.status === "Active" ? "#DCFCE7" : "#FEE2E2"} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-[10.5px] font-bold text-[#6B7280] uppercase tracking-wide mb-1.5">Placement</p>
+              {employmentRecords.length === 0 ? <p className="text-[11.5px] text-[#9CA3AF]">No placement records yet.</p> : (
+                <div className="space-y-1.5">
+                  {employmentRecords.map((e, i) => (
+                    <div key={i} className="flex items-center justify-between text-[11.5px]">
+                      <span className="text-[#374151]">{e.job_role || e.employer || "—"}</span>
+                      <Badge label={e.status} color={e.status === "Active" ? "#16A34A" : "#9CA3AF"} tint={e.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        );
-      })()}
+        )}
+      </div>
 
       {/* Notes */}
       {b.notes && (
@@ -2388,17 +3865,6 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
         </div>
       )}
 
-      {/* Future Modules */}
-      <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 mb-4">
-        <h4 className="text-[12px] font-bold text-[#6B7280] uppercase tracking-wide mb-3">🚀 Coming Soon</h4>
-        <div className="grid grid-cols-3 gap-2">
-          {["Training","Employment","Attendance","Certificates","Govt Schemes","AI Insights"].map(m => (
-            <div key={m} className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center">
-              <p className="text-[11px] text-[#9CA3AF] font-medium">{m}</p>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -2994,7 +4460,7 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
     { key: "programs", label: "Program Management", desc: "Program name, code, prefix, color", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED", ready: true },
     { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
     { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
-    { key: "training", label: "Training Settings", desc: "Training types, trainers, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: false },
+    { key: "training", label: "Training Settings", desc: "Courses, trainers, assessments, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: true },
     { key: "security", label: "Security", desc: "Password policy, session timeout, audit logs", icon: ShieldCheck, color: "#DC2626", tint: "#FEF2F2", ready: false },
     { key: "preferences", label: "App Preferences", desc: "Theme, language", icon: Palette, color: "#6366F1", tint: "#EEF2FF", ready: false },
   ];
@@ -3012,6 +4478,9 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
   }
   if (subView === "programs") {
     return <ProgramManagement currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} beneficiaries={beneficiaries} onBack={() => setSubView(null)} />;
+  }
+  if (subView === "training") {
+    return <TrainingSettingsHub currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
   }
 
   return (
@@ -3047,7 +4516,7 @@ function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", phone: "", email: "", website: "" };
+  const BLANK = { id: 1, ngo_name: "", logo_url: "", registration_number: "", address: "", district: "", state: "", pincode: "", phone: "", email: "", website: "" };
 
   useEffect(() => {
     (async () => {
@@ -3114,6 +4583,15 @@ function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
           <Field label="Website">
             <Input value={form.website || ""} onChange={set("website")} placeholder="https://..." />
           </Field>
+          <Field label="Pincode">
+            <Input value={form.pincode || ""} onChange={set("pincode")} placeholder="517xxx" />
+          </Field>
+          <Field label="District">
+            <Input value={form.district || ""} onChange={set("district")} placeholder="Tirupati" />
+          </Field>
+          <Field label="State">
+            <Input value={form.state || ""} onChange={set("state")} placeholder="Andhra Pradesh" />
+          </Field>
         </div>
         <Field label="Address">
           <textarea value={form.address || ""} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
@@ -3135,6 +4613,2275 @@ const PROGRAM_ICON_MAP = {
   ClipboardList, Building2, Database, ShieldCheck, Palette, TrendingUp, BarChart3,
 };
 const PROGRAM_COLOR_PRESETS = ["#1E3A8A", "#F97316", "#16A34A", "#DC2626", "#7C3AED", "#0EA5E9", "#DB2777", "#F59E0B"];
+
+/* ============================================================
+   TRAINING SETTINGS MODULE — Super Admin only master config
+   Stores configuration used later by other modules. Does NOT
+   modify existing Training / Enrollment / Attendance / Employment.
+   ============================================================ */
+function TrainingMasterList({ title, tableName, orderBy, fields, listPrimary, listSecondary, dupCheckFields, showToast, logAppAudit, onBack }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [subView, setSubView] = useState("list");
+  const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from(tableName).select("*").order(orderBy || "created_at", { ascending: false });
+    if (error) { showToast("Error loading " + title + ": " + error.message, "error"); setLoading(false); return; }
+    setRows(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = useMemo(() => {
+    let r = rows;
+    if (statusFilter !== "all") r = r.filter(x => (x.status || "active") === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(x => fields.some(f => f.searchable && String(x[f.key] || "").toLowerCase().includes(q)));
+    }
+    return r;
+  }, [rows, query, statusFilter]);
+
+  const toggleStatus = async (row) => {
+    const newStatus = row.status === "active" ? "inactive" : "active";
+    const { error } = await supabase.from(tableName).update({ status: newStatus }).eq("id", row.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setRows(rs => rs.map(x => x.id === row.id ? { ...x, status: newStatus } : x));
+    await logAppAudit(newStatus === "active" ? "ACTIVATE" : "DEACTIVATE", "Training Settings", `${title}: "${row[listPrimary]}" → ${newStatus}`);
+    showToast(`${title} ${newStatus === "active" ? "activated" : "deactivated"}.`);
+  };
+
+  const deleteRow = async (row) => {
+    const { error } = await supabase.from(tableName).delete().eq("id", row.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setRows(rs => rs.filter(x => x.id !== row.id));
+    await logAppAudit("DELETE", "Training Settings", `${title} deleted: "${row[listPrimary]}"`);
+    showToast(`${title} deleted.`);
+    setDeleteTarget(null);
+  };
+
+  const saveRow = async (form) => {
+    for (const df of dupCheckFields || []) {
+      if (!form[df]) continue;
+      const dup = rows.find(x => x.id !== editing?.id && String(x[df]).trim().toLowerCase() === String(form[df]).trim().toLowerCase());
+      if (dup) { showToast(`${fields.find(f => f.key === df)?.label || df} already exists.`, "error"); return; }
+    }
+    for (const f of fields) {
+      if (f.required && !form[f.key]) { showToast(`${f.label} is required.`, "error"); return; }
+    }
+    if (editing) {
+      const { error } = await supabase.from(tableName).update(form).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRows(rs => rs.map(x => x.id === editing.id ? { ...x, ...form } : x));
+      await logAppAudit("UPDATE", "Training Settings", `${title} updated: "${form[listPrimary]}"`);
+      showToast(`${title} updated.`);
+    } else {
+      const rec = { ...form, status: form.status || "active", created_at: new Date().toISOString() };
+      const { data, error } = await supabase.from(tableName).insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRows(rs => [data, ...rs]);
+      await logAppAudit("CREATE", "Training Settings", `${title} created: "${form[listPrimary]}"`);
+      showToast(`${title} created.`);
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  if (subView === "form") {
+    return <TrainingMasterForm title={title} fields={fields} editing={editing} onSave={saveRow} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">{title}</h2>
+          <p className="text-[12px] text-[#6B7280]">{rows.length} records</p>
+        </div>
+      </div>
+
+      <div className="flex justify-end mb-4">
+        <button onClick={() => { setEditing(null); setSubView("form"); }}
+          className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+          <Plus size={14} /> Add {title}
+        </button>
+      </div>
+
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Database size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No records found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(row => (
+            <div key={row.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-[#111827]">{row[listPrimary]}</p>
+                  {listSecondary?.length > 0 && (
+                    <p className="text-[11px] text-[#6B7280]">{listSecondary.map(k => row[k]).filter(Boolean).join(" · ")}</p>
+                  )}
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                  style={{ background: row.status === "active" ? "#DCFCE7" : "#F3F4F6", color: row.status === "active" ? "#16A34A" : "#6B7280" }}>
+                  {row.status === "active" ? "Active" : "Inactive"}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => toggleStatus(row)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                  {row.status === "active" ? "Deactivate" : "Activate"}
+                </button>
+                <button onClick={() => { setEditing(row); setSubView("form"); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => setDeleteTarget(row)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Delete {title}?</p>
+                <p className="text-[12px] text-[#6B7280]">{deleteTarget[listPrimary]}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteRow(deleteTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrainingMasterForm({ title, fields, editing, onSave, onCancel }) {
+  const blank = {};
+  fields.forEach(f => { blank[f.key] = f.default !== undefined ? f.default : ""; });
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? e.target.value : e }));
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit" : "Add"} {title}</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        {fields.map(f => (
+          <Field key={f.key} label={f.label} required={f.required}>
+            {f.type === "select" ? (
+              <Select value={form[f.key]} onChange={set(f.key)} options={f.options} />
+            ) : f.type === "textarea" ? (
+              <textarea value={form[f.key] || ""} onChange={set(f.key)} rows={2} className={inputCls} placeholder={f.placeholder || ""} />
+            ) : (
+              <Input value={form[f.key] ?? ""} onChange={set(f.key)} placeholder={f.placeholder || ""} type={f.type === "number" ? "number" : "text"} />
+            )}
+          </Field>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={() => onSave(form)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>Save</button>
+        <button onClick={onCancel} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function TrainingSingletonSettings({ title, tableName, fields, showToast, logAppAudit, onBack }) {
+  const [form, setForm] = useState(null);
+  const [rowId, setRowId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from(tableName).select("*").limit(1).maybeSingle();
+    if (error) { showToast("Error: " + error.message, "error"); setLoading(false); return; }
+    if (data) {
+      const merged = { ...data };
+      fields.forEach(f => {
+        if (merged[f.key] === undefined || merged[f.key] === null) {
+          merged[f.key] = f.default !== undefined ? f.default : (f.type === "checkbox" ? false : "");
+        }
+      });
+      setForm(merged); setRowId(data.id);
+    }
+    else {
+      const blank = {};
+      fields.forEach(f => { blank[f.key] = f.default !== undefined ? f.default : (f.type === "checkbox" ? false : ""); });
+      setForm(blank);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? (e.target.type === "checkbox" ? e.target.checked : e.target.value) : e }));
+
+  const save = async () => {
+    if (rowId) {
+      const { error } = await supabase.from(tableName).update(form).eq("id", rowId);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+    } else {
+      const { data, error } = await supabase.from(tableName).insert(form).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRowId(data.id);
+    }
+    await logAppAudit("UPDATE", "Training Settings", `${title} saved`);
+    showToast(`${title} saved.`);
+  };
+
+  if (loading || !form) {
+    return (
+      <div className="text-center py-16 text-[#9CA3AF]">
+        <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{title}</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        {fields.map(f => (
+          <Field key={f.key} label={f.type === "checkbox" ? "" : f.label}>
+            {f.type === "select" ? (
+              <Select value={form[f.key]} onChange={set(f.key)} options={f.options} />
+            ) : f.type === "checkbox" ? (
+              <label className="flex items-center gap-2 text-[12.5px] text-[#374151]">
+                <input type="checkbox" checked={!!form[f.key]} onChange={set(f.key)} /> {f.checkLabel || f.label}
+              </label>
+            ) : (
+              <Input value={form[f.key] ?? ""} onChange={set(f.key)} placeholder={f.placeholder || ""} type={f.type === "number" ? "number" : "text"} />
+            )}
+          </Field>
+        ))}
+      </div>
+      <button onClick={save} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>Save Settings</button>
+    </div>
+  );
+}
+
+function TrainingSettingsHub({ currentUser, showToast, logAppAudit, onBack }) {
+  const [subView, setSubView] = useState(null);
+
+  const COURSE_FIELDS = [
+    { key: "course_name", label: "Course Name", required: true, searchable: true },
+    { key: "course_code", label: "Course Code", required: true, searchable: true },
+    { key: "category", label: "Category", searchable: true },
+    { key: "description", label: "Description", type: "textarea" },
+    { key: "duration", label: "Duration", type: "number" },
+    { key: "duration_unit", label: "Duration Unit", type: "select", options: ["Days", "Weeks", "Months"], default: "Weeks" },
+    { key: "default_capacity", label: "Default Capacity", type: "number", default: 30 },
+    { key: "min_attendance_pct", label: "Minimum Attendance %", type: "number", default: 75 },
+    { key: "pass_marks_pct", label: "Pass Marks %", type: "number", default: 40 },
+    { key: "certificate_eligible", label: "Certificate Eligible", type: "select", options: ["Yes", "No"], default: "Yes" },
+  ];
+  const TRAINER_FIELDS = [
+    { key: "trainer_name", label: "Trainer Name", required: true, searchable: true },
+    { key: "mobile", label: "Mobile", required: true, searchable: true },
+    { key: "email", label: "Email", searchable: true },
+    { key: "qualification", label: "Qualification" },
+    { key: "specialization", label: "Specialization", searchable: true },
+    { key: "experience", label: "Experience (years)", type: "number" },
+    { key: "assigned_programs", label: "Assigned Programs" },
+  ];
+  const ASSESSMENT_FIELDS = [
+    { key: "assessment_name", label: "Assessment Name", required: true, searchable: true },
+    { key: "assessment_type", label: "Assessment Type", type: "select", options: ["Theory", "Practical", "Viva", "Assignment"], default: "Theory" },
+    { key: "practical_marks", label: "Practical Marks", type: "number", default: 0 },
+    { key: "theory_marks", label: "Theory Marks", type: "number", default: 0 },
+    { key: "total_marks", label: "Total Marks", type: "number", default: 100 },
+    { key: "pass_marks", label: "Pass Marks", type: "number", default: 40 },
+  ];
+  const CATEGORY_FIELDS = [
+    { key: "category_name", label: "Category Name", required: true, searchable: true },
+  ];
+  const CERT_FIELDS = [
+    { key: "certificate_title", label: "Certificate Title", default: "Certificate of Completion" },
+    { key: "certificate_subtitle", label: "Certificate Subtitle", default: "OF COMPLETION" },
+    { key: "completion_text", label: "Completion Text", type: "textarea", default: "has successfully completed the training program in" },
+    { key: "footer_text", label: "Footer Text", default: "Generated & Verified by TAPASVI DMS" },
+    { key: "verification_text", label: "Verification Text", default: "This certificate is valid for all official purposes." },
+    { key: "certificate_prefix", label: "Certificate Prefix", placeholder: "e.g. TAP", default: "TAP" },
+    { key: "certificate_number_start", label: "Certificate Number Start", type: "number", default: 1 },
+    { key: "primary_color", label: "Primary Color (hex)", default: "#1E3A8A" },
+    { key: "secondary_color", label: "Secondary Color (hex)", default: "#C9A227" },
+    { key: "border_color", label: "Border Color (hex)", default: "#C9A227" },
+    { key: "logo_position", label: "Logo Position", type: "select", options: ["Center", "Left", "Right"], default: "Center" },
+    { key: "min_attendance_pct_for_cert", label: "Minimum Attendance % Required", type: "number", default: 75 },
+    { key: "enable_watermark", label: "Watermark", type: "checkbox", checkLabel: "Show background watermark", default: true },
+    { key: "enable_qr_code", label: "QR Code", type: "checkbox", checkLabel: "Enable QR Code on certificate", default: true },
+    { key: "enable_seal", label: "Official Seal", type: "checkbox", checkLabel: "Show official seal", default: true },
+    { key: "enable_grade", label: "Grade", type: "checkbox", checkLabel: "Show Grade", default: true },
+    { key: "enable_score", label: "Score", type: "checkbox", checkLabel: "Show Score %", default: true },
+    { key: "enable_beneficiary_id", label: "Beneficiary ID", type: "checkbox", checkLabel: "Show Beneficiary ID", default: true },
+    { key: "enable_batch_id", label: "Batch ID", type: "checkbox", checkLabel: "Show Batch ID", default: true },
+    { key: "enable_village", label: "Village", type: "checkbox", checkLabel: "Show Village", default: true },
+    { key: "enable_duration", label: "Duration", type: "checkbox", checkLabel: "Show Duration", default: true },
+    { key: "enable_course_name", label: "Course Name", type: "checkbox", checkLabel: "Show Course Name", default: true },
+    { key: "trainer_sign_name", label: "Trainer — Name" },
+    { key: "trainer_sign_designation", label: "Trainer — Designation", default: "Trainer" },
+    { key: "trainer_sign_image", label: "Trainer — Signature Image URL" },
+    { key: "secretary_sign_name", label: "Secretary — Name" },
+    { key: "secretary_sign_designation", label: "Secretary — Designation", default: "Secretary" },
+    { key: "secretary_sign_image", label: "Secretary — Signature Image URL" },
+  ];
+  const ATTENDANCE_FIELDS = [
+    { key: "min_attendance_pct", label: "Minimum Attendance %", type: "number", default: 75 },
+    { key: "allow_late_attendance", label: "Late Attendance", type: "checkbox", checkLabel: "Allow late attendance" },
+    { key: "grace_minutes", label: "Grace Minutes", type: "number", default: 10 },
+    { key: "auto_absent_after", label: "Auto Absent After (minutes)", type: "number", default: 30 },
+    { key: "multiple_attendance_per_day", label: "Multiple Attendance/Day", type: "checkbox", checkLabel: "Allow multiple attendance entries per day" },
+  ];
+  const BATCH_FIELDS = [
+    { key: "default_capacity", label: "Default Capacity", type: "number", default: 30 },
+    { key: "maximum_capacity", label: "Maximum Capacity", type: "number", default: 40 },
+    { key: "allow_over_capacity", label: "Over Capacity", type: "checkbox", checkLabel: "Allow enrollment beyond capacity" },
+    { key: "auto_close_batch", label: "Auto Close Batch", type: "checkbox", checkLabel: "Auto-close batch when full" },
+  ];
+
+  const TILES = [
+    { key: "courses", label: "Course / Trade Management", desc: "Course master, duration, capacity, pass criteria", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8" },
+    { key: "trainers", label: "Trainer Management", desc: "Trainer profiles, qualification, specialization", icon: Users, color: "#1E3A8A", tint: "#EFF6FF" },
+    { key: "assessments", label: "Assessment Settings", desc: "Theory/Practical/Viva marks & pass criteria", icon: ClipboardList, color: "#F97316", tint: "#FFF7ED" },
+    { key: "certificate", label: "Certificate Settings", desc: "Prefix, format, signature, QR code", icon: Award, color: "#16A34A", tint: "#DCFCE7" },
+    { key: "attendance", label: "Attendance Rules", desc: "Minimum %, grace time, auto-absent", icon: Clock, color: "#7C3AED", tint: "#FAF5FF" },
+    { key: "batch", label: "Batch Settings", desc: "Default/maximum capacity, auto-close", icon: Briefcase, color: "#0EA5E9", tint: "#F0F9FF" },
+    { key: "categories", label: "Training Categories", desc: "Digital Skills, Tailoring, Beautician...", icon: Database, color: "#DC2626", tint: "#FEF2F2" },
+  ];
+
+  const commonProps = { showToast, logAppAudit, onBack: () => setSubView(null) };
+
+  if (subView === "courses") return <TrainingMasterList title="Course" tableName="training_courses" fields={COURSE_FIELDS} listPrimary="course_name" listSecondary={["course_code", "category"]} dupCheckFields={["course_code"]} {...commonProps} />;
+  if (subView === "trainers") return <TrainingMasterList title="Trainer" tableName="training_trainers" fields={TRAINER_FIELDS} listPrimary="trainer_name" listSecondary={["mobile", "specialization"]} dupCheckFields={["email", "mobile"]} {...commonProps} />;
+  if (subView === "assessments") return <TrainingMasterList title="Assessment" tableName="training_assessments" fields={ASSESSMENT_FIELDS} listPrimary="assessment_name" listSecondary={["assessment_type", "total_marks"]} dupCheckFields={[]} {...commonProps} />;
+  if (subView === "categories") return <TrainingMasterList title="Training Category" tableName="training_categories" fields={CATEGORY_FIELDS} listPrimary="category_name" listSecondary={[]} dupCheckFields={["category_name"]} {...commonProps} />;
+  if (subView === "certificate") return <TrainingSingletonSettings title="Certificate Settings" tableName="training_certificate_settings" fields={CERT_FIELDS} {...commonProps} />;
+  if (subView === "attendance") return <TrainingSingletonSettings title="Attendance Rules" tableName="training_attendance_rules" fields={ATTENDANCE_FIELDS} {...commonProps} />;
+  if (subView === "batch") return <TrainingSingletonSettings title="Batch Settings" tableName="training_batch_settings" fields={BATCH_FIELDS} {...commonProps} />;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-5">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Training Settings</h2>
+          <p className="text-[12px] text-[#6B7280]">Master configuration for the Training module · Super Admin only</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {TILES.map(t => (
+          <button key={t.key} onClick={() => setSubView(t.key)}
+            className="text-left bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: t.tint }}>
+              <t.icon size={18} style={{ color: t.color }} />
+            </div>
+            <p className="text-[13px] font-semibold text-[#111827] mb-1">{t.label}</p>
+            <p className="text-[11px] text-[#6B7280] leading-snug">{t.desc}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   TRAINING ASSESSMENT MANAGEMENT MODULE
+   Reuses Field / Input / Select / inputCls / selectCls / downloadCSV /
+   showToast / logAppAudit exactly like the rest of the app.
+   Tables used: assessment_records (the assessment event),
+   assessment_marks (per-beneficiary marks for that event).
+   ============================================================ */
+function certificateGradeTier(pct) {
+  if (pct >= 90) return "Gold";
+  if (pct >= 75) return "Silver";
+  if (pct >= 60) return "Bronze";
+  return "Not Eligible";
+}
+
+function computeAssessmentResult(theory, practical, viva, maxMarks, passMarks, isAbsent) {
+  if (isAbsent) return { total: 0, percentage: 0, grade: "-", result: "Absent", certEligible: "No" };
+  const total = (Number(theory) || 0) + (Number(practical) || 0) + (Number(viva) || 0);
+  const pct = maxMarks > 0 ? Math.round((total / maxMarks) * 1000) / 10 : 0;
+  if (total < Number(passMarks || 0)) return { total, percentage: pct, grade: "Fail", result: "Fail", certEligible: "No" };
+  let grade = "D";
+  if (pct >= 90) grade = "A+";
+  else if (pct >= 80) grade = "A";
+  else if (pct >= 70) grade = "B";
+  else if (pct >= 60) grade = "C";
+  else if (pct >= 50) grade = "D";
+  else grade = "Pass";
+  return { total, percentage: pct, grade, result: "Pass", certEligible: "Yes" };
+}
+
+function printAssessmentResultSheet(assessment, rows) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const logoUrl = window.location.origin + "/icon-512-transparent.png";
+  const thead = "<tr><th>Beneficiary ID</th><th>Name</th><th>Theory</th><th>Practical</th><th>Viva</th><th>Total</th><th>%</th><th>Grade</th><th>Result</th></tr>";
+  const tbody = rows.map(r => (
+    "<tr><td>" + (r.beneficiary_id || "") + "</td><td>" + (r.beneficiary_name || "") + "</td><td>" +
+    (r.is_absent ? "-" : r.theory_marks ?? 0) + "</td><td>" + (r.is_absent ? "-" : r.practical_marks ?? 0) + "</td><td>" +
+    (r.is_absent ? "-" : r.viva_marks ?? 0) + "</td><td>" + r.total_marks + "</td><td>" + r.percentage + "%</td><td>" +
+    r.grade + "</td><td>" + r.result + "</td></tr>"
+  )).join("");
+  const css = "@page{margin:110px 20px 40px 20px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:14px 20px;border-bottom:2px solid #1E3A8A;display:flex;gap:10px;align-items:center;} " +
+    ".print-header img{width:38px;height:38px;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
+    "table{width:100%;border-collapse:collapse;margin-top:8px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;}";
+  const header = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div style='font-size:10px;color:#666;'>Assessment Result Sheet</div></div></div>";
+  const meta = "<p><b>Batch:</b> " + (assessment.batch_label || "") + " &nbsp; <b>Course:</b> " + (assessment.course || "") +
+    " &nbsp; <b>Trainer:</b> " + (assessment.trainer || "") + "</p><p><b>Date:</b> " + (assessment.assessment_date || "") +
+    " &nbsp; <b>Type:</b> " + (assessment.assessment_type || "") + " &nbsp; <b>Max Marks:</b> " + assessment.max_marks +
+    " &nbsp; <b>Pass Marks:</b> " + assessment.pass_marks + "</p>";
+  w.document.write("<!DOCTYPE html><html><head><title>Assessment Result Sheet</title><style>" + css + "</style></head><body>" +
+    header + "<div style='margin-top:6px;'>" + meta + "<table>" + thead + tbody + "</table></div></body></html>");
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+function AssessmentManagement({ batches, beneficiaries, enrollments, currentUser, isAdmin, showToast, logAppAudit, onClose }) {
+  const [assessments, setAssessments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [subView, setSubView] = useState("list"); // list | form | marks | details
+  const [editing, setEditing] = useState(null);
+  const [active, setActive] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [query, setQuery] = useState("");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 8;
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("assessment_records").select("*").order("assessment_date", { ascending: false });
+    if (error) { showToast("Error loading assessments: " + error.message, "error"); setLoading(false); return; }
+    setAssessments(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const courseOptions = useMemo(() => [...new Set(assessments.map(a => a.course).filter(Boolean))], [assessments]);
+  const trainerOptions = useMemo(() => [...new Set(assessments.map(a => a.trainer).filter(Boolean))], [assessments]);
+
+  const filtered = useMemo(() => {
+    let r = assessments;
+    if (batchFilter !== "all") r = r.filter(a => a.batch_id === batchFilter);
+    if (courseFilter !== "all") r = r.filter(a => a.course === courseFilter);
+    if (trainerFilter !== "all") r = r.filter(a => a.trainer === trainerFilter);
+    if (statusFilter !== "all") r = r.filter(a => a.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(a => (a.batch_label || "").toLowerCase().includes(q) || (a.course || "").toLowerCase().includes(q) || (a.trainer || "").toLowerCase().includes(q));
+    }
+    return r;
+  }, [assessments, batchFilter, courseFilter, trainerFilter, statusFilter, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const saveAssessment = async (form) => {
+    const dup = assessments.find(a => a.id !== editing?.id && a.batch_id === form.batch_id && a.assessment_date === form.assessment_date && a.assessment_type === form.assessment_type);
+    if (dup) { showToast("An assessment for this Batch, Date and Type already exists.", "error"); return; }
+    if (Number(form.pass_marks) > Number(form.max_marks)) { showToast("Pass Marks cannot exceed Maximum Marks.", "error"); return; }
+    if (Number(form.max_marks) <= 0) { showToast("Maximum Marks must be greater than 0.", "error"); return; }
+
+    const now = new Date().toISOString();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const rec = { ...form, updated_by: who, updated_at: now };
+      const { error } = await supabase.from("assessment_records").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setAssessments(as => as.map(a => a.id === editing.id ? { ...a, ...rec } : a));
+      await logAppAudit("UPDATE", "Assessments", `Assessment updated: ${form.batch_label} — ${form.assessment_type} (${form.assessment_date})`);
+      showToast("Assessment updated.");
+    } else {
+      const rec = { ...form, status: "Scheduled", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const { data, error } = await supabase.from("assessment_records").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setAssessments(as => [data, ...as]);
+      await logAppAudit("CREATE", "Assessments", `Assessment created: ${form.batch_label} — ${form.assessment_type} (${form.assessment_date})`);
+      showToast("Assessment created.");
+    }
+    setEditing(null); setSubView("list");
+  };
+
+  const deleteAssessment = async (a) => {
+    await supabase.from("assessment_marks").delete().eq("assessment_id", a.id);
+    const { error } = await supabase.from("assessment_records").delete().eq("id", a.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setAssessments(as => as.filter(x => x.id !== a.id));
+    await logAppAudit("DELETE", "Assessments", `Assessment deleted: ${a.batch_label} — ${a.assessment_type} (${a.assessment_date})`);
+    showToast("Assessment deleted.");
+    setDeleteTarget(null);
+  };
+
+  const markCompleted = async (a) => {
+    await supabase.from("assessment_records").update({ status: "Completed" }).eq("id", a.id);
+    setAssessments(as => as.map(x => x.id === a.id ? { ...x, status: "Completed" } : x));
+  };
+
+  if (subView === "form") {
+    return <AssessmentForm batches={batches} editing={editing} onSave={saveAssessment} onCancel={() => { setEditing(null); setSubView("list"); }} />;
+  }
+  if ((subView === "marks" || subView === "details") && active) {
+    return (
+      <AssessmentMarksScreen
+        assessment={active}
+        readOnly={subView === "details"}
+        beneficiaries={beneficiaries}
+        enrollments={enrollments}
+        showToast={showToast}
+        logAppAudit={logAppAudit}
+        onCompleted={() => markCompleted(active)}
+        onClose={() => { setActive(null); setSubView("list"); }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Assessment Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} assessments</p>
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div className="flex justify-end mb-4">
+          <button onClick={() => { setEditing(null); setSubView("form"); }}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            <Plus size={14} /> New Assessment
+          </button>
+        </div>
+      )}
+
+      <div className="flex gap-3 mb-3 flex-wrap">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search batch, course, trainer..." className={inputCls + " pl-9 text-[12.5px]"} />
+        </div>
+      </div>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Batches</option>
+          {(batches || []).map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} · {b.training_type}</option>)}
+        </select>
+        <select value={courseFilter} onChange={e => { setCourseFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Courses</option>
+          {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={trainerFilter} onChange={e => { setTrainerFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Trainers</option>
+          {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Status</option>
+          <option value="Scheduled">Scheduled</option>
+          <option value="Completed">Completed</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <ClipboardList size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No assessments found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {paginated.map(a => (
+            <div key={a.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-[#111827]">{a.batch_label} · {a.assessment_type}</p>
+                  <p className="text-[11px] text-[#6B7280]">{a.course} · {a.trainer} · {a.assessment_date} · Max {a.max_marks} / Pass {a.pass_marks}</p>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                  style={{ background: a.status === "Completed" ? "#DCFCE7" : "#FEF3C7", color: a.status === "Completed" ? "#16A34A" : "#B45309" }}>
+                  {a.status}
+                </span>
+              </div>
+              {a.remarks && <p className="text-[11.5px] text-[#6B7280] mt-2">{a.remarks}</p>}
+              <div className="flex gap-2 mt-3 flex-wrap">
+                <button onClick={() => { setActive(a); setSubView("marks"); }}
+                  className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>Enter Marks</button>
+                <button onClick={() => { setActive(a); setSubView("details"); }}
+                  className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                {isAdmin && (
+                  <button onClick={() => { setEditing(a); setSubView("form"); }}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>
+                )}
+                {isAdmin && (
+                  <button onClick={() => setDeleteTarget(a)}
+                    className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Delete</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-5">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Prev</button>
+          <span className="text-[12px] text-[#6B7280]">Page {page} of {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next</button>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Delete Assessment?</p>
+                <p className="text-[12px] text-[#6B7280]">{deleteTarget.batch_label} — {deleteTarget.assessment_type}</p>
+              </div>
+            </div>
+            <p className="text-[12px] text-[#6B7280] mb-4">This will also remove all marks entered for this assessment. This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => deleteAssessment(deleteTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssessmentForm({ batches, editing, onSave, onCancel }) {
+  const blank = { batch_id: "", batch_label: "", course: "", trainer: "", assessment_date: new Date().toISOString().slice(0, 10), assessment_type: "Theory", max_marks: 100, pass_marks: 40, remarks: "" };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const set = k => e => setForm(f => ({ ...f, [k]: e?.target ? e.target.value : e }));
+
+  const onBatchChange = (batchId) => {
+    const b = (batches || []).find(x => x.batch_id === batchId);
+    setForm(f => ({
+      ...f, batch_id: batchId,
+      batch_label: b ? `${b.venue} (${b.start_date})` : "",
+      course: b?.training_type || f.course,
+      trainer: b?.trainer_name || f.trainer,
+    }));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">{editing ? "Edit" : "New"} Assessment</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 space-y-3">
+        <Field label="Batch" required>
+          <select value={form.batch_id} onChange={e => onBatchChange(e.target.value)} className={selectCls}>
+            <option value="">Select batch</option>
+            {(batches || []).map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} — {b.training_type} ({b.start_date})</option>)}
+          </select>
+        </Field>
+        <Field label="Course"><Input value={form.course} onChange={set("course")} placeholder="Course / Trade" /></Field>
+        <Field label="Trainer"><Input value={form.trainer} onChange={set("trainer")} placeholder="Trainer name" /></Field>
+        <Field label="Assessment Date" required><Input type="date" value={form.assessment_date} onChange={set("assessment_date")} /></Field>
+        <Field label="Assessment Type" required>
+          <Select value={form.assessment_type} onChange={set("assessment_type")} options={["Theory", "Practical", "Viva"]} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Maximum Marks" required><Input type="number" value={form.max_marks} onChange={set("max_marks")} /></Field>
+          <Field label="Pass Marks" required><Input type="number" value={form.pass_marks} onChange={set("pass_marks")} /></Field>
+        </div>
+        <Field label="Remarks"><textarea value={form.remarks || ""} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={() => onSave(form)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A" }}>Save</button>
+        <button onClick={onCancel} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function AssessmentMarksScreen({ assessment, readOnly, beneficiaries, enrollments, showToast, logAppAudit, onCompleted, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const enrolled = useMemo(() => (enrollments || []).filter(e => e.batch_id === assessment.batch_id), [enrollments, assessment.batch_id]);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("assessment_marks").select("*").eq("assessment_id", assessment.id);
+    if (error) { showToast("Error loading marks: " + error.message, "error"); setLoading(false); return; }
+    const existing = new Map((data || []).map(r => [r.beneficiary_id, r]));
+    const built = enrolled.map(e => {
+      const ex = existing.get(e.beneficiary_id);
+      return ex || {
+        id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${assessment.id}-${e.beneficiary_id}-${Date.now()}`,
+        assessment_id: assessment.id, beneficiary_id: e.beneficiary_id, beneficiary_name: e.beneficiary_name || e.beneficiary_id,
+        theory_marks: 0, practical_marks: 0, viva_marks: 0, total_marks: 0, percentage: 0, grade: "-", result: "-", certificate_eligible: "No", is_absent: false,
+      };
+    });
+    setRows(built);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [assessment.id]);
+
+  const updateCell = (beneficiaryId, field, value) => {
+    setRows(rs => rs.map(r => {
+      if (r.beneficiary_id !== beneficiaryId) return r;
+      const next = { ...r, [field]: value };
+      if (field !== "is_absent") {
+        const num = Number(value);
+        if (num < 0) { showToast("Marks cannot be negative.", "error"); return r; }
+      }
+      const calc = computeAssessmentResult(next.theory_marks, next.practical_marks, next.viva_marks, assessment.max_marks, assessment.pass_marks, next.is_absent);
+      return { ...next, total_marks: calc.total, percentage: calc.percentage, grade: calc.grade, result: calc.result, certificate_eligible: calc.certEligible };
+    }));
+  };
+
+  const bulkSave = async () => {
+    for (const r of rows) {
+      const sum = (Number(r.theory_marks) || 0) + (Number(r.practical_marks) || 0) + (Number(r.viva_marks) || 0);
+      if (!r.is_absent && sum > Number(assessment.max_marks)) {
+        showToast(`${r.beneficiary_name}: marks exceed Maximum Marks (${assessment.max_marks}).`, "error");
+        return;
+      }
+    }
+    setSaving(true);
+    const { error } = await supabase.from("assessment_marks").upsert(rows, { onConflict: "assessment_id,beneficiary_id" });
+    setSaving(false);
+    if (error) { showToast("Error saving marks: " + error.message, "error"); return; }
+    await logAppAudit("UPDATE", "Assessments", `Marks saved for ${assessment.batch_label} — ${assessment.assessment_type} (${rows.length} beneficiaries)`);
+    showToast("Marks saved.");
+    onCompleted && onCompleted();
+  };
+
+  const exportCSV = () => {
+    const csvRows = rows.map(r => ({
+      "Beneficiary ID": r.beneficiary_id, Name: r.beneficiary_name,
+      "Theory Marks": r.is_absent ? "-" : r.theory_marks, "Practical Marks": r.is_absent ? "-" : r.practical_marks, "Viva Marks": r.is_absent ? "-" : r.viva_marks,
+      Total: r.total_marks, Percentage: r.percentage, Grade: r.grade, Result: r.result, "Certificate Eligible": r.certificate_eligible,
+    }));
+    downloadCSV(csvRows, `assessment_${assessment.assessment_type}_${assessment.assessment_date}.csv`);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">{readOnly ? "Assessment Details" : "Marks Entry"}</h2>
+          <p className="text-[12px] text-[#6B7280]">{assessment.batch_label} · {assessment.course} · {assessment.trainer}</p>
+        </div>
+      </div>
+      <p className="text-[11.5px] text-[#6B7280] mb-4">{assessment.assessment_type} · {assessment.assessment_date} · Max {assessment.max_marks} / Pass {assessment.pass_marks}</p>
+
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <button onClick={() => printAssessmentResultSheet(assessment, rows)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <Printer size={13} /> Print Result Sheet
+        </button>
+        <button onClick={exportCSV} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <FileSpreadsheet size={13} /> Export CSV
+        </button>
+        <button onClick={() => printAssessmentResultSheet(assessment, rows)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]">
+          <Printer size={13} /> Export PDF
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Users size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No beneficiaries enrolled in this batch.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto -mx-4 px-4">
+          <table className="w-full text-[11.5px] border-collapse min-w-[640px]">
+            <thead>
+              <tr className="text-left text-[#6B7280] border-b border-[#E5E7EB]">
+                <th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Name</th>
+                <th className="py-2 pr-2">Theory</th><th className="py-2 pr-2">Practical</th><th className="py-2 pr-2">Viva</th>
+                <th className="py-2 pr-2">Total</th><th className="py-2 pr-2">%</th><th className="py-2 pr-2">Grade</th>
+                <th className="py-2 pr-2">Result</th><th className="py-2 pr-2">Absent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.beneficiary_id} className="border-b border-[#F3F4F6]">
+                  <td className="py-2 pr-2 font-mono">{r.beneficiary_id}</td>
+                  <td className="py-2 pr-2">{r.beneficiary_name}</td>
+                  {["theory_marks", "practical_marks", "viva_marks"].map(f => (
+                    <td key={f} className="py-2 pr-2">
+                      {readOnly ? (r.is_absent ? "-" : r[f]) : (
+                        <input type="number" disabled={r.is_absent} value={r[f]} onChange={e => updateCell(r.beneficiary_id, f, e.target.value)}
+                          className="w-16 rounded border border-[#E5E7EB] px-1.5 py-1 text-[11.5px]" />
+                      )}
+                    </td>
+                  ))}
+                  <td className="py-2 pr-2 font-semibold">{r.total_marks}</td>
+                  <td className="py-2 pr-2">{r.percentage}%</td>
+                  <td className="py-2 pr-2">{r.grade}</td>
+                  <td className="py-2 pr-2">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+                      style={{ background: r.result === "Pass" ? "#DCFCE7" : r.result === "Absent" ? "#F3F4F6" : "#FEE2E2", color: r.result === "Pass" ? "#16A34A" : r.result === "Absent" ? "#6B7280" : "#DC2626" }}>
+                      {r.result}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-2">
+                    {readOnly ? (r.is_absent ? "Yes" : "No") : (
+                      <input type="checkbox" checked={!!r.is_absent} onChange={e => updateCell(r.beneficiary_id, "is_absent", e.target.checked)} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!readOnly && rows.length > 0 && (
+        <button onClick={bulkSave} disabled={saving} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4 disabled:opacity-60" style={{ background: "#1E3A8A" }}>
+          {saving ? "Saving..." : "Save All Marks"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   CERTIFICATE GENERATION MODULE
+   Reuses Field / Input / Select / inputCls / selectCls / downloadCSV /
+   showToast / logAppAudit. QR codes rendered via a public QR image API
+   (no new npm dependency needed — consistent with the rest of the app,
+   which has no PDF library and instead uses window.print()).
+   Table used: certificates.
+   ============================================================ */
+function qrImageUrl(data, size) {
+  return "https://api.qrserver.com/v1/create-qr-code/?size=" + (size || 140) + "x" + (size || 140) + "&data=" + encodeURIComponent(data);
+}
+
+async function nextCertificateNumber() {
+  const { data: settings } = await supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle();
+  const base = (settings?.certificate_prefix || "TAP").replace(/-+$/, "");
+  const year = new Date().getFullYear();
+  const stub = `${base}-${year}-`;
+  const startNum = Number(settings?.certificate_number_start) || 1;
+  const { data: existing } = await supabase.from("certificates").select("certificate_number").ilike("certificate_number", stub + "%");
+  let maxNum = startNum - 1;
+  (existing || []).forEach(c => {
+    const n = parseInt(String(c.certificate_number).replace(stub, ""), 10);
+    if (!isNaN(n) && n > maxNum) maxNum = n;
+  });
+  return { number: stub + String(maxNum + 1).padStart(6, "0"), settings };
+}
+
+function printCertificate(cert, settings, org) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const logoUrl = window.location.origin + "/icon-512-transparent.png";
+  const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  const primary = settings?.primary_color || "#1E3A8A";
+  const secondary = settings?.secondary_color || "#C9A227";
+  const border = settings?.border_color || settings?.secondary_color || "#C9A227";
+  const durationText = cert.start_date && cert.end_date ? `${cert.start_date} to ${cert.end_date}` : "";
+
+  const chip = (icon, label, value) => (!value ? "" :
+    "<div class='chip'><div class='chipicon'>" + icon + "</div><div><div class='chiplbl'>" + label + "</div><div class='chipval'>" + value + "</div></div></div>");
+  const chips = [
+    settings?.enable_beneficiary_id !== false ? chip("&#128100;", "Beneficiary ID", cert.beneficiary_id) : "",
+    settings?.enable_batch_id !== false ? chip("&#128214;", "Batch ID", cert.batch_id) : "",
+    settings?.enable_village !== false ? chip("&#128205;", "Village", cert.village) : "",
+    settings?.enable_duration !== false ? chip("&#128197;", "Duration", durationText) : "",
+    settings?.enable_grade !== false ? chip("&#9733;", "Grade", cert.grade) : "",
+    settings?.enable_score !== false ? chip("&#127942;", "Score", cert.percentage ? cert.percentage + "%" : "") : "",
+  ].join("");
+
+  const sig = (name, designation) => (!name ? "" :
+    "<div class='sig'><div class='sigscript'>" + name + "</div><div class='line'></div><div class='nm'>" + name + "</div><div class='role'>" + (designation || "").toUpperCase() + "</div></div>");
+  const signatures = [
+    sig(cert.trainer || settings?.trainer_sign_name, settings?.trainer_sign_designation || "Trainer"),
+    settings?.secretary_sign_name ? sig(settings.secretary_sign_name, settings.secretary_sign_designation || "Secretary") : "",
+  ].filter(Boolean).join("");
+
+  const legalLines = org?.registration_number ? "<div>Regd. No.: " + org.registration_number + "</div>" : "";
+
+  const footerParts = [
+    org?.website ? "&#127760; " + org.website : "",
+    [org?.district, org?.state].filter(Boolean).join(", ") ? "&#128205; " + [org?.district, org?.state].filter(Boolean).join(", ") : "",
+    org?.email ? "&#9993; " + org.email : "",
+  ].filter(Boolean).join(" &nbsp;|&nbsp; ");
+
+  const css = "@page{size:landscape;margin:0;} " +
+    "*{box-sizing:border-box;} body{margin:0;font-family:'Lato',Arial,sans-serif;background:#fff;}" +
+    "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&family=Lato:wght@400;700&display=swap');" +
+    ".sheet{width:100vw;height:100vh;position:relative;padding:16px;background:#fdfbf5;}" +
+    ".frame{position:relative;width:100%;height:100%;border:3px solid " + border + ";padding:8px;}" +
+    ".frame:before{content:'';position:absolute;inset:6px;border:1.5px solid " + secondary + ";}" +
+    ".corner{position:absolute;width:24px;height:24px;border:2px solid " + secondary + ";}" +
+    ".corner.tl{top:14px;left:14px;border-right:none;border-bottom:none;} .corner.tr{top:14px;right:14px;border-left:none;border-bottom:none;}" +
+    ".corner.bl{bottom:14px;left:14px;border-right:none;border-top:none;} .corner.br{bottom:14px;right:14px;border-left:none;border-top:none;}" +
+    (settings?.enable_watermark !== false ? ".watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:100px;color:" + primary + ";opacity:0.045;letter-spacing:6px;transform:rotate(-18deg);pointer-events:none;}" : "") +
+    ".legal{position:absolute;top:22px;left:26px;font-size:9px;color:#374151;line-height:1.5;}" +
+    ".qrbox{position:absolute;top:20px;right:24px;text-align:center;}" +
+    ".qrbox img{border:2px solid " + secondary + ";padding:3px;background:#fff;}" +
+    ".scanlbl{margin-top:4px;background:" + primary + ";color:#fff;font-size:8px;font-weight:700;letter-spacing:1px;border-radius:10px;padding:2px 8px;}" +
+    ".content{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px 60px 0;}" +
+    ".logo{width:54px;height:54px;object-fit:contain;} .org{font-size:19px;font-weight:700;color:" + primary + ";letter-spacing:2px;margin-top:5px;text-transform:uppercase;}" +
+    ".org-sub{font-size:10px;color:#6B7280;}" +
+    ".title{font-family:'Playfair Display',serif;font-size:38px;font-weight:700;color:" + secondary + ";margin:12px 0 0;letter-spacing:2px;}" +
+    ".subtitle{font-size:13px;letter-spacing:3px;color:" + primary + ";font-weight:700;margin-top:2px;}" +
+    ".rule{width:90px;height:2px;background:" + secondary + ";margin:8px auto 12px;}" +
+    ".sub{font-size:12px;color:#6B7280;font-style:italic;}" +
+    ".name{font-family:'Great Vibes',cursive;font-size:42px;color:" + primary + ";margin:4px 0 2px;line-height:1;}" +
+    ".course{font-size:13.5px;color:#111827;margin:6px 0 2px;max-width:680px;}" +
+    ".coursename{font-size:15px;font-weight:700;color:" + primary + ";text-transform:uppercase;margin-top:3px;}" +
+    ".chips{display:flex;gap:0;margin:12px 0 4px;border-top:1px solid #E5E7EB;padding-top:8px;width:100%;max-width:760px;justify-content:center;flex-wrap:wrap;}" +
+    ".chip{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px dashed #E5E7EB;}" +
+    ".chip:last-child{border-right:none;}" +
+    ".chipicon{width:20px;height:20px;border-radius:50%;background:" + primary + ";color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;}" +
+    ".chiplbl{font-size:8px;color:#9CA3AF;text-transform:uppercase;} .chipval{font-size:11px;font-weight:700;color:#111827;}" +
+    ".certrow{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:760px;border:1px dashed " + secondary + ";border-radius:8px;padding:6px 16px;margin-top:10px;font-size:10px;color:#374151;}" +
+    ".certrow b{color:#DC2626;}" +
+    ".sigrow{display:flex;align-items:flex-end;justify-content:space-around;width:100%;max-width:780px;margin-top:26px;gap:10px;}" +
+    ".sig{text-align:center;flex:1;} .sig .sigscript{font-family:'Great Vibes',cursive;font-size:20px;color:#111827;margin-bottom:2px;}" +
+    ".sig .line{border-top:1px solid #9CA3AF;width:130px;margin:0 auto 4px;}" +
+    ".sig .nm{font-size:10.5px;font-weight:700;color:#111827;} .sig .role{font-size:8.5px;color:#9CA3AF;letter-spacing:0.5px;}" +
+    (settings?.enable_seal !== false ? ".seal{width:60px;height:60px;border-radius:50%;border:2px solid " + secondary + ";display:flex;align-items:center;justify-content:center;flex-direction:column;color:" + secondary + ";font-size:7.5px;font-weight:700;letter-spacing:0.5px;flex-shrink:0;}.seal .star{font-size:13px;line-height:1.2;}" : "") +
+    ".footerbar{position:absolute;bottom:14px;left:14px;right:14px;background:" + primary + ";color:#fff;font-size:9.5px;padding:6px 20px;border-radius:6px;text-align:center;}";
+
+  const html = "<!DOCTYPE html><html><head><title>Certificate " + cert.certificate_number + "</title><style>" + css + "</style></head><body>" +
+    "<div class='sheet'><div class='frame'>" +
+    "<div class='corner tl'></div><div class='corner tr'></div><div class='corner bl'></div><div class='corner br'></div>" +
+    (settings?.enable_watermark !== false ? "<div class='watermark'>TAPASVI</div>" : "") +
+    (legalLines ? "<div class='legal'>" + legalLines + "</div>" : "") +
+    (settings?.enable_qr_code !== false ? "<div class='qrbox'><img src='" + qrImageUrl(qrData, 84) + "' width='84' height='84'/><div class='scanlbl'>SCAN TO VERIFY</div></div>" : "") +
+    "<div class='content'>" +
+    "<img class='logo' src='" + logoUrl + "'/>" +
+    "<div class='org'>" + (org?.ngo_name || "TAPASVI Society") + "</div>" +
+    (org?.registration_number ? "<div class='org-sub'>Society Registration No.: " + org.registration_number + "</div>" : "") +
+    "<div class='title'>" + (settings?.certificate_title || "Certificate").toUpperCase() + "</div>" +
+    "<div class='subtitle'>" + (settings?.certificate_subtitle || "OF COMPLETION") + "</div>" +
+    "<div class='rule'></div>" +
+    "<div class='sub'>This is to certify that</div>" +
+    "<div class='name'>" + (cert.beneficiary_name || "") + "</div>" +
+    "<div class='course'>" + (settings?.completion_text || "has successfully completed the training program in") + "</div>" +
+    (settings?.enable_course_name !== false ? "<div class='coursename'>" + (cert.course || "") + "</div>" : "") +
+    "<div class='course'>conducted by " + (org?.ngo_name || "TAPASVI Society") + "</div>" +
+    "<div class='chips'>" + chips + "</div>" +
+    "<div class='certrow'><div>Certificate No.: <b>" + cert.certificate_number + "</b></div><div>Issue Date: " + (cert.certificate_date || "") + "</div><div>" + (settings?.verification_text || "This certificate is valid for all official purposes.") + "</div></div>" +
+    "<div class='sigrow'>" + signatures +
+    (settings?.enable_seal !== false ? "<div class='seal'><span class='star'>&#9733;</span>" + (org?.ngo_name ? org.ngo_name.split(" ")[0].toUpperCase() : "TAPASVI") + "<br/>OFFICIAL SEAL</div>" : "") +
+    "</div>" +
+    "</div>" +
+    "<div class='footerbar'>" + (footerParts || (settings?.footer_text || "Generated &amp; Verified by TAPASVI DMS")) + "</div>" +
+    "</div></div>" +
+    "</body></html>";
+  w.document.write(html);
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 800);
+}
+
+function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, onClose }) {
+  const [tab, setTab] = useState("issued"); // issued | eligible | verify
+  const [certs, setCerts] = useState([]);
+  const [eligible, setEligible] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState(null);
+  const [orgSettings, setOrgSettings] = useState(null);
+  const [query, setQuery] = useState("");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [preview, setPreview] = useState(null);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeReason, setRevokeReason] = useState("");
+  const PER_PAGE = 8;
+
+  const loadAll = async () => {
+    setLoading(true);
+    const [{ data: certData, error: certErr }, { data: marks }, { data: records }, { data: settingsData }, { data: orgData }, { data: batchData }, { data: attRecords }, { data: attRules }] = await Promise.all([
+      supabase.from("certificates").select("*").order("generated_at", { ascending: false }),
+      supabase.from("assessment_marks").select("*").eq("result", "Pass").eq("certificate_eligible", "Yes"),
+      supabase.from("assessment_records").select("*"),
+      supabase.from("training_certificate_settings").select("*").limit(1).maybeSingle(),
+      supabase.from("org_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("batch_trainings").select("*"),
+      supabase.from("attendance_records").select("*"),
+      supabase.from("training_attendance_rules").select("*").limit(1).maybeSingle(),
+    ]);
+    if (certErr) { showToast("Error loading certificates: " + certErr.message, "error"); setLoading(false); return; }
+    setCerts(certData || []);
+    setSettings(settingsData || null);
+    setOrgSettings(orgData || null);
+    const minAttendance = Number(settingsData?.min_attendance_pct_for_cert) || Number(attRules?.min_attendance_pct) || 75;
+    const issuedSet = new Set((certData || []).map(c => c.assessment_id + "::" + c.beneficiary_id));
+    const merged = (marks || []).map(m => {
+      const rec = (records || []).find(r => r.id === m.assessment_id);
+      if (!rec) return null;
+      if (issuedSet.has(m.assessment_id + "::" + m.beneficiary_id)) return null;
+      const batch = (batchData || []).find(b => b.batch_id === rec.batch_id);
+      const mySessions = (attRecords || []).filter(a => a.batch_id === rec.batch_id && a.beneficiary_id === m.beneficiary_id);
+      const present = mySessions.filter(a => a.status === "Present" || a.status === "Late").length;
+      const attendancePct = mySessions.length > 0 ? Math.round((present / mySessions.length) * 100) : 0;
+      const reasons = [];
+      if (!batch) reasons.push("Batch record not found");
+      else if (batch.status !== "Completed") reasons.push(`Training not yet Completed (currently ${batch.status})`);
+      if (mySessions.length > 0 && attendancePct < minAttendance) reasons.push(`Attendance ${attendancePct}% is below required ${minAttendance}%`);
+      return { ...m, assessment: rec, batch, attendancePct, eligible: reasons.length === 0, reasons };
+    }).filter(Boolean);
+    setEligible(merged);
+    setLoading(false);
+  };
+  useEffect(() => { loadAll(); }, []);
+
+  const courseOptions = useMemo(() => [...new Set(certs.map(c => c.course).filter(Boolean))], [certs]);
+  const batchOptions = useMemo(() => [...new Set(certs.map(c => c.batch_label).filter(Boolean))], [certs]);
+  const trainerOptions = useMemo(() => [...new Set(certs.map(c => c.trainer).filter(Boolean))], [certs]);
+
+  const filteredCerts = useMemo(() => {
+    let r = certs;
+    if (courseFilter !== "all") r = r.filter(c => c.course === courseFilter);
+    if (batchFilter !== "all") r = r.filter(c => c.batch_label === batchFilter);
+    if (trainerFilter !== "all") r = r.filter(c => c.trainer === trainerFilter);
+    if (statusFilter !== "all") r = r.filter(c => c.status === statusFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(c => (c.certificate_number || "").toLowerCase().includes(q) || (c.beneficiary_name || "").toLowerCase().includes(q) || (c.course || "").toLowerCase().includes(q));
+    }
+    return r;
+  }, [certs, courseFilter, batchFilter, trainerFilter, statusFilter, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCerts.length / PER_PAGE));
+  const paginated = filteredCerts.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const generateCertificate = async (row) => {
+    const dup = certs.find(c => c.assessment_id === row.assessment_id && c.beneficiary_id === row.beneficiary_id);
+    if (dup) { showToast("A certificate already exists for this assessment result.", "error"); return; }
+    if (!row.eligible) { showToast("Cannot generate: " + row.reasons.join("; "), "error"); return; }
+    const { number, settings: s } = await nextCertificateNumber();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const rec = {
+      certificate_number: number,
+      certificate_date: now.slice(0, 10),
+      assessment_id: row.assessment_id,
+      beneficiary_id: row.beneficiary_id,
+      beneficiary_name: row.beneficiary_name,
+      course: row.assessment.course,
+      batch_id: row.assessment.batch_id,
+      batch_label: row.assessment.batch_label,
+      trainer: row.assessment.trainer,
+      village: row.batch?.venue || "",
+      start_date: row.batch?.start_date || "",
+      end_date: row.batch?.end_date || "",
+      grade: row.grade,
+      grade_tier: certificateGradeTier(row.percentage),
+      percentage: row.percentage,
+      status: "Active",
+      generated_by: who, generated_at: now,
+      reprint_count: 0,
+    };
+    const { data, error } = await supabase.from("certificates").insert(rec).select().single();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => [data, ...cs]);
+    setEligible(es => es.filter(e => !(e.assessment_id === row.assessment_id && e.beneficiary_id === row.beneficiary_id)));
+    await logAppAudit("CREATE", "Certificates", `Certificate generated: ${number} — ${row.beneficiary_name}`);
+    showToast(`Certificate ${number} generated.`);
+    setPreview({ ...data, settingsSnapshot: s });
+    setTab("issued");
+  };
+
+  const doPrint = async (cert, isReprint) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    if (isReprint) {
+      const { error } = await supabase.from("certificates").update({ reprint_count: (cert.reprint_count || 0) + 1, reprinted_by: who, reprinted_at: now }).eq("id", cert.id);
+      if (!error) {
+        setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, reprint_count: (c.reprint_count || 0) + 1, reprinted_by: who, reprinted_at: now } : c));
+        await logAppAudit("REPRINT", "Certificates", `Certificate reprinted: ${cert.certificate_number}`);
+      }
+    } else {
+      const { error } = await supabase.from("certificates").update({ printed_by: who, printed_at: now }).eq("id", cert.id);
+      if (!error) {
+        setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, printed_by: who, printed_at: now } : c));
+        await logAppAudit("PRINT", "Certificates", `Certificate printed: ${cert.certificate_number}`);
+      }
+    }
+    printCertificate(cert, settings, orgSettings);
+  };
+
+  const revokeCertificate = async (cert) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("certificates").update({ status: "Revoked", revoked_by: who, revoked_at: now, revoke_reason: revokeReason || null }).eq("id", cert.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => cs.map(c => c.id === cert.id ? { ...c, status: "Revoked", revoked_by: who, revoked_at: now, revoke_reason: revokeReason } : c));
+    await logAppAudit("REVOKE", "Certificates", `Certificate revoked: ${cert.certificate_number}`);
+    showToast("Certificate revoked.");
+    setRevokeTarget(null); setRevokeReason("");
+  };
+
+  const reissueCertificate = async (cert) => {
+    const { number, settings: s } = await nextCertificateNumber();
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const now = new Date().toISOString();
+    const rec = {
+      certificate_number: number, certificate_date: now.slice(0, 10),
+      assessment_id: cert.assessment_id, beneficiary_id: cert.beneficiary_id, beneficiary_name: cert.beneficiary_name,
+      course: cert.course, batch_id: cert.batch_id, batch_label: cert.batch_label, trainer: cert.trainer,
+      village: cert.village, start_date: cert.start_date, end_date: cert.end_date,
+      grade: cert.grade, grade_tier: cert.grade_tier, percentage: cert.percentage,
+      status: "Active", generated_by: who, generated_at: now, reprint_count: 0,
+      reissued_from: cert.certificate_number,
+    };
+    const { data, error } = await supabase.from("certificates").insert(rec).select().single();
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setCerts(cs => [data, ...cs]);
+    await logAppAudit("REISSUE", "Certificates", `Certificate reissued: ${number} (replaces ${cert.certificate_number})`);
+    showToast(`Certificate reissued as ${number}.`);
+    setPreview({ ...data, settingsSnapshot: s });
+  };
+
+  if (preview) {
+    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} onVerify={() => { setPreview(null); setTab("verify"); }} />;
+  }
+  if (tab === "verify") {
+    return <CertificateVerify onBack={() => setTab("issued")} />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Certificate Generation</h2>
+          <p className="text-[12px] text-[#6B7280]">{certs.length} issued · {eligible.length} eligible</p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-4 mt-3 flex-wrap">
+        <button onClick={() => setTab("issued")} className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (tab === "issued" ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>Issued Certificates</button>
+        <button onClick={() => setTab("eligible")} className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (tab === "eligible" ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>Eligible Students</button>
+        <button onClick={() => setTab("verify")} className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold border border-[#E5E7EB] text-[#374151]">Verify Certificate</button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <RefreshCw size={24} className="mx-auto mb-3 animate-spin opacity-50" />
+          <p className="text-[13px]">Loading...</p>
+        </div>
+      ) : tab === "eligible" ? (
+        eligible.length === 0 ? (
+          <div className="text-center py-16 text-[#9CA3AF]">
+            <Award size={28} className="mx-auto mb-3 opacity-40" />
+            <p className="text-[13px]">No new eligible students. Certificates already generated, or no Pass results yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {eligible.map(row => (
+              <div key={row.assessment_id + row.beneficiary_id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                <p className="text-[13.5px] font-semibold text-[#111827]">{row.beneficiary_name}</p>
+                <p className="text-[11px] text-[#6B7280]">{row.assessment.course} · {row.assessment.batch_label} · {row.assessment.trainer} · Grade {row.grade} · {row.percentage}% · Attendance {row.attendancePct}%</p>
+                {!row.eligible && (
+                  <p className="text-[11px] text-[#DC2626] mt-1.5">Cannot generate yet: {row.reasons.join("; ")}</p>
+                )}
+                {isAdmin && (
+                  <button onClick={() => generateCertificate(row)} disabled={!row.eligible}
+                    className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white disabled:opacity-40" style={{ background: row.eligible ? "#16A34A" : "#9CA3AF" }}>
+                    Generate Certificate
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <>
+          <div className="flex gap-3 mb-3 flex-wrap">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+              <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search certificate #, name, course..." className={inputCls + " pl-9 text-[12.5px]"} />
+            </div>
+          </div>
+          <div className="flex gap-2 mb-4 flex-wrap">
+            <select value={courseFilter} onChange={e => { setCourseFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Courses</option>
+              {courseOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Batches</option>
+              {batchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+            <select value={trainerFilter} onChange={e => { setTrainerFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Trainers</option>
+              {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Revoked">Revoked</option>
+            </select>
+          </div>
+
+          {filteredCerts.length === 0 ? (
+            <div className="text-center py-16 text-[#9CA3AF]">
+              <Award size={28} className="mx-auto mb-3 opacity-40" />
+              <p className="text-[13px]">No certificates found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {paginated.map(c => (
+                <div key={c.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{c.beneficiary_name} · {c.certificate_number}</p>
+                      <p className="text-[11px] text-[#6B7280]">{c.course} · {c.batch_label} · Grade {c.grade} · {c.percentage}% · {c.certificate_date}</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0"
+                      style={{ background: c.status === "Active" ? "#DCFCE7" : "#FEE2E2", color: c.status === "Active" ? "#16A34A" : "#DC2626" }}>
+                      {c.status}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    <button onClick={() => setPreview(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">Preview</button>
+                    <button onClick={() => doPrint(c, !!c.printed_at)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>
+                      {c.printed_at ? "Reprint" : "Print"}
+                    </button>
+                    {isAdmin && c.status === "Active" && (
+                      <button onClick={() => setRevokeTarget(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Revoke</button>
+                    )}
+                    {isAdmin && c.status === "Revoked" && (
+                      <button onClick={() => reissueCertificate(c)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#16A34A" }}>Reissue</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 mt-5">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Prev</button>
+              <span className="text-[12px] text-[#6B7280]">Page {page} of {totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {revokeTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4" onClick={() => setRevokeTarget(null)}>
+          <div className="bg-white rounded-2xl p-5 max-w-[340px] w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEE2E2] flex items-center justify-center">
+                <AlertCircle size={16} className="text-[#DC2626]" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-[#111827]">Revoke Certificate?</p>
+                <p className="text-[12px] text-[#6B7280]">{revokeTarget.certificate_number} — {revokeTarget.beneficiary_name}</p>
+              </div>
+            </div>
+            <textarea value={revokeReason} onChange={e => setRevokeReason(e.target.value)} rows={2} placeholder="Reason (optional)" className={inputCls + " mb-4"} />
+            <div className="flex gap-2">
+              <button onClick={() => revokeCertificate(revokeTarget)} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Revoke</button>
+              <button onClick={() => { setRevokeTarget(null); setRevokeReason(""); }} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose, onVerify }) {
+  const [logoPosition, setLogoPosition] = useState("center");
+  const [logoSize, setLogoSize] = useState(44);
+  const [showBorder, setShowBorder] = useState(true);
+  const [showWatermark, setShowWatermark] = useState(settings?.enable_watermark !== false);
+  const [loadingPreview, setLoadingPreview] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoadingPreview(false), 350);
+    return () => clearTimeout(t);
+  }, [cert?.id]);
+
+  if (!cert) {
+    return (
+      <div>
+        <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+          <p className="text-[10px] text-white/70">Dashboard / Certificate</p>
+          <h2 className="text-[19px] font-bold mt-1">Certificate Management</h2>
+          <p className="text-[11.5px] text-white/85 mt-0.5">Design, Preview and Generate Professional Certificates</p>
+        </div>
+        <div className="bg-white rounded-[20px] border border-dashed border-[#E5E7EB] p-14 text-center">
+          <Award size={32} className="mx-auto mb-3 text-[#D1D5DB]" />
+          <p className="text-[14px] font-semibold text-[#6B7280]">No Certificate Selected</p>
+          <p className="text-[12px] text-[#9CA3AF] mt-1">Pick a certificate from the list to preview it here.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const qrData = `CERT:${cert.certificate_number}|ID:${cert.beneficiary_id}|COURSE:${cert.course}|DATE:${cert.certificate_date}`;
+  const org = orgSettings || {};
+  const primary = settings?.primary_color || "#1E3A8A";
+  const secondary = settings?.secondary_color || "#C9A227";
+  const border = settings?.border_color || secondary;
+  const durationText = cert.start_date && cert.end_date ? `${cert.start_date} to ${cert.end_date}` : "";
+  const legalLines = [
+    org.registration_number && `Regd. No.: ${org.registration_number}`,
+  ].filter(Boolean);
+  const chips = [
+    settings?.enable_beneficiary_id !== false && cert.beneficiary_id && ["Beneficiary ID", cert.beneficiary_id],
+    settings?.enable_batch_id !== false && cert.batch_id && ["Batch ID", cert.batch_id],
+    settings?.enable_village !== false && cert.village && ["Village", cert.village],
+    settings?.enable_duration !== false && durationText && ["Duration", durationText],
+    settings?.enable_grade !== false && cert.grade && ["Grade", cert.grade],
+    settings?.enable_score !== false && cert.percentage && ["Score", cert.percentage + "%"],
+  ].filter(Boolean);
+  const signatures = [
+    (cert.trainer || settings?.trainer_sign_name) && [cert.trainer || settings.trainer_sign_name, settings?.trainer_sign_designation || "Trainer"],
+    settings?.secretary_sign_name && [settings.secretary_sign_name, settings.secretary_sign_designation || "Secretary"],
+  ].filter(Boolean);
+  const footerParts = [
+    org.website && `🌐 ${org.website}`,
+    [org.district, org.state].filter(Boolean).join(", "),
+    org.email && `✉ ${org.email}`,
+  ].filter(Boolean);
+  const logoAlign = logoPosition === "left" ? "justify-start" : logoPosition === "right" ? "justify-end" : "justify-center";
+
+  return (
+    <div>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Great+Vibes&display=swap" />
+
+      <div className="rounded-[20px] p-4 mb-5 text-white relative overflow-hidden" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+        <div className="flex items-center gap-2 mb-1">
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10"><ChevronRight size={16} className="rotate-180" /></button>
+          <p className="text-[10px] text-white/70">Dashboard / Certificate</p>
+        </div>
+        <h2 className="text-[19px] font-bold">Certificate Management</h2>
+        <p className="text-[11.5px] text-white/85 mt-0.5">Design, Preview and Generate Professional Certificates</p>
+      </div>
+
+      <div className="grid lg:grid-cols-[280px_1fr] gap-4">
+        {/* Left: Controls */}
+        <div className="space-y-4 order-2 lg:order-1">
+          <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4">
+            <p className="text-[12px] font-bold text-[#111827] mb-3">Design Controls</p>
+
+            <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">Logo Position</label>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {["left", "center", "right"].map(pos => (
+                <button key={pos} onClick={() => setLogoPosition(pos)}
+                  className="py-1.5 rounded-lg text-[11px] font-semibold capitalize"
+                  style={logoPosition === pos ? { background: primary, color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+                  {pos}
+                </button>
+              ))}
+            </div>
+
+            <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">Logo Size ({logoSize}px)</label>
+            <input type="range" min={28} max={64} value={logoSize} onChange={e => setLogoSize(Number(e.target.value))} className="w-full mb-3" />
+
+            <label className="flex items-center justify-between text-[11.5px] text-[#374151] mb-2.5">
+              Show Border
+              <input type="checkbox" checked={showBorder} onChange={e => setShowBorder(e.target.checked)} />
+            </label>
+            <label className="flex items-center justify-between text-[11.5px] text-[#374151]">
+              Show Watermark
+              <input type="checkbox" checked={showWatermark} onChange={e => setShowWatermark(e.target.checked)} />
+            </label>
+          </div>
+
+          <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 space-y-2">
+            <p className="text-[12px] font-bold text-[#111827] mb-1">Actions</p>
+            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-bold text-white transition active:scale-[0.98]" style={{ background: `linear-gradient(90deg,${primary},#16A34A)` }}>
+              <Download size={15} /> Download PDF
+            </button>
+            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
+              <Printer size={15} /> Print
+            </button>
+            {onVerify && (
+              <button onClick={onVerify} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
+                <CheckCircle size={15} /> Verify QR
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Live Preview */}
+        <div className="order-1 lg:order-2">
+          {loadingPreview ? (
+            <div className="bg-white rounded-[20px] border border-[#E5E7EB] p-6 animate-pulse">
+              <div className="h-8 w-8 rounded-full bg-[#F3F4F6] mx-auto mb-3" />
+              <div className="h-4 w-1/2 bg-[#F3F4F6] mx-auto mb-2 rounded" />
+              <div className="h-8 w-2/3 bg-[#F3F4F6] mx-auto mb-3 rounded" />
+              <div className="h-24 w-full bg-[#F3F4F6] rounded" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="relative bg-[#FDFBF5] p-2 min-w-[480px]" style={{ border: showBorder ? `3px solid ${border}` : "none" }}>
+                <div className="relative p-4 pt-3 pb-14 text-center" style={{ border: showBorder ? `1.5px solid ${secondary}` : "none" }}>
+                  {showBorder && ["top-3 left-3 border-r-0 border-b-0", "top-3 right-3 border-l-0 border-b-0", "bottom-3 left-3 border-r-0 border-t-0", "bottom-3 right-3 border-l-0 border-t-0"].map((pos, i) => (
+                    <span key={i} className={"absolute w-5 h-5 " + pos} style={{ border: `2px solid ${secondary}` }} />
+                  ))}
+                  {showWatermark && (
+                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
+                      <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 60, color: primary, opacity: 0.05, transform: "rotate(-18deg)", letterSpacing: 4 }}>TAPASVI</span>
+                    </div>
+                  )}
+                  {legalLines.length > 0 && (
+                    <div className="absolute top-3 left-3 text-left text-[7.5px] text-[#374151] leading-[1.5] hidden sm:block">
+                      {legalLines.map(l => <div key={l}>{l}</div>)}
+                    </div>
+                  )}
+                  <div className="relative">
+                    <div className={"flex mb-1 " + logoAlign}><Logo size={logoSize} /></div>
+                    <p className="text-[13px] font-bold tracking-widest uppercase" style={{ color: primary }}>{org.ngo_name || "TAPASVI Society"}</p>
+                    {org.registration_number && <p className="text-[8.5px] text-[#9CA3AF]">Society Registration No.: {org.registration_number}</p>}
+                    <p className="mt-3 text-[24px] font-bold uppercase tracking-wide" style={{ fontFamily: "'Playfair Display', serif", color: secondary }}>{settings?.certificate_title || "Certificate"}</p>
+                    <p className="text-[10.5px] font-bold tracking-[3px]" style={{ color: primary }}>{settings?.certificate_subtitle || "OF COMPLETION"}</p>
+                    <div className="w-16 h-0.5 mx-auto my-2" style={{ background: secondary }} />
+                    <p className="text-[11.5px] text-[#6B7280] italic">This is to certify that</p>
+                    <p className="my-1 text-[32px] leading-none" style={{ fontFamily: "'Great Vibes', cursive", color: primary }}>{cert.beneficiary_name}</p>
+                    <p className="text-[12px] text-[#111827] mt-2 max-w-[420px] mx-auto">{settings?.completion_text || "has successfully completed the training program in"}</p>
+                    {settings?.enable_course_name !== false && <p className="text-[13.5px] font-bold uppercase mt-1" style={{ color: primary }}>{cert.course}</p>}
+                    <p className="text-[11.5px] text-[#111827] mt-1">conducted by {org.ngo_name || "TAPASVI Society"}</p>
+
+                    {chips.length > 0 && (
+                      <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-[#E5E7EB] flex-wrap max-w-[480px] mx-auto">
+                        {chips.map(([label, val]) => (
+                          <div key={label} className="text-center px-1">
+                            <p className="text-[7px] text-[#9CA3AF] uppercase">{label}</p>
+                            <p className="text-[10.5px] font-bold text-[#111827]">{val}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1 items-center w-full max-w-[480px] mx-auto mt-3 rounded-lg px-3 py-2 text-[9px] text-[#374151]" style={{ border: `1px dashed ${secondary}` }}>
+                      <div>Certificate No.: <b className="text-[#DC2626]">{cert.certificate_number}</b> &nbsp;·&nbsp; Issue Date: {cert.certificate_date}</div>
+                      <div className="text-[8.5px] text-[#6B7280]">{settings?.verification_text || "This certificate is valid for all official purposes."}</div>
+                    </div>
+
+                    <div className="flex items-end justify-center gap-3 mt-6 flex-wrap">
+                      {signatures[0] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[0][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[0][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[0][1]}</p>
+                        </div>
+                      )}
+                      {settings?.enable_seal !== false && (
+                        <div className="w-12 h-12 rounded-full flex flex-col items-center justify-center shrink-0" style={{ border: `2px solid ${secondary}`, color: secondary }}>
+                          <span className="text-[11px]">★</span>
+                          <span className="text-[5px] font-bold tracking-wide">OFFICIAL SEAL</span>
+                        </div>
+                      )}
+                      {signatures[1] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[1][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[1][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[1][1]}</p>
+                        </div>
+                      )}
+                      {signatures[2] && (
+                        <div className="text-center flex-1 min-w-[90px]">
+                          <p style={{ fontFamily: "'Great Vibes', cursive", fontSize: 16, color: "#111827" }}>{signatures[2][0]}</p>
+                          <div className="border-t border-[#9CA3AF] w-20 mx-auto mb-1" />
+                          <p className="text-[9px] font-bold text-[#111827]">{signatures[2][0]}</p>
+                          <p className="text-[7.5px] text-[#9CA3AF] tracking-wide uppercase">{signatures[2][1]}</p>
+                        </div>
+                      )}
+                    </div>
+                    {cert.status === "Revoked" && <p className="text-[12px] text-[#DC2626] font-bold mt-3">CERTIFICATE REVOKED</p>}
+                  </div>
+                  {settings?.enable_qr_code !== false && (
+                    <div className="absolute top-3 right-3 text-center">
+                      <img src={qrImageUrl(qrData, 54)} width={54} height={54} alt="QR" className="border-2 p-0.5 bg-white" style={{ borderColor: secondary }} />
+                      <p className="text-[6px] font-bold text-white mt-1 rounded-full px-1.5 py-0.5" style={{ background: primary }}>SCAN TO VERIFY</p>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2 left-2 right-2 rounded-md py-1.5 px-2 text-[8px] text-white text-center" style={{ background: primary }}>
+                    {footerParts.length > 0 ? footerParts.join("   |   ") : (settings?.footer_text || "Generated & Verified by TAPASVI DMS")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CertificateVerify({ onBack }) {
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState(null);
+  const [org, setOrg] = useState(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const verify = async () => {
+    if (!input.trim()) return;
+    setLoading(true); setNotFound(false); setResult(null);
+    const match = input.match(/CERT:([^|]+)/);
+    const certNumber = (match ? match[1] : input).trim();
+    const [{ data, error }, { data: orgData }] = await Promise.all([
+      supabase.from("certificates").select("*").eq("certificate_number", certNumber).maybeSingle(),
+      supabase.from("org_settings").select("*").eq("id", 1).maybeSingle(),
+    ]);
+    setLoading(false);
+    setOrg(orgData || null);
+    if (error || !data) { setNotFound(true); return; }
+    setResult(data);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <h2 className="text-[18px] font-bold text-[#111827]">Verify Certificate</h2>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+        <Field label="Certificate Number or scanned QR text">
+          <Input value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. TAP-2026-000001" />
+        </Field>
+        <button onClick={verify} disabled={loading} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-3 disabled:opacity-60" style={{ background: "#1E3A8A" }}>
+          {loading ? "Checking..." : "Verify"}
+        </button>
+      </div>
+
+      {notFound && (
+        <div className="mt-4 bg-white rounded-2xl border border-[#FEE2E2] p-4 text-center">
+          <XCircle size={24} className="mx-auto mb-2 text-[#DC2626]" />
+          <p className="text-[13px] font-semibold text-[#DC2626]">Certificate not found.</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <div className="flex items-center gap-2 mb-3">
+            {result.status === "Active" ? <CheckCircle size={20} className="text-[#16A34A]" /> : <XCircle size={20} className="text-[#DC2626]" />}
+            <p className="text-[15px] font-bold" style={{ color: result.status === "Active" ? "#16A34A" : "#DC2626" }}>
+              {result.status === "Active" ? "Valid Certificate" : "Certificate Revoked"}
+            </p>
+          </div>
+          <p className="text-[12.5px] text-[#374151]"><b>Certificate No:</b> {result.certificate_number}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Beneficiary:</b> {result.beneficiary_name}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Program / Course:</b> {result.course}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Batch:</b> {result.batch_label}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Trainer:</b> {result.trainer}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Issued By:</b> {org?.ngo_name || "TAPASVI Society"}</p>
+          <p className="text-[12.5px] text-[#374151]"><b>Issue Date:</b> {result.certificate_date}</p>
+          {result.status === "Revoked" && (
+            <div className="mt-2 rounded-lg bg-[#FEE2E2] p-2.5">
+              <p className="text-[12.5px] text-[#DC2626] font-bold">This certificate was revoked on {result.revoked_at?.slice(0, 10)}.</p>
+              {result.revoke_reason && <p className="text-[11.5px] text-[#DC2626] mt-0.5">Reason: {result.revoke_reason}</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   REPORTS MODULE — enterprise reporting dashboard, live Supabase data.
+   Self-contained: fetches its own data, doesn't touch other modules.
+   ============================================================ */
+function reportsGroupBy(arr, keyFn) {
+  const m = {};
+  arr.forEach(x => { const k = keyFn(x) || "Not specified"; m[k] = (m[k] || 0) + 1; });
+  return Object.entries(m).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+}
+
+function ageBucket(age) {
+  const n = Number(age);
+  if (!n) return "Not specified";
+  if (n < 18) return "Under 18";
+  if (n <= 25) return "18–25";
+  if (n <= 35) return "26–35";
+  if (n <= 45) return "36–45";
+  return "46+";
+}
+
+function incomeBucket(income) {
+  const n = Number(income);
+  if (!n) return "Not specified";
+  if (n < 5000) return "Below ₹5,000";
+  if (n < 10000) return "₹5,000–9,999";
+  if (n < 15000) return "₹10,000–14,999";
+  if (n < 20000) return "₹15,000–19,999";
+  return "₹20,000+";
+}
+
+function monthKey(dateStr) {
+  if (!dateStr) return null;
+  return String(dateStr).slice(0, 7); // YYYY-MM
+}
+
+function printSimpleTable(title, columns, rows) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  const thead = "<tr>" + columns.map(c => "<th>" + c.label + "</th>").join("") + "</tr>";
+  const tbody = rows.map(r => "<tr>" + columns.map(c => "<td>" + (r[c.key] ?? "") + "</td>").join("") + "</tr>").join("");
+  const css = "@page{margin:80px 20px 30px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".hdr{position:fixed;top:0;left:0;right:0;padding:12px 20px;border-bottom:2px solid #1E3A8A;} .hdr b{color:#1E3A8A;font-size:15px;}" +
+    "table{width:100%;border-collapse:collapse;margin-top:6px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;}";
+  w.document.write("<!DOCTYPE html><html><head><title>" + title + "</title><style>" + css + "</style></head><body>" +
+    "<div class='hdr'><b>TAPASVI Society</b><div style='font-size:11px;color:#666;'>" + title + "</div></div>" +
+    "<table>" + thead + tbody + "</table></body></html>");
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 600);
+}
+
+function MiniBarChart({ data, color }) {
+  const max = Math.max(1, ...data.map(d => d.count));
+  return (
+    <div className="space-y-2">
+      {data.slice(0, 8).map(d => (
+        <div key={d.label} className="flex items-center gap-2">
+          <span className="text-[10.5px] text-[#6B7280] w-24 truncate shrink-0">{d.label}</span>
+          <div className="flex-1 h-4 bg-[#F3F4F6] rounded overflow-hidden">
+            <div className="h-full rounded" style={{ width: (d.count / max * 100) + "%", background: color || "#1E3A8A" }} />
+          </div>
+          <span className="text-[10.5px] font-semibold text-[#111827] w-8 text-right shrink-0">{d.count}</span>
+        </div>
+      ))}
+      {data.length === 0 && <p className="text-[11px] text-[#9CA3AF] text-center py-4">No data</p>}
+    </div>
+  );
+}
+
+function MiniDonut({ data, colors }) {
+  const total = data.reduce((s, d) => s + d.count, 0) || 1;
+  let acc = 0;
+  const palette = colors || ["#1E3A8A", "#16A34A", "#F97316", "#DB2777", "#7C3AED", "#0EA5E9", "#DC2626"];
+  const stops = data.map((d, i) => {
+    const start = (acc / total) * 360; acc += d.count;
+    const end = (acc / total) * 360;
+    return `${palette[i % palette.length]} ${start}deg ${end}deg`;
+  }).join(", ");
+  return (
+    <div className="flex items-center gap-4">
+      <div className="w-20 h-20 rounded-full shrink-0" style={{ background: data.length ? `conic-gradient(${stops})` : "#F3F4F6" }} />
+      <div className="space-y-1 flex-1 min-w-0">
+        {data.slice(0, 6).map((d, i) => (
+          <div key={d.label} className="flex items-center gap-1.5 text-[10.5px] text-[#374151]">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: palette[i % palette.length] }} />
+            <span className="truncate flex-1">{d.label}</span>
+            <span className="font-semibold shrink-0">{d.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportTable({ title, columns, rows, filenamePrefix }) {
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState(columns[0]?.key);
+  const [sortDir, setSortDir] = useState("desc");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 6;
+
+  const filtered = useMemo(() => {
+    let r = rows;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      r = r.filter(row => columns.some(c => String(row[c.key] ?? "").toLowerCase().includes(q)));
+    }
+    return [...r].sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av ?? "").localeCompare(String(bv ?? ""));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [rows, query, sortKey, sortDir, columns]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-[13px] font-bold text-[#111827]">{title}</p>
+        <div className="flex gap-2">
+          <button onClick={() => downloadCSV(rows, (filenamePrefix || "report") + ".csv")} className="flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[10.5px] text-[#374151]">
+            <Download size={12} /> CSV
+          </button>
+          <button onClick={() => printSimpleTable(title, columns, rows)} className="flex items-center gap-1 rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[10.5px] text-[#374151]">
+            <Printer size={12} /> Print / PDF
+          </button>
+        </div>
+      </div>
+      <div className="relative mb-2">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder="Search..." className={inputCls + " pl-8 text-[11.5px] py-1.5"} />
+      </div>
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full text-[11px] border-collapse min-w-[300px]">
+          <thead>
+            <tr className="text-left text-[#6B7280] border-b border-[#E5E7EB]">
+              {columns.map(c => (
+                <th key={c.key} onClick={() => toggleSort(c.key)} className="py-1.5 pr-2 cursor-pointer select-none whitespace-nowrap">
+                  {c.label} {sortKey === c.key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((row, i) => (
+              <tr key={i} className="border-b border-[#F3F4F6]">
+                {columns.map(c => <td key={c.key} className="py-1.5 pr-2 whitespace-nowrap">{row[c.key]}</td>)}
+              </tr>
+            ))}
+            {paginated.length === 0 && (
+              <tr><td colSpan={columns.length} className="text-center py-6 text-[#9CA3AF]">No data</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-3">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] text-[10.5px] disabled:opacity-40">Prev</button>
+          <span className="text-[10.5px] text-[#6B7280]">{page} / {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="px-2.5 py-1 rounded-lg border border-[#E5E7EB] text-[10.5px] disabled:opacity-40">Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReportsModule({ currentUser, isAdmin, showToast }) {
+  const [loading, setLoading] = useState(true);
+  const [beneficiaries, setBeneficiaries] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [assessmentRecords, setAssessmentRecords] = useState([]);
+  const [assessmentMarks, setAssessmentMarks] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [employment, setEmployment] = useState([]);
+  const [villages, setVillages] = useState([]);
+  const [fieldWorkers, setFieldWorkers] = useState([]);
+  const [section, setSection] = useState("beneficiary");
+
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [trainerFilter, setTrainerFilter] = useState("all");
+  const [fwFilter, setFwFilter] = useState("all");
+  const [batchFilter, setBatchFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [b, bt, en, ar, asr, asm, ct, em, vl, us] = await Promise.all([
+        supabase.from("beneficiaries").select("*"),
+        supabase.from("batch_trainings").select("*"),
+        supabase.from("training_enrollments").select("*"),
+        supabase.from("attendance_records").select("*"),
+        supabase.from("assessment_records").select("*"),
+        supabase.from("assessment_marks").select("*"),
+        supabase.from("certificates").select("*"),
+        supabase.from("employment").select("*"),
+        supabase.from("village_master").select("*"),
+        supabase.from("users").select("*"),
+      ]);
+      setBeneficiaries(b.data || []); setBatches(bt.data || []); setEnrollments(en.data || []);
+      setAttendanceRecords(ar.data || []); setAssessmentRecords(asr.data || []); setAssessmentMarks(asm.data || []);
+      setCertificates(ct.data || []); setEmployment(em.data || []); setVillages(vl.data || []);
+      setFieldWorkers((us.data || []).filter(u => u.role === "fieldworker"));
+      setLoading(false);
+    })();
+  }, []);
+
+  const isFW = currentUser?.role === "fieldworker";
+  const myUsername = currentUser?.username;
+
+  // Scope to Field Worker's own data first
+  const scopedBeneficiaries = useMemo(() => isFW ? beneficiaries.filter(b => b.field_worker_name === myUsername) : beneficiaries, [beneficiaries, isFW, myUsername]);
+  const scopedBatches = useMemo(() => isFW ? batches.filter(b => b.assigned_field_worker === myUsername) : batches, [batches, isFW, myUsername]);
+  const scopedBatchIds = useMemo(() => new Set(scopedBatches.map(b => b.batch_id)), [scopedBatches]);
+  const scopedBeneficiaryIds = useMemo(() => new Set(scopedBeneficiaries.map(b => b.beneficiary_id)), [scopedBeneficiaries]);
+  const scopedEnrollments = useMemo(() => isFW ? enrollments.filter(e => scopedBatchIds.has(e.batch_id)) : enrollments, [enrollments, isFW, scopedBatchIds]);
+  const scopedAttendance = useMemo(() => isFW ? attendanceRecords.filter(a => scopedBatchIds.has(a.batch_id)) : attendanceRecords, [attendanceRecords, isFW, scopedBatchIds]);
+  const scopedAssessmentRecords = useMemo(() => isFW ? assessmentRecords.filter(r => scopedBatchIds.has(r.batch_id)) : assessmentRecords, [assessmentRecords, isFW, scopedBatchIds]);
+  const scopedAssessmentIds = useMemo(() => new Set(scopedAssessmentRecords.map(r => r.id)), [scopedAssessmentRecords]);
+  const scopedAssessmentMarks = useMemo(() => isFW ? assessmentMarks.filter(m => scopedAssessmentIds.has(m.assessment_id)) : assessmentMarks, [assessmentMarks, isFW, scopedAssessmentIds]);
+  const scopedCertificates = useMemo(() => isFW ? certificates.filter(c => scopedBatchIds.has(c.batch_id)) : certificates, [certificates, isFW, scopedBatchIds]);
+  const scopedEmployment = useMemo(() => isFW ? employment.filter(e => scopedBeneficiaryIds.has(e.beneficiary_id)) : employment, [employment, isFW, scopedBeneficiaryIds]);
+
+  // Apply global filter bar on top of scope
+  const filteredBeneficiaries = useMemo(() => scopedBeneficiaries.filter(b =>
+    (programFilter === "all" || b.program === programFilter) &&
+    (villageFilter === "all" || b.village === villageFilter) &&
+    (fwFilter === "all" || b.field_worker_name === fwFilter) &&
+    (!dateFrom || (b.registration_date || "") >= dateFrom) &&
+    (!dateTo || (b.registration_date || "") <= dateTo)
+  ), [scopedBeneficiaries, programFilter, villageFilter, fwFilter, dateFrom, dateTo]);
+
+  const filteredBatches = useMemo(() => scopedBatches.filter(b =>
+    (programFilter === "all" || b.program === programFilter) &&
+    (villageFilter === "all" || b.venue === villageFilter) &&
+    (trainerFilter === "all" || b.trainer_name === trainerFilter) &&
+    (fwFilter === "all" || b.assigned_field_worker === fwFilter) &&
+    (batchFilter === "all" || b.batch_id === batchFilter) &&
+    (statusFilter === "all" || b.status === statusFilter) &&
+    (!dateFrom || (b.start_date || "") >= dateFrom) &&
+    (!dateTo || (b.start_date || "") <= dateTo)
+  ), [scopedBatches, programFilter, villageFilter, trainerFilter, fwFilter, batchFilter, statusFilter, dateFrom, dateTo]);
+  const filteredBatchIds = useMemo(() => new Set(filteredBatches.map(b => b.batch_id)), [filteredBatches]);
+
+  const filteredEnrollments = useMemo(() => scopedEnrollments.filter(e => filteredBatchIds.has(e.batch_id)), [scopedEnrollments, filteredBatchIds]);
+  const filteredAttendance = useMemo(() => scopedAttendance.filter(a => filteredBatchIds.has(a.batch_id)), [scopedAttendance, filteredBatchIds]);
+  const filteredAssessmentRecords = useMemo(() => scopedAssessmentRecords.filter(r => filteredBatchIds.has(r.batch_id)), [scopedAssessmentRecords, filteredBatchIds]);
+  const filteredAssessmentIds = useMemo(() => new Set(filteredAssessmentRecords.map(r => r.id)), [filteredAssessmentRecords]);
+  const filteredAssessmentMarks = useMemo(() => scopedAssessmentMarks.filter(m => filteredAssessmentIds.has(m.assessment_id)), [scopedAssessmentMarks, filteredAssessmentIds]);
+  const filteredCertificates = useMemo(() => scopedCertificates.filter(c => filteredBatchIds.has(c.batch_id)), [scopedCertificates, filteredBatchIds]);
+  const filteredEmployment = useMemo(() => scopedEmployment.filter(e =>
+    (statusFilter === "all" || e.status === statusFilter) &&
+    (!dateFrom || (e.created_at || "").slice(0, 10) >= dateFrom) &&
+    (!dateTo || (e.created_at || "").slice(0, 10) <= dateTo)
+  ), [scopedEmployment, statusFilter, dateFrom, dateTo]);
+
+  // Summary cards
+  const totalBeneficiaries = filteredBeneficiaries.length;
+  const totalTrainings = filteredBatches.length;
+  const totalAssessments = filteredAssessmentRecords.length;
+  const certsIssued = filteredCertificates.filter(c => c.status === "Active").length;
+  const placements = filteredEmployment.filter(e => e.status === "Active").length;
+  const totalVillages = new Set(filteredBeneficiaries.map(b => b.village).filter(Boolean)).size;
+  const totalTrainers = new Set(filteredBatches.map(b => b.trainer_name).filter(Boolean)).size;
+  const completionPct = totalTrainings > 0 ? Math.round(filteredBatches.filter(b => b.status === "Completed").length / totalTrainings * 100) : 0;
+  const placementPct = totalBeneficiaries > 0 ? Math.round(placements / totalBeneficiaries * 100) : 0;
+
+  const SUMMARY = [
+    { label: "Total Beneficiaries", value: totalBeneficiaries, icon: Users, color: "#1E3A8A" },
+    { label: "Total Trainings", value: totalTrainings, icon: BookOpen, color: "#DB2777" },
+    { label: "Total Assessments", value: totalAssessments, icon: ClipboardList, color: "#F97316" },
+    { label: "Certificates Issued", value: certsIssued, icon: Award, color: "#16A34A" },
+    { label: "Placements", value: placements, icon: Briefcase, color: "#0EA5E9" },
+    { label: "Total Villages", value: totalVillages, icon: MapPin, color: "#7C3AED" },
+    { label: "Total Trainers", value: totalTrainers, icon: Users, color: "#DC2626" },
+    { label: "Training Completion %", value: completionPct + "%", icon: CheckCircle, color: "#16A34A" },
+    { label: "Placement %", value: placementPct + "%", icon: TrendingUp, color: "#0EA5E9" },
+  ];
+
+  // Beneficiary breakdowns
+  const programWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.program), [filteredBeneficiaries]);
+  const villageWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.village), [filteredBeneficiaries]);
+  const genderWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.gender), [filteredBeneficiaries]);
+  const ageWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => ageBucket(b.age)), [filteredBeneficiaries]);
+  const educationWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.education), [filteredBeneficiaries]);
+  const skillWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.skill_interest), [filteredBeneficiaries]);
+  const fwWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.field_worker_name), [filteredBeneficiaries]);
+
+  // Training breakdowns
+  const batchWise = useMemo(() => filteredBatches.map(b => ({
+    label: `${b.venue || ""} · ${b.training_type || ""}`, status: b.status,
+    participants: filteredEnrollments.filter(e => e.batch_id === b.batch_id).length,
+  })), [filteredBatches, filteredEnrollments]);
+  const trainerWise = useMemo(() => reportsGroupBy(filteredBatches, b => b.trainer_name), [filteredBatches]);
+  const attendancePctByBatch = useMemo(() => filteredBatches.map(b => {
+    const recs = filteredAttendance.filter(a => a.batch_id === b.batch_id);
+    const present = recs.filter(a => a.status === "Present" || a.status === "Late").length;
+    return { label: `${b.venue || ""} · ${b.training_type || ""}`, pct: recs.length > 0 ? Math.round(present / recs.length * 100) : 0 };
+  }), [filteredBatches, filteredAttendance]);
+  const ongoingCount = filteredBatches.filter(b => b.status === "Ongoing").length;
+  const completedCount = filteredBatches.filter(b => b.status === "Completed").length;
+  const dropoutCount = filteredEnrollments.filter(e => e.enrollment_status === "Cancelled" || e.enrollment_status === "Dropped").length;
+
+  // Assessment breakdowns
+  const asmTotal = filteredAssessmentMarks.length;
+  const asmPass = filteredAssessmentMarks.filter(m => m.result === "Pass").length;
+  const asmFail = filteredAssessmentMarks.filter(m => m.result === "Fail").length;
+  const gradeDist = useMemo(() => reportsGroupBy(filteredAssessmentMarks, m => m.grade), [filteredAssessmentMarks]);
+  const scores = filteredAssessmentMarks.map(m => Number(m.percentage) || 0);
+  const avgScore = scores.length ? Math.round(scores.reduce((a, c) => a + c, 0) / scores.length) : 0;
+  const highScore = scores.length ? Math.max(...scores) : 0;
+  const lowScore = scores.length ? Math.min(...scores) : 0;
+
+  // Certificate breakdowns
+  const certIssued = filteredCertificates.filter(c => c.status === "Active").length;
+  const certRevoked = filteredCertificates.filter(c => c.status === "Revoked").length;
+  const certReissued = filteredCertificates.filter(c => c.reissued_from).length;
+  const certIssuedIds = new Set(filteredCertificates.map(c => c.assessment_id + "::" + c.beneficiary_id));
+  const certPending = filteredAssessmentMarks.filter(m => m.result === "Pass" && m.certificate_eligible === "Yes" && !certIssuedIds.has(m.assessment_id + "::" + m.beneficiary_id)).length;
+
+  // Placement breakdowns
+  const companyWise = useMemo(() => reportsGroupBy(filteredEmployment, e => e.employer), [filteredEmployment]);
+  const salaryWise = useMemo(() => reportsGroupBy(filteredEmployment, e => incomeBucket(e.monthly_income)), [filteredEmployment]);
+  const pendingPlacement = Math.max(0, totalBeneficiaries - placements);
+
+  // Charts
+  const monthlyTrainings = useMemo(() => {
+    const m = reportsGroupBy(filteredBatches, b => monthKey(b.start_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredBatches]);
+  const certificateTrend = useMemo(() => {
+    const m = reportsGroupBy(filteredCertificates, c => monthKey(c.certificate_date));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredCertificates]);
+  const placementTrend = useMemo(() => {
+    const m = reportsGroupBy(filteredEmployment, e => monthKey(e.created_at));
+    return m.filter(x => x.label !== "Not specified").sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredEmployment]);
+
+  const programOptions = [...new Set(batches.map(b => b.program).filter(Boolean))];
+  const villageOptions = [...new Set([...beneficiaries.map(b => b.village), ...batches.map(b => b.venue)].filter(Boolean))];
+  const trainerOptions = [...new Set(batches.map(b => b.trainer_name).filter(Boolean))];
+  const batchOptions = scopedBatches;
+
+  const SECTIONS = [
+    { key: "beneficiary", label: "Beneficiary" },
+    { key: "training", label: "Training" },
+    { key: "assessment", label: "Assessment" },
+    { key: "certificate", label: "Certificate" },
+    { key: "placement", label: "Placement" },
+  ];
+
+  if (loading) {
+    return (
+      <div className="text-center py-20 text-[#9CA3AF]">
+        <RefreshCw size={26} className="mx-auto mb-3 animate-spin opacity-50" />
+        <p className="text-[13px]">Loading reports...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-[19px] font-bold text-[#111827]">Reports</h2>
+        <p className="text-[12px] text-[#6B7280]">{isFW ? "Showing data for your assigned villages, batches & beneficiaries" : "Live data across the organization"}</p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-4">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <p className="text-[9.5px] text-[#9CA3AF] mb-1">From Date</p>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          </div>
+          <div>
+            <p className="text-[9.5px] text-[#9CA3AF] mb-1">To Date</p>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls + " text-[11.5px] py-1.5"} />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-2 flex-wrap">
+          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Programs</option>
+            {programOptions.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Villages</option>
+            {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select value={trainerFilter} onChange={e => setTrainerFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Trainers</option>
+            {trainerOptions.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {isAdmin && (
+            <select value={fwFilter} onChange={e => setFwFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+              <option value="all">All Field Workers</option>
+              {fieldWorkers.map(u => <option key={u.username} value={u.username}>{u.full_name || u.username}</option>)}
+            </select>
+          )}
+          <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Batches</option>
+            {batchOptions.map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} · {b.training_type}</option>)}
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Status</option>
+            <option value="Ongoing">Ongoing</option>
+            <option value="Completed">Completed</option>
+            <option value="Upcoming">Upcoming</option>
+            <option value="Active">Active</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-5">
+        {SUMMARY.map(s => (
+          <div key={s.label} className="bg-white rounded-2xl border border-[#E5E7EB] p-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style={{ background: s.color + "1A" }}>
+              <s.icon size={15} style={{ color: s.color }} />
+            </div>
+            <p className="text-[17px] font-bold text-[#111827]">{s.value}</p>
+            <p className="text-[10px] text-[#6B7280] leading-tight">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Program Distribution</p>
+          <MiniDonut data={programWise} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Gender Distribution</p>
+          <MiniDonut data={genderWise} colors={["#1E3A8A", "#DB2777", "#9CA3AF"]} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Monthly Trainings</p>
+          <MiniBarChart data={monthlyTrainings} color="#DB2777" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Certificate Trend</p>
+          <MiniBarChart data={certificateTrend} color="#16A34A" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:col-span-2">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Placement Trend</p>
+          <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
+      </div>
+
+      {/* Section tabs */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {SECTIONS.map(s => (
+          <button key={s.key} onClick={() => setSection(s.key)}
+            className={"px-3.5 py-1.5 rounded-lg text-[12px] font-semibold " + (section === s.key ? "bg-[#1E3A8A] text-white" : "border border-[#E5E7EB] text-[#374151]")}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {section === "beneficiary" && (
+        <>
+          <ReportTable title="Program-wise" columns={[{ key: "label", label: "Program" }, { key: "count", label: "Count" }]} rows={programWise} filenamePrefix="beneficiaries_program" />
+          <ReportTable title="Village-wise" columns={[{ key: "label", label: "Village" }, { key: "count", label: "Count" }]} rows={villageWise} filenamePrefix="beneficiaries_village" />
+          <ReportTable title="Gender-wise" columns={[{ key: "label", label: "Gender" }, { key: "count", label: "Count" }]} rows={genderWise} filenamePrefix="beneficiaries_gender" />
+          <ReportTable title="Age-wise" columns={[{ key: "label", label: "Age Group" }, { key: "count", label: "Count" }]} rows={ageWise} filenamePrefix="beneficiaries_age" />
+          <ReportTable title="Education-wise" columns={[{ key: "label", label: "Education" }, { key: "count", label: "Count" }]} rows={educationWise} filenamePrefix="beneficiaries_education" />
+          <ReportTable title="Skill Interest-wise" columns={[{ key: "label", label: "Skill Interest" }, { key: "count", label: "Count" }]} rows={skillWise} filenamePrefix="beneficiaries_skill" />
+          <ReportTable title="Field Worker-wise" columns={[{ key: "label", label: "Field Worker" }, { key: "count", label: "Count" }]} rows={fwWise} filenamePrefix="beneficiaries_fieldworker" />
+        </>
+      )}
+
+      {section === "training" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Ongoing", ongoingCount, "#F97316"], ["Completed", completedCount, "#16A34A"], ["Dropouts", dropoutCount, "#DC2626"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Batch-wise" columns={[{ key: "label", label: "Batch" }, { key: "status", label: "Status" }, { key: "participants", label: "Participants" }]} rows={batchWise} filenamePrefix="training_batch" />
+          <ReportTable title="Trainer-wise" columns={[{ key: "label", label: "Trainer" }, { key: "count", label: "Batches" }]} rows={trainerWise} filenamePrefix="training_trainer" />
+          <ReportTable title="Attendance % by Batch" columns={[{ key: "label", label: "Batch" }, { key: "pct", label: "Attendance %" }]} rows={attendancePctByBatch} filenamePrefix="training_attendance" />
+        </>
+      )}
+
+      {section === "assessment" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-2">
+            {[["Total", asmTotal, "#1E3A8A"], ["Pass", asmPass, "#16A34A"], ["Fail", asmFail, "#DC2626"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Average Score", avgScore + "%"], ["Highest Score", highScore + "%"], ["Lowest Score", lowScore + "%"]].map(([l, v]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[15px] font-bold text-[#111827]">{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Grade Distribution" columns={[{ key: "label", label: "Grade" }, { key: "count", label: "Count" }]} rows={gradeDist} filenamePrefix="assessment_grade" />
+        </>
+      )}
+
+      {section === "certificate" && (
+        <div className="grid grid-cols-2 gap-2.5">
+          {[["Issued", certIssued, "#16A34A"], ["Pending", certPending, "#F97316"], ["Revoked", certRevoked, "#DC2626"], ["Reissued", certReissued, "#0EA5E9"]].map(([l, v, c]) => (
+            <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 text-center">
+              <p className="text-[22px] font-bold" style={{ color: c }}>{v}</p>
+              <p className="text-[11px] text-[#6B7280]">{l}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {section === "placement" && (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[["Total Placed", placements, "#16A34A"], ["Placement %", placementPct + "%", "#0EA5E9"], ["Pending", pendingPlacement, "#F97316"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Company-wise" columns={[{ key: "label", label: "Employer" }, { key: "count", label: "Count" }]} rows={companyWise} filenamePrefix="placement_company" />
+          <ReportTable title="Salary-wise" columns={[{ key: "label", label: "Income Range" }, { key: "count", label: "Count" }]} rows={salaryWise} filenamePrefix="placement_salary" />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   MOBILE NAVIGATION DRAWER
+   Left slide-in drawer replacing the old bottom nav. Reuses the
+   exact same section/onClick config the desktop sidebar uses —
+   no new routes, no new logic, only presentation.
+   ============================================================ */
+function NavDrawer({ open, onClose, sections, currentUser, isSuperAdmin, isAdmin, view }) {
+  const touchStartX = React.useRef(null);
+  const touchDeltaX = React.useRef(0);
+  const [dragX, setDragX] = useState(0);
+
+  const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+  const onTouchMove = (e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    touchDeltaX.current = dx;
+    if (dx < 0) setDragX(dx);
+  };
+  const onTouchEnd = () => {
+    if (touchDeltaX.current < -70) onClose();
+    touchStartX.current = null; touchDeltaX.current = 0; setDragX(0);
+  };
+
+  const roleLabel = isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker";
+
+  return (
+    <>
+      <style>{`
+        .tp-drawer-overlay { transition: opacity 300ms ease; }
+        .tp-drawer-panel { transition: transform 300ms cubic-bezier(0.22,1,0.36,1); will-change: transform; }
+        .tp-menu-item { position: relative; overflow: hidden; }
+        .tp-menu-item:active { background: rgba(37,99,235,0.12) !important; }
+      `}</style>
+
+      {/* Dark overlay */}
+      <div className="md:hidden fixed inset-0 z-[60] bg-black/50 tp-drawer-overlay"
+        style={{ opacity: open ? 1 : 0, pointerEvents: open ? "auto" : "none" }}
+        onClick={onClose} />
+
+      {/* Sliding panel */}
+      <div className="md:hidden fixed top-0 left-0 bottom-0 z-[65] w-[82%] max-w-[320px] bg-white tp-drawer-panel flex flex-col shadow-2xl"
+        style={{ transform: open ? `translateX(${Math.min(0, dragX)}px)` : "translateX(-100%)" }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+
+        {/* Glass header */}
+        <div className="relative overflow-hidden px-5 pt-6 pb-5 text-white" style={{ background: "linear-gradient(120deg,#1E3A8A,#16A34A)" }}>
+          <div className="flex items-center gap-3">
+            <Logo size={40} />
+            <div className="min-w-0">
+              <p className="text-[17px] font-extrabold tracking-wide">TAPASVI</p>
+              <p className="text-[10px] text-white/80 truncate">Digital NGO Management System</p>
+            </div>
+          </div>
+          <span className="inline-block mt-2.5 text-[9px] font-semibold px-2.5 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)" }}>v2.0</span>
+        </div>
+
+        {/* User profile */}
+        <div className="px-5 py-4 border-b border-[#F3F4F6] flex items-center gap-3">
+          <div className="relative shrink-0">
+            <div className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+              {(currentUser?.username || "?").charAt(0).toUpperCase()}
+            </div>
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#16A34A] border-2 border-white" title="Online" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold text-[#111827] truncate">{currentUser?.username || "User"}</p>
+            <p className="text-[11px] text-[#6B7280]">{roleLabel} · TAPASVI Society</p>
+          </div>
+        </div>
+
+        {/* Menu */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+          {sections.map(s => (
+            <div key={s.section}>
+              <p className="text-[9.5px] font-bold tracking-wider text-[#9CA3AF] px-3 mb-1">{s.section}</p>
+              <div className="space-y-1">
+                {s.items.map(item => (
+                  <button key={item.key} onClick={item.onClick}
+                    className="tp-menu-item w-full flex items-center gap-3 px-3 rounded-xl text-[13.5px] font-medium transition-all duration-200 hover:bg-[#EFF6FF]"
+                    style={{ minHeight: 52, background: item.active ? "#DCFCE7" : "transparent", color: item.danger ? "#F97316" : item.active ? "#16A34A" : "#374151" }}>
+                    {item.active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full" style={{ background: "#16A34A" }} />}
+                    <span className="text-[18px]">{item.emoji}</span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+      </div>
+    </>
+  );
+}
 
 function ProgramManagement({ currentUser, showToast, logAppAudit, beneficiaries, onBack }) {
   const [programs, setPrograms] = useState([]);
@@ -3420,6 +7167,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("dashboard");
   const [subView, setSubView] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -3840,6 +7590,29 @@ export default function App() {
     showToast(`Attendance saved for ${sessionDate}.`);
   };
 
+  const completeTraining = async (batchToComplete) => {
+    if (!batchToComplete) return;
+    if (!isAdmin && batchToComplete.assigned_field_worker !== user.username) {
+      showToast("This training is not assigned to you. You cannot end it.", "error");
+      return;
+    }
+    if (batchToComplete.status === "Completed") return; // already completed — no-op, guards against duplicate transition
+    const { error } = await supabase.from("batch_trainings").update({ status: "Completed" }).eq("batch_id", batchToComplete.batch_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setBatches(bs => bs.map(b => b.batch_id === batchToComplete.batch_id ? { ...b, status: "Completed" } : b));
+    setActiveBatch(b => b && b.batch_id === batchToComplete.batch_id ? { ...b, status: "Completed" } : b);
+
+    // Same cascade as the admin edit-form completion path: release active enrollments so beneficiaries are free for new batches.
+    const toRelease = enrollments.filter(e => e.batch_id === batchToComplete.batch_id && (e.enrollment_status || "Active") === "Active");
+    if (toRelease.length > 0) {
+      const { error: relError } = await supabase.from("training_enrollments").update({ enrollment_status: "Completed" }).eq("batch_id", batchToComplete.batch_id).eq("enrollment_status", "Active");
+      if (!relError) {
+        setEnrollments(es => es.map(e => e.batch_id === batchToComplete.batch_id && (e.enrollment_status || "Active") === "Active" ? { ...e, enrollment_status: "Completed" } : e));
+      }
+    }
+    await logTrainingAudit("Training Completed", `${batchToComplete.training_name} marked Completed`);
+  };
+
   const saveCertificates = async (certStatusMap) => {
     if (!activeBatch) return;
     const batchEnrollments = enrollments.filter(e => e.batch_id === activeBatch.batch_id);
@@ -4008,61 +7781,120 @@ export default function App() {
     </div>
   );
 
-  const NAVITEMS = [
-    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { key: "beneficiaries", label: "Beneficiaries", icon: Users },
-    { key: "training", label: "Training", icon: BookOpen },
-    { key: "employment", label: "Employment", icon: Briefcase },
-    ...(isAdmin ? [{ key: "villages", label: "Villages", icon: MapPin }] : []),
-    ...(isAdmin ? [{ key: "users", label: "Users", icon: Lock }] : []),
-    ...(isSuperAdmin ? [{ key: "settings", label: "Settings", icon: SettingsIcon }] : []),
-  ];
+  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); setDrawerOpen(false); };
+  const goToTraining = (sub) => { setView("training"); setSubView(null); setTrainingSubView(sub); setDrawerOpen(false); };
 
-  const goTo = (v) => { setView(v); setSubView(null); setEditing(null); setProfileBeneficiary(null); };
+  const MENU_SECTIONS = [
+    {
+      section: "MAIN",
+      items: [
+        { key: "dashboard", label: "Dashboard", emoji: "🏠", icon: LayoutDashboard, onClick: () => goTo("dashboard"), active: view === "dashboard" },
+        { key: "beneficiaries", label: "Beneficiaries", emoji: "👥", icon: Users, onClick: () => goTo("beneficiaries"), active: view === "beneficiaries" },
+        { key: "training", label: "Training", emoji: "🎓", icon: BookOpen, onClick: () => goTo("training"), active: view === "training" && !trainingSubView },
+      ],
+    },
+    {
+      section: "OPERATIONS",
+      items: [
+        { key: "attendance", label: "Attendance", emoji: "📅", icon: CheckCircle, onClick: () => goToTraining(null) },
+        ...(isAdmin ? [{ key: "assessments", label: "Assessments", emoji: "📝", icon: ClipboardList, onClick: () => goToTraining("assessment-management"), active: trainingSubView === "assessment-management" }] : []),
+        ...(isAdmin ? [{ key: "certificates", label: "Certificates", emoji: "🏆", icon: Award, onClick: () => goToTraining("certificate-generation"), active: trainingSubView === "certificate-generation" }] : []),
+        { key: "employment", label: "Employment", emoji: "💼", icon: Briefcase, onClick: () => goTo("employment"), active: view === "employment" },
+        ...(isAdmin ? [{ key: "villages", label: "Villages", emoji: "🏘", icon: MapPin, onClick: () => goTo("villages"), active: view === "villages" }] : []),
+        { key: "reports", label: "Reports", emoji: "📊", icon: BarChart3, onClick: () => goTo("reports"), active: view === "reports" },
+      ],
+    },
+    {
+      section: "ADMINISTRATION",
+      items: [
+        ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
+        ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
+      ],
+    },
+    {
+      section: "SUPPORT",
+      items: [
+        { key: "help", label: "Help & Support", emoji: "❓", icon: AlertCircle, onClick: () => { setDrawerOpen(false); setShowHelp(true); } },
+        { key: "logout", label: "Logout", emoji: "🚪", icon: LogOut, onClick: () => { setDrawerOpen(false); handleLogout(); }, danger: true },
+      ],
+    },
+  ].filter(s => s.items.length > 0);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex" style={{ fontFamily: "Inter, Manrope, Arial, sans-serif" }}>
       <style>{`* { box-sizing: border-box; } @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }`}</style>
 
       {/* Sidebar (desktop) */}
-      <aside className="w-[220px] bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0">
+      <aside className={"bg-white border-r border-[#E5E7EB] hidden md:flex flex-col shrink-0 transition-all duration-300"} style={{ width: sidebarCollapsed ? 76 : 240 }}>
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-[#F3F4F6]">
           <Logo size={30} />
-          <div>
-            <p className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</p>
-            <p className="text-[10px] text-[#999]">{isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"}</p>
-          </div>
+          {!sidebarCollapsed && (
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-[#1E3A8A] truncate" style={{ fontFamily: "Manrope,Arial,sans-serif", fontWeight: 900 }}>TAPASVI</p>
+              <p className="text-[10px] text-[#999] truncate">{isSuperAdmin ? "Super Admin" : isAdmin ? "Admin" : "Field Worker"}</p>
+            </div>
+          )}
         </div>
-        <nav className="flex-1 px-3 py-3 space-y-0.5">
-          {NAVITEMS.map(item => (
-            <button key={item.key} onClick={() => goTo(item.key)}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition"
-              style={view === item.key ? { background: "#16A34A", color: "#fff" } : { color: "#374151" }}>
-              <item.icon size={16} />{item.label}
-            </button>
+        <nav className="flex-1 px-3 py-3 space-y-3 overflow-y-auto">
+          {MENU_SECTIONS.filter(s => s.section !== "SUPPORT").map(s => (
+            <div key={s.section}>
+              {!sidebarCollapsed && <p className="text-[9.5px] font-bold tracking-wider text-[#9CA3AF] px-3 mb-1">{s.section}</p>}
+              <div className="space-y-0.5">
+                {s.items.map(item => (
+                  <button key={item.key} onClick={item.onClick} title={sidebarCollapsed ? item.label : undefined}
+                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-200 " + (sidebarCollapsed ? "justify-center" : "")}
+                    style={item.active ? { background: "#16A34A", color: "#fff" } : { color: "#374151" }}>
+                    <item.icon size={16} className="shrink-0" />{!sidebarCollapsed && item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
-        <div className="px-3 pb-3 space-y-0.5">
-          <button onClick={loadAll} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
-            <RefreshCw size={15} /> Refresh Data
+        <div className="px-3 pb-3 space-y-0.5 border-t border-[#F3F4F6] pt-3">
+          <button onClick={() => setSidebarCollapsed(c => !c)} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition">
+            <ChevronRight size={15} className={"transition-transform duration-300 " + (sidebarCollapsed ? "" : "rotate-180")} /> {!sidebarCollapsed && "Collapse"}
           </button>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition">
-            <LogOut size={15} /> Sign Out
+          <button onClick={loadAll} className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#374151] hover:bg-[#F3F4F6] transition " + (sidebarCollapsed ? "justify-center" : "")}>
+            <RefreshCw size={15} className="shrink-0" /> {!sidebarCollapsed && "Refresh Data"}
+          </button>
+          <button onClick={handleLogout} className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium text-[#F97316] hover:bg-[#FFF7ED] transition " + (sidebarCollapsed ? "justify-center" : "")}>
+            <LogOut size={15} className="shrink-0" /> {!sidebarCollapsed && "Sign Out"}
           </button>
         </div>
       </aside>
 
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white border-b border-[#E5E7EB] flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Logo size={24} />
-          <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setDrawerOpen(true)} aria-label="Open menu" className="p-1 -ml-1 rounded-lg active:bg-[#F3F4F6] transition">
+            <span className="block text-[19px] leading-none">☰</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <Logo size={24} />
+            <span className="text-[13px] font-bold text-[#1E3A8A]" style={{fontFamily:"Manrope,Arial,sans-serif",fontWeight:900}}>TAPASVI</span>
+          </div>
         </div>
         <button onClick={handleLogout} className="p-1.5"><LogOut size={16} className="text-[#F97316]" /></button>
       </div>
 
+      {/* Mobile Navigation Drawer */}
+      <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} sections={MENU_SECTIONS} currentUser={user} isSuperAdmin={isSuperAdmin} isAdmin={isAdmin} view={view} />
+
+      {/* Help & Support modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center px-4" onClick={() => setShowHelp(false)}>
+          <div className="bg-white rounded-2xl max-w-[360px] w-full p-5" onClick={e => e.stopPropagation()}>
+            <p className="text-[15px] font-bold text-[#111827] mb-2">❓ Help & Support</p>
+            <p className="text-[12.5px] text-[#374151] leading-relaxed mb-1">For any issue with the TAPASVI Digital NGO Management System, please contact your organization's Admin or Super Admin — they can help with access, data corrections, or escalate technical issues.</p>
+            <p className="text-[11px] text-[#9CA3AF] mt-3">TAPASVI DMS v2.0</p>
+            <button onClick={() => setShowHelp(false)} className="w-full rounded-xl py-2.5 text-[13px] font-bold text-white mt-4" style={{ background: "#1E3A8A" }}>Close</button>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <main className="flex-1 min-w-0 pt-[56px] md:pt-0 pb-20 md:pb-0">
+      <main className="flex-1 min-w-0 pt-[56px] md:pt-0 pb-6 md:pb-0">
         <div className="max-w-[1100px] mx-auto px-4 md:px-7 py-5">
 
           {/* FAB for new registration */}
@@ -4101,9 +7933,19 @@ export default function App() {
               onEnroll={enrollBeneficiaries}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
+          {view === "training" && trainingSubView === "session" && activeBatch && (
+            <TrainingSessionScreen
+              batch={activeBatch}
+              enrollments={enrollments}
+              attendanceRecords={attendanceRecords}
+              onContinueToAttendance={() => setTrainingSubView("attendance")}
+              onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
+          )}
           {view === "training" && trainingSubView === "attendance" && activeBatch && (
             <AttendanceScreen
               batch={activeBatch}
+              batches={batches}
+              onSwitchBatch={b => setActiveBatch(b)}
               enrollments={enrollments}
               attendanceRecords={attendanceRecords}
               onSaveDailyAttendance={saveDailyAttendance}
@@ -4127,10 +7969,54 @@ export default function App() {
               dynPrograms={dynPrograms}
               onClose={() => setTrainingSubView(null)} />
           )}
+          {view === "training" && trainingSubView === "assessment-management" && (
+            <AssessmentManagement
+              batches={batches}
+              beneficiaries={beneficiaries}
+              enrollments={enrollments}
+              currentUser={user}
+              isAdmin={isAdmin}
+              showToast={showToast}
+              logAppAudit={logAppAudit}
+              onClose={() => setTrainingSubView(null)} />
+          )}
+          {view === "training" && trainingSubView === "certificate-generation" && (
+            <CertificateManagement
+              isAdmin={isAdmin}
+              currentUser={user}
+              showToast={showToast}
+              logAppAudit={logAppAudit}
+              onClose={() => setTrainingSubView(null)} />
+          )}
 
           {/* VIEWS */}
-          {!subView && view === "dashboard" && (
-            <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} />
+          {!subView && view === "dashboard" && isAdmin && (
+            <Dashboard beneficiaries={visibleBeneficiaries} training={training} employment={employment} villages={villages} isAdmin={isAdmin} currentUser={user}
+              onQuickAction={(key) => {
+                setSubView(null); setEditing(null);
+                if (key === "beneficiary") { setView("beneficiaries"); setSubView("beneficiary-form"); }
+                else if (key === "training") { setView("training"); setTrainingSubView(null); }
+                else if (key === "attendance") { setView("training"); setTrainingSubView(null); }
+                else if (key === "assessment") { setView("training"); setTrainingSubView("assessment-management"); }
+                else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
+                else if (key === "employment") { setView("employment"); setSubView("employment-form"); }
+                else if (key === "reports") { setView("reports"); }
+                else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
+              }}
+              onViewBeneficiary={(b) => { goTo("beneficiaries"); setProfileBeneficiary(b); }} />
+          )}
+          {!subView && view === "dashboard" && !isAdmin && (
+            <FieldWorkerDashboard beneficiaries={visibleBeneficiaries} currentUser={user}
+              onQuickAction={(key) => {
+                setSubView(null); setEditing(null);
+                if (key === "beneficiary") { setView("beneficiaries"); setSubView("beneficiary-form"); }
+                else if (key === "training") { setView("training"); setTrainingSubView(null); }
+                else if (key === "attendance") { setView("training"); setTrainingSubView(null); }
+                else if (key === "assessment") { setView("training"); setTrainingSubView("assessment-management"); }
+                else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
+                else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
+              }}
+              onViewBeneficiary={(b) => { goTo("beneficiaries"); setProfileBeneficiary(b); }} />
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
             <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
@@ -4169,9 +8055,11 @@ export default function App() {
               onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
               onDelete={b => setDeleteTarget({ type: "batch", record: b })}
               onEnroll={b => { setActiveBatch(b); setTrainingSubView("enroll"); }}
-              onAttendance={b => { setActiveBatch(b); setTrainingSubView("attendance"); }}
+              onAttendance={b => { setActiveBatch(b); setTrainingSubView(b.status === "Completed" ? "attendance" : "session"); }}
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
               onAttendanceReport={() => setTrainingSubView("attendance-report")}
+              onAssessments={() => setTrainingSubView("assessment-management")}
+              onCertificateGeneration={() => setTrainingSubView("certificate-generation")}
               onExport={exportBatches}
               onPrint={printBatches} />
           )}
@@ -4188,6 +8076,9 @@ export default function App() {
               onEdit={v => { setEditing(v); setSubView("village-form"); }}
               onDelete={v => setDeleteTarget({ type: "village", record: v })} />
           )}
+          {!subView && view === "reports" && (
+            <ReportsModule currentUser={user} isAdmin={isAdmin} showToast={showToast} />
+          )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
           )}
@@ -4196,18 +8087,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Mobile bottom nav - all tabs */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-[#E5E7EB] flex items-center justify-around py-1.5 px-1">
-        {NAVITEMS.map(function(navItem) {
-          return (
-            <button key={navItem.key} onClick={() => goTo(navItem.key)} className="flex flex-col items-center gap-0.5 px-2 py-1.5">
-              <navItem.icon size={17} style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }} />
-              <span className="text-[9px] font-medium" style={{ color: view === navItem.key ? "#16A34A" : "#9CA3AF" }}>{navItem.label}</span>
-            </button>
-          );
-        })}
-      </nav>
 
       {/* Multi-Program Auto Registration Dialog */}
       {multiProgDialog && (
