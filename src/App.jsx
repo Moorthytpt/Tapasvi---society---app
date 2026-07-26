@@ -2580,7 +2580,18 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
         )}
       </div>
 
-      {!ended ? (
+      {batch.status === "Completed" ? (
+        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(243,244,246,0.9)", border: "1px solid #E5E7EB" }}>
+          <CheckCircle size={36} className="mx-auto mb-2 text-[#6B7280]" />
+          <p className="text-[15px] font-bold text-[#374151]">Training Already Completed</p>
+          <p className="text-[12px] text-[#6B7280] mt-1 mb-4">This batch has finished. Training cannot be started or re-run.</p>
+          <button onClick={onContinueToAttendance}
+            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
+            ✓ Mark Attendance
+          </button>
+        </div>
+      ) : !ended ? (
         <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
           {running && (
             <>
@@ -2622,7 +2633,7 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
         </div>
       )}
 
-      {!ended && (
+      {batch.status !== "Completed" && !ended && (
         <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
           Skip to Attendance →
         </button>
@@ -3314,11 +3325,20 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                             + Enroll
                           </button>
                         )}
-                        <button onClick={() => onAttendance(batch)} title={batch.status === "Ongoing" ? "Continue Training" : "Start Training"}
-                          className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
-                          style={{ background: "#2563EB" }}>
-                          {batch.status === "Ongoing" ? "▶ Continue" : "▶ Start"}
-                        </button>
+                        {batch.status !== "Completed" && batch.status !== "Cancelled" && (
+                          <button onClick={() => onAttendance(batch)} title={batch.status === "Ongoing" ? "Continue Training" : "Start Training"}
+                            className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#2563EB" }}>
+                            {batch.status === "Ongoing" ? "▶ Continue" : "▶ Start"}
+                          </button>
+                        )}
+                        {batch.status === "Completed" && (
+                          <button onClick={() => onAttendance(batch)} title="Mark Attendance"
+                            className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
+                            style={{ background: "#16A34A" }}>
+                            ✓ Attendance
+                          </button>
+                        )}
                       </div>
                       <div className="flex gap-1">
                         {batch.status === "Completed" && (
@@ -8003,7 +8023,7 @@ export default function App() {
               onEdit={b => { setActiveBatch(b); setSubView("training-form"); }}
               onDelete={b => setDeleteTarget({ type: "batch", record: b })}
               onEnroll={b => { setActiveBatch(b); setTrainingSubView("enroll"); }}
-              onAttendance={b => { setActiveBatch(b); setTrainingSubView("session"); }}
+              onAttendance={b => { setActiveBatch(b); setTrainingSubView(b.status === "Completed" ? "attendance" : "session"); }}
               onCertificates={b => { setActiveBatch(b); setTrainingSubView("certificates"); }}
               onAttendanceReport={() => setTrainingSubView("attendance-report")}
               onAssessments={() => setTrainingSubView("assessment-management")}
