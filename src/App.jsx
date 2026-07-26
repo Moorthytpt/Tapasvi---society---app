@@ -2494,7 +2494,7 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
    state only (not persisted) — batch.status itself is unchanged,
    since editing that remains an admin action elsewhere.
    ============================================================ */
-function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContinueToAttendance, onClose }) {
+function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContinueToAttendance, onGoToAssessment, onGoToCertificates, onClose }) {
   // "running"/"ended" are local UI state for THIS visit only — they reset if the screen is reopened.
   // Whether "today's session" is already done is derived from real attendance_records (session_date),
   // not from any local flag, so it survives refresh/navigation and resets naturally each new calendar day.
@@ -2503,6 +2503,7 @@ function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContin
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [showParticipants, setShowParticipants] = useState(false);
+  const [myAssessments, setMyAssessments] = useState([]);
   const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
   const myEnrollments = (enrollments || []).filter(e => e.batch_id === batch.batch_id);
   const participants = myEnrollments.length;
@@ -2510,6 +2511,19 @@ function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContin
   const todayStr = new Date().toISOString().slice(0, 10);
   const todaysSessionDone = (attendanceRecords || []).some(r => r.batch_id === batch.batch_id && r.session_date === todayStr);
   const isFinalDay = batch.end_date === todayStr;
+
+  // Last two days of the batch (end_date and the day before) are reserved for assessments, not regular sessions.
+  const daysUntilEnd = batch.end_date ? Math.floor((new Date(batch.end_date) - new Date(todayStr)) / 86400000) : null;
+  const isAssessmentPhase = daysUntilEnd !== null && daysUntilEnd <= 1;
+
+  useEffect(() => {
+    if (!isAssessmentPhase) return;
+    (async () => {
+      const { data } = await supabase.from("assessment_records").select("*").eq("batch_id", batch.batch_id);
+      setMyAssessments(data || []);
+    })();
+  }, [isAssessmentPhase, batch.batch_id]);
+  const assessmentCompleted = myAssessments.some(a => a.status === "Completed");
 
   useEffect(() => {
     if (!running) return;
@@ -2596,6 +2610,38 @@ function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContin
             ✓ Mark Attendance
           </button>
         </div>
+      ) : isAssessmentPhase ? (
+        <div className="rounded-[20px] p-4 mb-4" style={{ background: "rgba(237,233,254,0.85)", border: "1px solid #C4B5FD" }}>
+          <div className="text-center mb-3">
+            <ClipboardList size={30} className="mx-auto mb-2 text-[#7C3AED]" />
+            <p className="text-[15px] font-bold text-[#6D28D9]">📝 Assessment Phase</p>
+            <p className="text-[11.5px] text-[#5B21B6] mt-1">
+              {isFinalDay ? "This is the batch's final day — reserved for assessment." : "These last 2 days are reserved for assessment, not regular sessions."}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <button onClick={onGoToAssessment}
+              className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
+              style={{ background: "linear-gradient(90deg,#7C3AED,#A78BFA)", boxShadow: "0 8px 20px -6px rgba(124,58,237,0.4)" }}>
+              📝 Go to Assessment
+            </button>
+            <button onClick={onContinueToAttendance}
+              className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
+              style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)" }}>
+              ✓ Mark Attendance
+            </button>
+            {isFinalDay && assessmentCompleted && (
+              <button onClick={onGoToCertificates}
+                className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
+                style={{ background: "linear-gradient(90deg,#F59E0B,#FBBF24)" }}>
+                🏆 Generate Certificates
+              </button>
+            )}
+          </div>
+          {isFinalDay && !assessmentCompleted && (
+            <p className="text-[10.5px] text-[#7C3AED] text-center mt-3">Complete today's assessment to unlock Certificate Generation.</p>
+          )}
+        </div>
       ) : (todaysSessionDone && !running) || ended ? (
         <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
           <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
@@ -2641,7 +2687,7 @@ function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContin
         </div>
       )}
 
-      {batch.status !== "Completed" && !todaysSessionDone && !ended && (
+      {batch.status !== "Completed" && !isAssessmentPhase && !todaysSessionDone && !ended && (
         <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
           Skip to Attendance →
         </button>
@@ -7939,6 +7985,8 @@ export default function App() {
               enrollments={enrollments}
               attendanceRecords={attendanceRecords}
               onContinueToAttendance={() => setTrainingSubView("attendance")}
+              onGoToAssessment={() => setTrainingSubView("assessment-management")}
+              onGoToCertificates={() => setTrainingSubView("certificate-generation")}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
           {view === "training" && trainingSubView === "attendance" && activeBatch && (
