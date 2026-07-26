@@ -2495,9 +2495,29 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
    since editing that remains an admin action elsewhere.
    ============================================================ */
 function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onClose }) {
-  const [sessionState, setSessionState] = useState("notStarted"); // notStarted | running | paused | ended
+  // "running" is local UI state for this visit only (not persisted — batch.status is the real source of truth).
+  const [running, setRunning] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [startedAt, setStartedAt] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [showParticipants, setShowParticipants] = useState(false);
   const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
-  const participants = (enrollments || []).filter(e => e.batch_id === batch.batch_id).length;
+  const myEnrollments = (enrollments || []).filter(e => e.batch_id === batch.batch_id);
+  const participants = myEnrollments.length;
+  const alreadyOngoing = batch.status === "Ongoing";
+
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [running, startedAt]);
+
+  const timerLabel = (() => {
+    const h = String(Math.floor(elapsed / 3600)).padStart(2, "0");
+    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+    const s = String(elapsed % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  })();
 
   const durationLabel = (() => {
     if (!batch.start_date || !batch.end_date) return "—";
@@ -2541,55 +2561,59 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
             </div>
           ))}
         </div>
+        <button onClick={() => setShowParticipants(s => !s)} className="w-full text-center text-[11.5px] font-semibold text-[#2563EB] mt-3 pt-3 border-t border-[#F3F4F6]">
+          {showParticipants ? "Hide Participants ▲" : `View Participants (${participants}) ▼`}
+        </button>
+        {showParticipants && (
+          <div className="mt-2 space-y-1.5 max-h-[180px] overflow-y-auto">
+            {myEnrollments.length === 0 ? (
+              <p className="text-[11.5px] text-[#9CA3AF] text-center py-2">No one enrolled yet.</p>
+            ) : myEnrollments.map(e => (
+              <div key={e.enrollment_id} className="flex items-center gap-2 py-1">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: p.color }}>
+                  {(e.beneficiary_name || "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[11.5px] text-[#374151]">{e.beneficiary_name || e.beneficiary_id}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {sessionState !== "ended" ? (
-        <>
-          {/* Session controls */}
-          <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
-            <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Status</p>
-            <p className="text-[16px] font-bold mb-4" style={{ color: sessionState === "running" ? "#2563EB" : sessionState === "paused" ? "#F59E0B" : "#6B7280" }}>
-              {sessionState === "notStarted" ? "Not Started" : sessionState === "running" ? "🔵 In Progress" : "⏸ Paused"}
-            </p>
+      {!ended ? (
+        <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
+          {running && (
+            <>
+              <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Timer</p>
+              <p className="text-[30px] font-black text-[#2563EB] mb-3 tabular-nums">{timerLabel}</p>
+            </>
+          )}
+          {!running && (
+            <>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Status</p>
+              <p className="text-[15px] font-bold mb-4 text-[#6B7280]">{alreadyOngoing ? "🔵 Batch Ongoing — Ready to Continue" : "⚪ Not Started"}</p>
+            </>
+          )}
 
-            {sessionState === "notStarted" && (
-              <button onClick={() => setSessionState("running")}
-                className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
-                style={{ background: "linear-gradient(90deg,#1E3A8A,#2563EB)", boxShadow: "0 8px 20px -6px rgba(37,99,235,0.45)" }}>
-                ▶ Start Training
-              </button>
-            )}
-            {sessionState === "running" && (
-              <div className="grid grid-cols-2 gap-2.5">
-                <button onClick={() => setSessionState("paused")}
-                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-[#F59E0B] border-2 transition active:scale-[0.98]" style={{ borderColor: "#F59E0B" }}>
-                  ⏸ Pause Session
-                </button>
-                <button onClick={() => setSessionState("ended")}
-                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
-                  🏁 End Training
-                </button>
-              </div>
-            )}
-            {sessionState === "paused" && (
-              <div className="grid grid-cols-2 gap-2.5">
-                <button onClick={() => setSessionState("running")}
-                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#2563EB" }}>
-                  ▶ Resume
-                </button>
-                <button onClick={() => setSessionState("ended")}
-                  className="rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
-                  🏁 End Training
-                </button>
-              </div>
-            )}
-          </div>
-        </>
+          {!running && (
+            <button onClick={() => { setRunning(true); setStartedAt(Date.now()); setElapsed(0); }}
+              className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+              style={{ background: "linear-gradient(90deg,#1E3A8A,#2563EB)", boxShadow: "0 8px 20px -6px rgba(37,99,235,0.45)" }}>
+              {alreadyOngoing ? "▶ Continue Training" : "▶ Start Training"}
+            </button>
+          )}
+          {running && (
+            <button onClick={() => setEnded(true)}
+              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
+              🏁 End Training
+            </button>
+          )}
+        </div>
       ) : (
         <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
           <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
           <p className="text-[15px] font-bold text-[#16A34A]">Training Completed Successfully</p>
-          <p className="text-[12px] text-[#15803D] mt-1 mb-4">Next, record who attended today's session.</p>
+          <p className="text-[12px] text-[#15803D] mt-1 mb-4">Session duration: {timerLabel} · Next, record who attended.</p>
           <button onClick={onContinueToAttendance}
             className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
             style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
@@ -2598,7 +2622,7 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
         </div>
       )}
 
-      {sessionState !== "ended" && (
+      {!ended && (
         <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
           Skip to Attendance →
         </button>
@@ -2608,13 +2632,18 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
 }
 
 
-function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
+function AttendanceScreen({ batch, batches, onSwitchBatch, enrollments, attendanceRecords, onSaveDailyAttendance, onCancelEnrollment, onClose, currentUser, isAdmin }) {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const myBatches = useMemo(() => (batches || []).filter(b => isAdmin || b.assigned_field_worker === currentUser?.username), [batches, isAdmin, currentUser]);
+  const [query, setQuery] = useState("");
   const batchEnrollments = enrollments.filter(e =>
     e.batch_id === batch.batch_id &&
     (e.enrollment_status || "Active") !== "Cancelled" &&
     (isAdmin || !e.enrolled_by || e.enrolled_by === currentUser?.username)
   );
+  const visibleEnrollments = query.trim()
+    ? batchEnrollments.filter(e => (e.beneficiary_name || "").toLowerCase().includes(query.toLowerCase()) || (e.beneficiary_id || "").toLowerCase().includes(query.toLowerCase()))
+    : batchEnrollments;
   const batchRecords = attendanceRecords.filter(r => r.batch_id === batch.batch_id);
 
   const [sessionDate, setSessionDate] = useState(todayStr);
@@ -2631,7 +2660,7 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
     return init;
   });
 
-  // Re-initialize marks whenever the session date changes
+  // Re-initialize marks whenever the session date or batch changes
   useEffect(() => {
     const init = {};
     batchEnrollments.forEach(e => {
@@ -2640,10 +2669,17 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
     });
     setMarks(init);
     // eslint-disable-next-line
-  }, [sessionDate]);
+  }, [sessionDate, batch.batch_id]);
 
-  const statusOptions = ["Present", "Absent", "Late"];
-  const statusColors = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316" };
+  const statusOptions = ["Present", "Absent", "Late", "Leave"];
+  const statusColors = { Present: "#16A34A", Absent: "#DC2626", Late: "#F97316", Leave: "#8B5CF6" };
+  const statusIcons = { Present: "🟢", Absent: "🔴", Late: "🟡", Leave: "🟣" };
+
+  const markCounts = useMemo(() => {
+    const c = { Present: 0, Absent: 0, Late: 0, Leave: 0 };
+    Object.values(marks).forEach(v => { if (c[v] !== undefined) c[v]++; });
+    return c;
+  }, [marks]);
 
   // Auto-calculated per-beneficiary stats from full session history in this batch
   const statsFor = (beneficiaryId) => {
@@ -2684,6 +2720,17 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
         </div>
       </div>
 
+      {/* Batch selector */}
+      {myBatches.length > 1 && (
+        <div className="mb-3">
+          <label className="text-[10.5px] font-semibold text-[#6B7280] block mb-1">BATCH</label>
+          <select value={batch.batch_id} onChange={e => { const b = myBatches.find(x => x.batch_id === e.target.value); if (b) onSwitchBatch(b); }}
+            className={selectCls + " text-[13px]"}>
+            {myBatches.map(b => <option key={b.batch_id} value={b.batch_id}>{b.training_name} · {b.venue}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Session date picker */}
       <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 mb-4 flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[160px]">
@@ -2714,15 +2761,31 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
         </div>
       )}
 
+      {/* Search */}
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search beneficiary..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+
+      {/* Live counter summary */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {statusOptions.map(st => (
+          <div key={st} className="rounded-xl p-2.5 text-center" style={{ background: statusColors[st] + "15" }}>
+            <p className="text-[16px] font-bold" style={{ color: statusColors[st] }}>{markCounts[st]}</p>
+            <p className="text-[9px] font-medium" style={{ color: statusColors[st] }}>{st}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="bg-white rounded-[20px] border border-[#E5E7EB] overflow-hidden shadow-sm">
-        {batchEnrollments.length === 0 ? (
+        {visibleEnrollments.length === 0 ? (
           <div className="text-center py-12 text-[#9CA3AF]">
             <Users size={24} className="mx-auto mb-2 opacity-40" />
-            <p className="text-[13px]">No beneficiaries enrolled yet.</p>
+            <p className="text-[13px]">{query ? "No matching beneficiaries." : "No beneficiaries enrolled yet."}</p>
           </div>
         ) : (
           <div className="divide-y divide-[#F3F4F6] max-h-[55vh] overflow-y-auto">
-            {batchEnrollments.map(e => {
+            {visibleEnrollments.map(e => {
               const s = statsFor(e.beneficiary_id);
               return (
                 <div key={e.enrollment_id} className="px-4 py-3.5">
@@ -2744,17 +2807,16 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
                       </button>
                     )}
                   </div>
-                  <div className="grid grid-cols-3 gap-2 mt-3">
+                  <div className="grid grid-cols-4 gap-1.5 mt-3">
                     {statusOptions.map(st => {
-                      const icons = { Present: "🟢", Absent: "🔴", Late: "🟡" };
                       const selected = marks[e.beneficiary_id] === st;
                       return (
                         <button key={st} onClick={() => setMarks(m => ({ ...m, [e.beneficiary_id]: st }))}
-                          className="py-3 rounded-2xl text-[13px] font-bold transition-all active:scale-95"
+                          className="py-2.5 rounded-xl text-[10.5px] font-bold transition-all active:scale-95"
                           style={selected
                             ? { background: statusColors[st], color: "white", boxShadow: `0 4px 12px -2px ${statusColors[st]}66` }
                             : { background: "#F3F4F6", color: "#6B7280" }}>
-                          <span className="block text-[16px] mb-0.5">{icons[st]}</span>{st}
+                          <span className="block text-[14px] mb-0.5">{statusIcons[st]}</span>{st}
                         </button>
                       );
                     })}
@@ -2767,7 +2829,7 @@ function AttendanceScreen({ batch, enrollments, attendanceRecords, onSaveDailyAt
         <div className="sticky bottom-0 p-4 border-t border-[#F3F4F6] bg-white flex gap-3">
           <button onClick={save} disabled={saving || batchEnrollments.length === 0}
             className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white transition active:scale-[0.98]"
-            style={{ background: saving ? "#9CA3AF" : "linear-gradient(90deg,#1E3A8A,#16A34A)" }}>
+            style={{ background: saving ? "#9CA3AF" : "linear-gradient(90deg,#15803D,#16A34A)" }}>
             {saving ? "Saving..." : `Save Attendance — ${sessionDate}`}
           </button>
           <button onClick={onClose} className="rounded-xl border border-[#E5E7EB] px-6 py-3 text-[13px] font-medium text-[#374151]">Close</button>
@@ -3252,10 +3314,10 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
                             + Enroll
                           </button>
                         )}
-                        <button onClick={() => onAttendance(batch)} title="Mark Attendance"
+                        <button onClick={() => onAttendance(batch)} title={batch.status === "Ongoing" ? "Continue Training" : "Start Training"}
                           className="px-2 py-1.5 rounded-lg text-[10.5px] font-semibold text-white"
-                          style={{ background: "#F97316" }}>
-                          Attend
+                          style={{ background: "#2563EB" }}>
+                          {batch.status === "Ongoing" ? "▶ Continue" : "▶ Start"}
                         </button>
                       </div>
                       <div className="flex gap-1">
@@ -7830,6 +7892,8 @@ export default function App() {
           {view === "training" && trainingSubView === "attendance" && activeBatch && (
             <AttendanceScreen
               batch={activeBatch}
+              batches={batches}
+              onSwitchBatch={b => setActiveBatch(b)}
               enrollments={enrollments}
               attendanceRecords={attendanceRecords}
               onSaveDailyAttendance={saveDailyAttendance}
