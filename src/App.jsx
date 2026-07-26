@@ -2494,18 +2494,22 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
    state only (not persisted) — batch.status itself is unchanged,
    since editing that remains an admin action elsewhere.
    ============================================================ */
-function TrainingSessionScreen({ batch, enrollments, onEndTraining, onContinueToAttendance, onClose }) {
-  // "running" is local UI state for this visit only (not persisted — batch.status is the real source of truth).
+function TrainingSessionScreen({ batch, enrollments, attendanceRecords, onContinueToAttendance, onClose }) {
+  // "running"/"ended" are local UI state for THIS visit only — they reset if the screen is reopened.
+  // Whether "today's session" is already done is derived from real attendance_records (session_date),
+  // not from any local flag, so it survives refresh/navigation and resets naturally each new calendar day.
   const [running, setRunning] = useState(false);
   const [ended, setEnded] = useState(false);
-  const [ending, setEnding] = useState(false);
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [showParticipants, setShowParticipants] = useState(false);
   const p = PROGRAM_MAP[batch.program] || PROGRAMS[0];
   const myEnrollments = (enrollments || []).filter(e => e.batch_id === batch.batch_id);
   const participants = myEnrollments.length;
-  const alreadyOngoing = batch.status === "Ongoing";
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todaysSessionDone = (attendanceRecords || []).some(r => r.batch_id === batch.batch_id && r.session_date === todayStr);
+  const isFinalDay = batch.end_date === todayStr;
 
   useEffect(() => {
     if (!running) return;
@@ -2581,7 +2585,7 @@ function TrainingSessionScreen({ batch, enrollments, onEndTraining, onContinueTo
         )}
       </div>
 
-      {batch.status === "Completed" && !ended ? (
+      {batch.status === "Completed" ? (
         <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(243,244,246,0.9)", border: "1px solid #E5E7EB" }}>
           <CheckCircle size={36} className="mx-auto mb-2 text-[#6B7280]" />
           <p className="text-[15px] font-bold text-[#374151]">Training Already Completed</p>
@@ -2592,18 +2596,32 @@ function TrainingSessionScreen({ batch, enrollments, onEndTraining, onContinueTo
             ✓ Mark Attendance
           </button>
         </div>
-      ) : !ended ? (
+      ) : (todaysSessionDone && !running) || ended ? (
+        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
+          <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
+          <p className="text-[15px] font-bold text-[#16A34A]">Today's Class Completed</p>
+          <p className="text-[12px] text-[#15803D] mt-1 mb-4">
+            {isFinalDay
+              ? "This was the batch's final day. Once assessment and certificates are done, an Admin will mark the batch Completed."
+              : "Great work! \"Start Today's Session\" will be available again tomorrow for this batch."}
+          </p>
+          <button onClick={onContinueToAttendance}
+            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
+            ✓ Review Today's Attendance
+          </button>
+        </div>
+      ) : (
         <div className="rounded-[20px] p-4 mb-4 text-center" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", border: "1px solid #E5E7EB" }}>
-          {running && (
+          {running ? (
             <>
               <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Timer</p>
               <p className="text-[30px] font-black text-[#2563EB] mb-3 tabular-nums">{timerLabel}</p>
             </>
-          )}
-          {!running && (
+          ) : (
             <>
               <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280] mb-1">Session Status</p>
-              <p className="text-[15px] font-bold mb-4 text-[#6B7280]">{alreadyOngoing ? "🔵 Batch Ongoing — Ready to Continue" : "⚪ Not Started"}</p>
+              <p className="text-[15px] font-bold mb-4 text-[#6B7280]">⚪ Today's Session Not Started</p>
             </>
           )}
 
@@ -2611,30 +2629,19 @@ function TrainingSessionScreen({ batch, enrollments, onEndTraining, onContinueTo
             <button onClick={() => { setRunning(true); setStartedAt(Date.now()); setElapsed(0); }}
               className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
               style={{ background: "linear-gradient(90deg,#1E3A8A,#2563EB)", boxShadow: "0 8px 20px -6px rgba(37,99,235,0.45)" }}>
-              {alreadyOngoing ? "▶ Continue Training" : "▶ Start Training"}
+              ▶ Start Today's Session
             </button>
           )}
           {running && (
-            <button onClick={async () => { setEnding(true); await onEndTraining(); setEnding(false); setEnded(true); }} disabled={ending}
-              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98] disabled:opacity-70" style={{ background: "#16A34A" }}>
-              {ending ? "Completing..." : "🏁 End Training"}
+            <button onClick={() => setEnded(true)}
+              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
+              🏁 End Today's Session
             </button>
           )}
         </div>
-      ) : (
-        <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(220,252,231,0.9)", border: "1px solid #86EFAC" }}>
-          <CheckCircle size={36} className="mx-auto mb-2 text-[#16A34A]" />
-          <p className="text-[15px] font-bold text-[#16A34A]">Training Completed Successfully</p>
-          <p className="text-[12px] text-[#15803D] mt-1 mb-4">Session duration: {timerLabel} · Next, record who attended.</p>
-          <button onClick={onContinueToAttendance}
-            className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white transition active:scale-[0.98]"
-            style={{ background: "linear-gradient(90deg,#16A34A,#22C55E)", boxShadow: "0 8px 20px -6px rgba(22,163,74,0.45)" }}>
-            ➡ Continue to Attendance
-          </button>
-        </div>
       )}
 
-      {batch.status !== "Completed" && !ended && (
+      {batch.status !== "Completed" && !todaysSessionDone && !ended && (
         <button onClick={onContinueToAttendance} className="w-full text-center text-[12px] font-semibold text-[#2563EB] py-2">
           Skip to Attendance →
         </button>
@@ -7930,7 +7937,7 @@ export default function App() {
             <TrainingSessionScreen
               batch={activeBatch}
               enrollments={enrollments}
-              onEndTraining={() => completeTraining(activeBatch)}
+              attendanceRecords={attendanceRecords}
               onContinueToAttendance={() => setTrainingSubView("attendance")}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
