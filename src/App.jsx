@@ -33,6 +33,102 @@ const PROGRAMS = [
 ];
 const PROGRAM_MAP = Object.fromEntries(PROGRAMS.map(p => [p.key, p]));
 
+/* ============================================================
+   LIVELIHOOD & OUTCOMES — outcome types available per program,
+   and the dynamic field set each outcome type collects.
+   Waste Management fields are a placeholder pending full spec.
+   ============================================================ */
+const OUTCOME_TYPES_BY_PROGRAM = {
+  rydeap: ["local_job", "outside_job", "higher_education", "seeking_opportunity", "not_interested"],
+  womens: ["local_job", "group_enterprise", "individual_business", "home_based_work", "seeking_opportunity", "not_interested"],
+  waste: ["green_job", "recycling_unit_employee", "waste_collection_worker", "sanitation_worker", "mrf_worker", "shg_recycling_enterprise", "plastic_recycling_enterprise", "upcycling_handicraft", "seeking_opportunity", "not_interested"],
+};
+
+const OUTCOME_TYPE_LABELS = {
+  local_job: "Local Job", outside_job: "Outside Job", higher_education: "Higher Education",
+  seeking_opportunity: "Seeking Opportunity", not_interested: "Not Interested / Unable to Work",
+  group_enterprise: "Group Enterprise", individual_business: "Individual Business", home_based_work: "Home-based Work",
+  green_job: "Green Job", recycling_unit_employee: "Recycling Unit Employee", waste_collection_worker: "Waste Collection Worker",
+  sanitation_worker: "Sanitation Worker", mrf_worker: "Material Recovery Facility (MRF) Worker",
+  shg_recycling_enterprise: "SHG Recycling Enterprise", plastic_recycling_enterprise: "Plastic Recycling Enterprise",
+  upcycling_handicraft: "Upcycling / Handicraft",
+};
+
+const OUTCOME_FIELDS = {
+  local_job: [
+    { key: "employer", label: "Employer Name", required: true },
+    { key: "job_role", label: "Job Role", required: true },
+    { key: "salary", label: "Salary (₹)", type: "number" },
+    { key: "village_mandal", label: "Village/Mandal" },
+    { key: "joining_date", label: "Joining Date", type: "date" },
+  ],
+  outside_job: [
+    { key: "company", label: "Company Name", required: true },
+    { key: "job_role", label: "Job Role", required: true },
+    { key: "city", label: "City" },
+    { key: "state", label: "State" },
+    { key: "salary", label: "Salary (₹)", type: "number" },
+    { key: "joining_date", label: "Joining Date", type: "date" },
+  ],
+  higher_education: [
+    { key: "institution", label: "Institution", required: true },
+    { key: "course", label: "Course" },
+    { key: "duration", label: "Duration" },
+    { key: "admission_date", label: "Admission Date", type: "date" },
+  ],
+  seeking_opportunity: [
+    { key: "preferred_job", label: "Preferred Job" },
+    { key: "preferred_location", label: "Preferred Location" },
+    { key: "expected_salary", label: "Expected Salary (₹)", type: "number" },
+    { key: "reason", label: "Reason", type: "textarea" },
+    { key: "next_followup_date", label: "Next Follow-up Date", type: "date" },
+  ],
+  not_interested: [
+    { key: "reason", label: "Reason", type: "textarea" },
+    { key: "remarks", label: "Remarks", type: "textarea" },
+  ],
+  group_enterprise: [
+    { key: "group_name", label: "Group Name", required: true },
+    { key: "business_name", label: "Business Name" },
+    { key: "business_type", label: "Business Type" },
+    { key: "num_members", label: "Number of Members", type: "number" },
+    { key: "group_leader", label: "Group Leader" },
+    { key: "beneficiary_members", label: "Beneficiary Members (comma separated)", type: "textarea" },
+    { key: "village", label: "Village" },
+    { key: "start_date", label: "Start Date", type: "date" },
+    { key: "funding_source", label: "Funding Source" },
+    { key: "monthly_group_income", label: "Monthly Group Income (₹)", type: "number" },
+    { key: "income_per_member", label: "Income Per Member (₹)", type: "number" },
+    { key: "business_status", label: "Business Status", type: "select", options: ["Active", "Inactive", "Closed"] },
+  ],
+  individual_business: [
+    { key: "business_name", label: "Business Name", required: true },
+    { key: "business_category", label: "Business Category" },
+    { key: "start_date", label: "Start Date", type: "date" },
+    { key: "investment", label: "Investment (₹)", type: "number" },
+    { key: "funding_source", label: "Funding Source" },
+    { key: "monthly_income", label: "Monthly Income (₹)", type: "number" },
+    { key: "business_status", label: "Business Status", type: "select", options: ["Active", "Inactive", "Closed"] },
+  ],
+  home_based_work: [
+    { key: "work_type", label: "Work Type" },
+    { key: "products_services", label: "Products / Services" },
+    { key: "monthly_income", label: "Monthly Income (₹)", type: "number" },
+    { key: "started_date", label: "Started Date", type: "date" },
+  ],
+  // Waste Management placeholders — pending exact field spec; reuse the closest matching shape for now.
+  green_job: [
+    { key: "employer", label: "Employer Name", required: true },
+    { key: "job_role", label: "Job Role", required: true },
+    { key: "salary", label: "Salary (₹)", type: "number" },
+    { key: "village_mandal", label: "Village/Mandal" },
+    { key: "joining_date", label: "Joining Date", type: "date" },
+  ],
+};
+["recycling_unit_employee", "waste_collection_worker", "sanitation_worker", "mrf_worker"].forEach(k => { OUTCOME_FIELDS[k] = OUTCOME_FIELDS.green_job; });
+OUTCOME_FIELDS.shg_recycling_enterprise = OUTCOME_FIELDS.group_enterprise;
+["plastic_recycling_enterprise", "upcycling_handicraft"].forEach(k => { OUTCOME_FIELDS[k] = OUTCOME_FIELDS.individual_business; });
+
 
 const IDENTITY_TYPES = [
   { value: "aadhaar", label: "Aadhaar Card", placeholder: "12-digit Aadhaar number", pattern: /^\d{12}$/, hint: "12 digits" },
@@ -236,9 +332,9 @@ function Logo({ size = 40, style, className }) {
 const inputCls = "w-full rounded-lg border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-[13px] text-[#111827] outline-none transition focus:border-[#1E3A8A] focus:ring-2 focus:ring-[#1E3A8A]/20 placeholder:text-[#9CA3AF]";
 const selectCls = inputCls + " appearance-none cursor-pointer";
 
-function Field({ label, required, error, hint, children }) {
+function Field({ label, required, error, hint, children, className }) {
   return (
-    <label className="block mb-4">
+    <label className={"block mb-4" + (className ? " " + className : "")}>
       <span className="block text-[12.5px] font-semibold text-[#111827] mb-1.5 uppercase tracking-wide">
         {label}{required && <span className="text-red-500 ml-1">*</span>}
       </span>
@@ -1144,52 +1240,91 @@ function TrainingForm({ editing, onSave, onCancel, beneficiaries }) {
    EMPLOYMENT FORM
    ============================================================ */
 function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
-  const blank = { beneficiary_id: "", employment_type: "Job / Wage Employment", job_role: "", monthly_income: "", employer: "", status: "Active", notes: "" };
-  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const blank = { beneficiary_id: "", program: "", outcome_type: "", status: "Active", notes: "", details: {} };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing, details: editing.details || {} } : blank);
   const [errors, setErrors] = useState({});
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target?.value ?? e }));
+
+  const selectedBeneficiary = beneficiaries.find(b => b.beneficiary_id === form.beneficiary_id);
+  const program = form.program || selectedBeneficiary?.program || "";
+  const outcomeOptions = OUTCOME_TYPES_BY_PROGRAM[program] || [];
+  const fields = OUTCOME_FIELDS[form.outcome_type] || [];
+
+  const pickBeneficiary = (id) => {
+    const b = beneficiaries.find(x => x.beneficiary_id === id);
+    setForm(f => ({ ...f, beneficiary_id: id, program: b?.program || "", outcome_type: "", details: {} }));
+  };
+  const pickOutcomeType = (val) => setForm(f => ({ ...f, outcome_type: val, details: {} }));
+  const setDetail = (key) => (e) => {
+    const val = e?.target ? e.target.value : e;
+    setForm(f => ({ ...f, details: { ...f.details, [key]: val } }));
+  };
 
   const validate = () => {
     const e = {};
     if (!form.beneficiary_id) e.beneficiary_id = "Required";
-    if (!form.job_role.trim()) e.job_role = "Required";
+    if (!form.outcome_type) e.outcome_type = "Required";
+    fields.forEach(fld => { if (fld.required && !form.details[fld.key]) e[fld.key] = "Required"; });
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const submit = e => { e.preventDefault(); if (validate()) onSave(form); };
+  const submit = ev => { ev.preventDefault(); if (validate()) onSave({ ...form, program }); };
 
   return (
     <div className="max-w-[620px] mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Employment Record" : "Add Employment Record"}</h2>
+        <div>
+          <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Outcome Record" : "Add Livelihood Outcome"}</h2>
+          <p className="text-[11.5px] text-[#6B7280]">Track the final livelihood outcome for this beneficiary</p>
+        </div>
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
       </div>
       <form onSubmit={submit} className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Beneficiary" required error={errors.beneficiary_id}>
-            <Select value={form.beneficiary_id} onChange={set("beneficiary_id")}
+            <Select value={form.beneficiary_id} onChange={e => pickBeneficiary(e.target.value)}
               options={beneficiaries.map(b => ({ value: b.beneficiary_id, label: `${b.beneficiary_id} — ${b.name}` }))}
               placeholder="Select beneficiary" />
           </Field>
-          <Field label="Employment Type">
-            <Select value={form.employment_type} onChange={set("employment_type")} options={EMPLOYMENT_TYPE_OPTIONS} />
-          </Field>
-          <Field label="Job Role / Designation" required error={errors.job_role}>
-            <Input value={form.job_role} onChange={set("job_role")} placeholder="e.g. Tailor, Data Entry Operator" />
-          </Field>
-          <Field label="Employer / Business Name">
-            <Input value={form.employer} onChange={set("employer")} />
-          </Field>
-          <Field label="Monthly Income (₹)">
-            <Input type="number" value={form.monthly_income} onChange={set("monthly_income")} placeholder="0" />
-          </Field>
-          <Field label="Status">
-            <Select value={form.status} onChange={set("status")} options={["Active", "Inactive", "Changed Job"]} />
+          <Field label="Program">
+            <Input value={PROGRAM_MAP[program]?.label || "—"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} />
           </Field>
         </div>
+
+        {form.beneficiary_id && (
+          <Field label="Outcome Type" required error={errors.outcome_type}>
+            <Select value={form.outcome_type} onChange={e => pickOutcomeType(e.target.value)}
+              options={outcomeOptions.map(k => ({ value: k, label: OUTCOME_TYPE_LABELS[k] }))}
+              placeholder="Select outcome type" />
+          </Field>
+        )}
+
+        {fields.length > 0 && (
+          <>
+            <SectionHeader title={OUTCOME_TYPE_LABELS[form.outcome_type]} color="#16A34A" />
+            <div className="grid grid-cols-2 gap-x-4">
+              {fields.map(fld => (
+                <Field key={fld.key} label={fld.label} required={fld.required} error={errors[fld.key]}
+                  className={fld.type === "textarea" ? "col-span-2" : undefined}>
+                  {fld.type === "textarea" ? (
+                    <textarea value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} rows={2} className={inputCls} />
+                  ) : fld.type === "select" ? (
+                    <Select value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} options={fld.options} />
+                  ) : (
+                    <Input type={fld.type === "number" ? "number" : fld.type === "date" ? "date" : "text"}
+                      value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </>
+        )}
+
+        <Field label="Status">
+          <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} options={["Active", "Inactive", "Changed"]} />
+        </Field>
         <Field label="Notes">
-          <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+          <textarea value={form.notes || ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} className={inputCls} />
         </Field>
         <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
           <button type="submit" onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>Save</button>
@@ -3442,16 +3577,24 @@ function TrainingList({ batches, enrollments, beneficiaries, isAdmin, currentUse
    ============================================================ */
 function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onDelete, onExport, onPrint }) {
   const getBeneficiaryName = id => beneficiaries.find(b => b.beneficiary_id === id)?.name || "—";
+  const summaryFor = (e) => {
+    if (e.outcome_type && e.details) {
+      const fields = OUTCOME_FIELDS[e.outcome_type] || [];
+      return fields.map(f => e.details[f.key]).filter(Boolean).slice(0, 3).join(" · ");
+    }
+    // Legacy records saved before this module existed
+    return [e.job_role, e.employer, e.monthly_income ? `₹${e.monthly_income}/mo` : null].filter(Boolean).join(" · ");
+  };
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h2 className="text-[18px] font-bold text-[#111827]">Employment Records</h2>
-          <p className="text-[12px] text-[#6B7280]">{employment.length} records</p>
+          <h2 className="text-[18px] font-bold text-[#111827]">Livelihood &amp; Outcomes</h2>
+          <p className="text-[12px] text-[#6B7280]">{employment.length} outcome records</p>
         </div>
         <div className="flex gap-2">
           <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-bold" style={{ background: "#16A34A", color: "#fff" }}>
-            <Plus size={14} /> Add Employment
+            <Plus size={14} /> Add Outcome
           </button>
           {isAdmin && (
             <>
@@ -3462,7 +3605,7 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
         </div>
       </div>
       {employment.length === 0 ? (
-        <div className="text-center py-12 text-[#9CA3AF]"><Briefcase size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No employment records yet.</p></div>
+        <div className="text-center py-12 text-[#9CA3AF]"><Briefcase size={28} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No livelihood outcomes recorded yet.</p></div>
       ) : (
         <div className="space-y-2.5">
           {employment.map(e => (
@@ -3470,14 +3613,12 @@ function EmploymentList({ employment, beneficiaries, isAdmin, onAdd, onEdit, onD
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-[13px] text-[#111827]">{getBeneficiaryName(e.beneficiary_id)}</span>
-                  <Badge label={e.employment_type} color="#F97316" tint="#FFF7ED" />
+                  <Badge label={OUTCOME_TYPE_LABELS[e.outcome_type] || e.employment_type || "Legacy Record"} color="#F97316" tint="#FFF7ED" />
                   <Badge label={e.status} color={e.status === "Active" ? "#16A34A" : "#888"} tint={e.status === "Active" ? "#DCFCE7" : "#F5F5F5"} />
                 </div>
                 <div className="mt-1 flex items-center gap-3 text-[11.5px] text-[#6B7280] flex-wrap">
                   <span className="font-mono">{e.beneficiary_id}</span>
-                  <span>•</span><span>{e.job_role}</span>
-                  {e.employer && <><span>•</span><span>{e.employer}</span></>}
-                  {e.monthly_income && <><span>•</span><span>₹{e.monthly_income}/mo</span></>}
+                  <span>•</span><span>{summaryFor(e) || "—"}</span>
                 </div>
               </div>
               {isAdmin && (
@@ -7852,7 +7993,7 @@ export default function App() {
         { key: "attendance", label: "Attendance", emoji: "📅", icon: CheckCircle, onClick: () => goToTraining(null) },
         ...(isAdmin ? [{ key: "assessments", label: "Assessments", emoji: "📝", icon: ClipboardList, onClick: () => goToTraining("assessment-management"), active: trainingSubView === "assessment-management" }] : []),
         ...(isAdmin ? [{ key: "certificates", label: "Certificates", emoji: "🏆", icon: Award, onClick: () => goToTraining("certificate-generation"), active: trainingSubView === "certificate-generation" }] : []),
-        { key: "employment", label: "Employment", emoji: "💼", icon: Briefcase, onClick: () => goTo("employment"), active: view === "employment" },
+        { key: "employment", label: "Livelihood & Outcomes", emoji: "💼", icon: Briefcase, onClick: () => goTo("employment"), active: view === "employment" },
         ...(isAdmin ? [{ key: "villages", label: "Villages", emoji: "🏘", icon: MapPin, onClick: () => goTo("villages"), active: view === "villages" }] : []),
         { key: "reports", label: "Reports", emoji: "📊", icon: BarChart3, onClick: () => goTo("reports"), active: view === "reports" },
       ],
