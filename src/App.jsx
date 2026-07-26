@@ -1379,11 +1379,13 @@ function LivelihoodWizard({ batches, employment, onRecordSaved, showToast, logAp
     setLoadingBatch(true);
     const { data: enrolls, error: enrollErr } = await supabase.from("training_enrollments").select("*").eq("batch_id", batch.batch_id);
     if (enrollErr) { showToast("Error: " + enrollErr.message, "error"); setLoadingBatch(false); return; }
-    const ids = [...new Set((enrolls || []).map(e => e.beneficiary_id))];
-    if (ids.length === 0) { setBatchBeneficiaries([]); setLoadingBatch(false); setStep("beneficiaries"); return; }
-    const { data: bens, error: benErr } = await supabase.from("beneficiaries").select("*").in("beneficiary_id", ids);
-    if (benErr) { showToast("Error: " + benErr.message, "error"); setLoadingBatch(false); return; }
-    setBatchBeneficiaries(bens || []);
+    // Built directly from enrollment records (already scoped to this batch) — no extra query against beneficiaries needed.
+    const seen = new Set();
+    const bens = (enrolls || []).filter(e => {
+      if (seen.has(e.beneficiary_id)) return false;
+      seen.add(e.beneficiary_id); return true;
+    }).map(e => ({ beneficiary_id: e.beneficiary_id, name: e.beneficiary_name, village: e.village || batch.venue || "" }));
+    setBatchBeneficiaries(bens);
     setLoadingBatch(false);
     setStep("beneficiaries");
   };
