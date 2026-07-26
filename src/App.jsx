@@ -876,14 +876,17 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const p = resolvedProgramMap[activeProgram] || resolvedPrograms[0] || { color: "#1E3A8A", tint: "#EFF6FF", label: "" };
 
   // Auto-save draft (new registrations only) — pure UX convenience, no schema change, no effect on submit logic.
-  const DRAFT_KEY = "tapasvi_beneficiary_draft";
+  const DRAFT_KEY = "tapasvi_beneficiary_draft_" + (currentUser?.username || "anon");
   useEffect(() => {
     if (editing) return;
     try {
       const saved = localStorage.getItem(DRAFT_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setForm(f => ({ ...f, ...parsed.form }));
+        setForm(f => ({
+          ...f, ...parsed.form,
+          field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : parsed.form?.field_worker_name || f.field_worker_name,
+        }));
         if (parsed.activeProgram) setActiveProgram(parsed.activeProgram);
       }
     } catch (_) { /* ignore corrupt draft */ }
