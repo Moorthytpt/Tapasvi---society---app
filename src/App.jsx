@@ -2494,10 +2494,11 @@ function EnrollmentScreen({ batch, beneficiaries, enrollments, batches, onEnroll
    state only (not persisted) — batch.status itself is unchanged,
    since editing that remains an admin action elsewhere.
    ============================================================ */
-function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onClose }) {
+function TrainingSessionScreen({ batch, enrollments, onEndTraining, onContinueToAttendance, onClose }) {
   // "running" is local UI state for this visit only (not persisted — batch.status is the real source of truth).
   const [running, setRunning] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [startedAt, setStartedAt] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [showParticipants, setShowParticipants] = useState(false);
@@ -2580,7 +2581,7 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
         )}
       </div>
 
-      {batch.status === "Completed" ? (
+      {batch.status === "Completed" && !ended ? (
         <div className="rounded-[20px] p-6 mb-4 text-center" style={{ background: "rgba(243,244,246,0.9)", border: "1px solid #E5E7EB" }}>
           <CheckCircle size={36} className="mx-auto mb-2 text-[#6B7280]" />
           <p className="text-[15px] font-bold text-[#374151]">Training Already Completed</p>
@@ -2614,9 +2615,9 @@ function TrainingSessionScreen({ batch, enrollments, onContinueToAttendance, onC
             </button>
           )}
           {running && (
-            <button onClick={() => setEnded(true)}
-              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98]" style={{ background: "#16A34A" }}>
-              🏁 End Training
+            <button onClick={async () => { setEnding(true); await onEndTraining(); setEnding(false); setEnded(true); }} disabled={ending}
+              className="w-full rounded-xl py-3.5 text-[13.5px] font-bold text-white transition active:scale-[0.98] disabled:opacity-70" style={{ background: "#16A34A" }}>
+              {ending ? "Completing..." : "🏁 End Training"}
             </button>
           )}
         </div>
@@ -7582,6 +7583,29 @@ export default function App() {
     showToast(`Attendance saved for ${sessionDate}.`);
   };
 
+  const completeTraining = async (batchToComplete) => {
+    if (!batchToComplete) return;
+    if (!isAdmin && batchToComplete.assigned_field_worker !== user.username) {
+      showToast("This training is not assigned to you. You cannot end it.", "error");
+      return;
+    }
+    if (batchToComplete.status === "Completed") return; // already completed — no-op, guards against duplicate transition
+    const { error } = await supabase.from("batch_trainings").update({ status: "Completed" }).eq("batch_id", batchToComplete.batch_id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setBatches(bs => bs.map(b => b.batch_id === batchToComplete.batch_id ? { ...b, status: "Completed" } : b));
+    setActiveBatch(b => b && b.batch_id === batchToComplete.batch_id ? { ...b, status: "Completed" } : b);
+
+    // Same cascade as the admin edit-form completion path: release active enrollments so beneficiaries are free for new batches.
+    const toRelease = enrollments.filter(e => e.batch_id === batchToComplete.batch_id && (e.enrollment_status || "Active") === "Active");
+    if (toRelease.length > 0) {
+      const { error: relError } = await supabase.from("training_enrollments").update({ enrollment_status: "Completed" }).eq("batch_id", batchToComplete.batch_id).eq("enrollment_status", "Active");
+      if (!relError) {
+        setEnrollments(es => es.map(e => e.batch_id === batchToComplete.batch_id && (e.enrollment_status || "Active") === "Active" ? { ...e, enrollment_status: "Completed" } : e));
+      }
+    }
+    await logTrainingAudit("Training Completed", `${batchToComplete.training_name} marked Completed`);
+  };
+
   const saveCertificates = async (certStatusMap) => {
     if (!activeBatch) return;
     const batchEnrollments = enrollments.filter(e => e.batch_id === activeBatch.batch_id);
@@ -7906,6 +7930,7 @@ export default function App() {
             <TrainingSessionScreen
               batch={activeBatch}
               enrollments={enrollments}
+              onEndTraining={() => completeTraining(activeBatch)}
               onContinueToAttendance={() => setTrainingSubView("attendance")}
               onClose={() => { setTrainingSubView(null); setActiveBatch(null); }} />
           )}
