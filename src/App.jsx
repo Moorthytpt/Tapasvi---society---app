@@ -1302,21 +1302,7 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
         {fields.length > 0 && (
           <>
             <SectionHeader title={OUTCOME_TYPE_LABELS[form.outcome_type]} color="#16A34A" />
-            <div className="grid grid-cols-2 gap-x-4">
-              {fields.map(fld => (
-                <Field key={fld.key} label={fld.label} required={fld.required} error={errors[fld.key]}
-                  className={fld.type === "textarea" ? "col-span-2" : undefined}>
-                  {fld.type === "textarea" ? (
-                    <textarea value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} rows={2} className={inputCls} />
-                  ) : fld.type === "select" ? (
-                    <Select value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} options={fld.options} />
-                  ) : (
-                    <Input type={fld.type === "number" ? "number" : fld.type === "date" ? "date" : "text"}
-                      value={form.details[fld.key] || ""} onChange={setDetail(fld.key)} />
-                  )}
-                </Field>
-              ))}
-            </div>
+            <OutcomeDynamicFields fields={fields} details={form.details} errors={errors} onSet={(key, val) => setForm(f => ({ ...f, details: { ...f.details, [key]: val } }))} />
           </>
         )}
 
@@ -1336,8 +1322,265 @@ function EmploymentForm({ editing, onSave, onCancel, beneficiaries }) {
 }
 
 /* ============================================================
-   VILLAGE MASTER FORM
+   OUTCOME DYNAMIC FIELDS — shared renderer used by both the
+   direct edit form and the guided wizard below.
    ============================================================ */
+function OutcomeDynamicFields({ fields, details, errors, onSet }) {
+  return (
+    <div className="grid grid-cols-2 gap-x-4">
+      {fields.map(fld => (
+        <Field key={fld.key} label={fld.label} required={fld.required} error={errors?.[fld.key]}
+          className={fld.type === "textarea" ? "col-span-2" : undefined}>
+          {fld.type === "textarea" ? (
+            <textarea value={details[fld.key] || ""} onChange={e => onSet(fld.key, e.target.value)} rows={2} className={inputCls} />
+          ) : fld.type === "select" ? (
+            <Select value={details[fld.key] || ""} onChange={e => onSet(fld.key, e.target.value)} options={fld.options} />
+          ) : (
+            <Input type={fld.type === "number" ? "number" : fld.type === "date" ? "date" : "text"}
+              value={details[fld.key] || ""} onChange={e => onSet(fld.key, e.target.value)} />
+          )}
+        </Field>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================
+   LIVELIHOOD WIZARD — guided Program → Batch → Beneficiary flow.
+   Never loads the full beneficiaries table — only fetches the
+   beneficiaries actually enrolled in the selected batch.
+   ============================================================ */
+function LivelihoodWizard({ batches, employment, onRecordSaved, showToast, logAppAudit, onClose }) {
+  const [step, setStep] = useState("program"); // program | batch | beneficiaries | form
+  const [program, setProgram] = useState(null);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [batchBeneficiaries, setBatchBeneficiaries] = useState([]);
+  const [loadingBatch, setLoadingBatch] = useState(false);
+  const [activeBeneficiary, setActiveBeneficiary] = useState(null);
+  const [form, setForm] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const programBatches = useMemo(() => batches.filter(b => b.program === program?.key), [batches, program]);
+
+  const hasOutcome = (beneficiaryId) => employment.some(e => e.beneficiary_id === beneficiaryId);
+  const followupDueRec = (beneficiaryId) => employment.find(e =>
+    e.beneficiary_id === beneficiaryId && e.details?.next_followup_date && e.details.next_followup_date <= new Date().toISOString().slice(0, 10));
+
+  const total = batchBeneficiaries.length;
+  const completedCount = batchBeneficiaries.filter(b => hasOutcome(b.beneficiary_id)).length;
+  const pendingCount = total - completedCount;
+  const followupDueCount = batchBeneficiaries.filter(b => followupDueRec(b.beneficiary_id)).length;
+
+  const pickProgram = (p) => { setProgram(p); setStep("batch"); };
+
+  const pickBatch = async (batch) => {
+    setSelectedBatch(batch);
+    setLoadingBatch(true);
+    const { data: enrolls, error: enrollErr } = await supabase.from("training_enrollments").select("*").eq("batch_id", batch.batch_id);
+    if (enrollErr) { showToast("Error: " + enrollErr.message, "error"); setLoadingBatch(false); return; }
+    const ids = [...new Set((enrolls || []).map(e => e.beneficiary_id))];
+    if (ids.length === 0) { setBatchBeneficiaries([]); setLoadingBatch(false); setStep("beneficiaries"); return; }
+    const { data: bens, error: benErr } = await supabase.from("beneficiaries").select("*").in("beneficiary_id", ids);
+    if (benErr) { showToast("Error: " + benErr.message, "error"); setLoadingBatch(false); return; }
+    setBatchBeneficiaries(bens || []);
+    setLoadingBatch(false);
+    setStep("beneficiaries");
+  };
+
+  const pickBeneficiary = (b) => {
+    setActiveBeneficiary(b);
+    setForm({ beneficiary_id: b.beneficiary_id, program: program.key, outcome_type: "", status: "Active", notes: "", details: {} });
+    setErrors({});
+    setStep("form");
+  };
+
+  const outcomeOptions = OUTCOME_TYPES_BY_PROGRAM[program?.key] || [];
+  const fields = OUTCOME_FIELDS[form?.outcome_type] || [];
+
+  const validate = () => {
+    const e = {};
+    if (!form.outcome_type) e.outcome_type = "Required";
+    fields.forEach(fld => { if (fld.required && !form.details[fld.key]) e[fld.key] = "Required"; });
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const findNextPending = (fromId) => {
+    const idx = batchBeneficiaries.findIndex(b => b.beneficiary_id === fromId);
+    return batchBeneficiaries.slice(idx + 1).find(b => !hasOutcome(b.beneficiary_id))
+      || batchBeneficiaries.find(b => b.beneficiary_id !== fromId && !hasOutcome(b.beneficiary_id));
+  };
+
+  const save = async (andNext) => {
+    if (!validate()) return;
+    setSaving(true);
+    const rec = { ...form, created_at: new Date().toISOString() };
+    const { data, error } = await supabase.from("employment").insert(rec).select().single();
+    setSaving(false);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    onRecordSaved(data);
+    await logAppAudit("CREATE", "Employment", `Livelihood outcome recorded: ${data.job_id}`);
+    showToast("Outcome saved.");
+    if (andNext) {
+      const next = findNextPending(activeBeneficiary.beneficiary_id);
+      if (next) { pickBeneficiary(next); } else { showToast("All beneficiaries in this batch are done! 🎉"); setStep("beneficiaries"); }
+    } else {
+      setStep("beneficiaries");
+    }
+  };
+
+  return (
+    <div className="max-w-[620px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-[17px] font-bold text-[#111827]">Add Livelihood Outcome</h2>
+          <p className="text-[11.5px] text-[#6B7280]">
+            {step === "program" && "Step 1 — Select Program"}
+            {step === "batch" && "Step 2 — Select Batch"}
+            {step === "beneficiaries" && "Step 3 — Select Beneficiary"}
+            {step === "form" && `Step 4 — ${activeBeneficiary?.name || ""}`}
+          </p>
+        </div>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+
+      {step === "program" && (
+        <div className="grid grid-cols-1 gap-2.5">
+          {PROGRAMS.map(p => {
+            const Icon = p.icon;
+            return (
+              <button key={p.key} onClick={() => pickProgram(p)}
+                className="flex items-center gap-3 bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition text-left">
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: p.tint }}>
+                  <Icon size={20} style={{ color: p.color }} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[14px] font-bold text-[#111827]">{p.label}</p>
+                  <p className="text-[11.5px] text-[#6B7280]">{batches.filter(b => b.program === p.key).length} batches</p>
+                </div>
+                <ChevronRight size={18} className="text-[#9CA3AF]" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {step === "batch" && (
+        <div>
+          <button onClick={() => setStep("program")} className="text-[12px] font-semibold text-[#1E3A8A] mb-3">← Change Program</button>
+          {programBatches.length === 0 ? (
+            <div className="text-center py-12 text-[#9CA3AF]"><BookOpen size={26} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No batches found for {program.label}.</p></div>
+          ) : (
+            <div className="space-y-2.5">
+              {programBatches.map(b => (
+                <button key={b.batch_id} onClick={() => pickBatch(b)}
+                  className="w-full flex items-center gap-3 bg-white rounded-2xl border border-[#E5E7EB] p-4 hover:shadow-md transition text-left">
+                  <div className="flex-1">
+                    <p className="text-[13.5px] font-bold text-[#111827]">{b.training_name || b.training_type}</p>
+                    <p className="text-[11px] text-[#6B7280]">{b.venue} · {b.start_date} → {b.end_date}</p>
+                  </div>
+                  <Badge label={b.status} color={b.status === "Completed" ? "#16A34A" : "#F97316"} tint={b.status === "Completed" ? "#DCFCE7" : "#FFF7ED"} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === "beneficiaries" && (
+        <div>
+          <button onClick={() => setStep("batch")} className="text-[12px] font-semibold text-[#1E3A8A] mb-3">← Change Batch</button>
+
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+            <p className="text-[12px] font-bold text-[#111827] mb-1">{selectedBatch?.training_name || selectedBatch?.training_type}</p>
+            <p className="text-[11px] text-[#6B7280] mb-3">{selectedBatch?.venue}</p>
+            <div className="h-2 rounded-full bg-[#F3F4F6] overflow-hidden mb-3">
+              <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${total ? (completedCount / total) * 100 : 0}%` }} />
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div><p className="text-[16px] font-bold text-[#111827]">{total}</p><p className="text-[9.5px] text-[#6B7280]">Total</p></div>
+              <div><p className="text-[16px] font-bold text-[#16A34A]">{completedCount}</p><p className="text-[9.5px] text-[#6B7280]">Completed</p></div>
+              <div><p className="text-[16px] font-bold text-[#F97316]">{pendingCount}</p><p className="text-[9.5px] text-[#6B7280]">Pending</p></div>
+              <div><p className="text-[16px] font-bold text-[#DC2626]">{followupDueCount}</p><p className="text-[9.5px] text-[#6B7280]">Follow-up Due</p></div>
+            </div>
+          </div>
+
+          {loadingBatch ? (
+            <div className="text-center py-12 text-[#9CA3AF]"><RefreshCw size={22} className="mx-auto mb-2 animate-spin opacity-50" /><p className="text-[13px]">Loading beneficiaries...</p></div>
+          ) : batchBeneficiaries.length === 0 ? (
+            <div className="text-center py-12 text-[#9CA3AF]"><Users size={26} className="mx-auto mb-2 opacity-40" /><p className="text-[13px]">No beneficiaries enrolled in this batch.</p></div>
+          ) : (
+            <div className="space-y-1.5">
+              {batchBeneficiaries.map(b => {
+                const done = hasOutcome(b.beneficiary_id);
+                const due = followupDueRec(b.beneficiary_id);
+                return (
+                  <button key={b.beneficiary_id} onClick={() => pickBeneficiary(b)}
+                    className="w-full flex items-center gap-3 bg-white rounded-xl border border-[#E5E7EB] p-3 hover:shadow-sm transition text-left">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ background: done ? "#16A34A" : "#9CA3AF" }}>
+                      {(b.name || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-semibold text-[#111827] truncate">{b.name || b.beneficiary_id}</p>
+                      <p className="text-[10px] text-[#6B7280]">{b.beneficiary_id} · {b.village}</p>
+                    </div>
+                    {due && <Badge label="Follow-up Due" color="#DC2626" tint="#FEE2E2" />}
+                    {done ? <CheckCircle size={16} className="text-[#16A34A] shrink-0" /> : <span className="text-[9.5px] font-semibold text-[#F97316] shrink-0">Pending</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === "form" && form && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <div className="flex items-center gap-2.5 mb-4 pb-4 border-b border-[#F3F4F6]">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+              {(activeBeneficiary.name || "?").charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p className="text-[13.5px] font-bold text-[#111827]">{activeBeneficiary.name}</p>
+              <p className="text-[10.5px] text-[#6B7280]">{activeBeneficiary.beneficiary_id} · {program.label}</p>
+            </div>
+          </div>
+
+          <Field label="Outcome Type" required error={errors.outcome_type}>
+            <Select value={form.outcome_type} onChange={e => setForm(f => ({ ...f, outcome_type: e.target.value, details: {} }))}
+              options={outcomeOptions.map(k => ({ value: k, label: OUTCOME_TYPE_LABELS[k] }))}
+              placeholder="Select outcome type" />
+          </Field>
+
+          {fields.length > 0 && (
+            <>
+              <SectionHeader title={OUTCOME_TYPE_LABELS[form.outcome_type]} color="#16A34A" />
+              <OutcomeDynamicFields fields={fields} details={form.details} errors={errors}
+                onSet={(key, val) => setForm(f => ({ ...f, details: { ...f.details, [key]: val } }))} />
+            </>
+          )}
+
+          <Field label="Notes">
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} className={inputCls} />
+          </Field>
+
+          <div className="flex gap-2 mt-4 pt-4 border-t border-[#F3F4F6]">
+            <button onClick={() => save(false)} disabled={saving} className="rounded-lg px-5 py-2.5 text-[13px] font-bold text-white disabled:opacity-60" style={{ background: "#374151" }}>
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button onClick={() => save(true)} disabled={saving} className="flex-1 rounded-lg px-5 py-2.5 text-[13px] font-bold text-white disabled:opacity-60" style={{ background: "#16A34A" }}>
+              {saving ? "Saving..." : "Save & Next →"}
+            </button>
+            <button onClick={() => setStep("beneficiaries")} className="rounded-lg border border-[#E5E7EB] px-4 py-2.5 text-[13px] font-medium text-[#374151]">Back</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function VillageForm({ editing, onSave, onCancel }) {
   const blank = { village_name: "", mandal: "", district: "Tirupati", population: "", total_beneficiaries: 0 };
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
@@ -8113,6 +8356,12 @@ export default function App() {
           {subView === "employment-form" && (
             <EmploymentForm editing={editing} onSave={saveEmployment} onCancel={() => { setSubView(null); setEditing(null); }} beneficiaries={beneficiaries} />
           )}
+          {subView === "livelihood-wizard" && (
+            <LivelihoodWizard batches={batches} employment={employment}
+              onRecordSaved={rec => setEmployment(es => [rec, ...es])}
+              showToast={showToast} logAppAudit={logAppAudit}
+              onClose={() => setSubView(null)} />
+          )}
           {subView === "village-form" && (
             <VillageForm editing={editing} onSave={saveVillage} onCancel={() => { setSubView(null); setEditing(null); }} />
           )}
@@ -8195,7 +8444,7 @@ export default function App() {
                 else if (key === "attendance") { setView("training"); setTrainingSubView(null); }
                 else if (key === "assessment") { setView("training"); setTrainingSubView("assessment-management"); }
                 else if (key === "certificate") { setView("training"); setTrainingSubView("certificate-generation"); }
-                else if (key === "employment") { setView("employment"); setSubView("employment-form"); }
+                else if (key === "employment") { setView("employment"); setSubView("livelihood-wizard"); }
                 else if (key === "reports") { setView("reports"); }
                 else if (key === "beneficiaries-list") { goTo("beneficiaries"); }
               }}
@@ -8261,7 +8510,7 @@ export default function App() {
           )}
           {!subView && view === "employment" && (
             <EmploymentList employment={employment} beneficiaries={beneficiaries} isAdmin={isAdmin}
-              onAdd={() => { setEditing(null); setSubView("employment-form"); }}
+              onAdd={() => { setEditing(null); setSubView("livelihood-wizard"); }}
               onEdit={e => { setEditing(e); setSubView("employment-form"); }}
               onDelete={e => setDeleteTarget({ type: "employment", record: e })}
               onExport={exportEmployment} onPrint={printEmployment} />
