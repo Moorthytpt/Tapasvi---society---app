@@ -5789,6 +5789,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   };
 
   const doPrint = async (cert, isReprint) => {
+    if (!isAdmin) { showToast("Only Admin can print certificates. Please visit the NGO office.", "error"); return; }
     const who = currentUser?.username || currentUser?.email || "unknown";
     const now = new Date().toISOString();
     if (isReprint) {
@@ -5840,7 +5841,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   };
 
   if (preview) {
-    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} onVerify={() => { setPreview(null); setTab("verify"); }} />;
+    return <CertificatePreview cert={preview} settings={settings} orgSettings={orgSettings} isAdmin={isAdmin} onPrint={() => doPrint(preview, false)} onClose={() => setPreview(null)} onVerify={() => { setPreview(null); setTab("verify"); }} />;
   }
   if (tab === "verify") {
     return <CertificateVerify onBack={() => setTab("issued")} />;
@@ -5882,12 +5883,10 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
                 {!row.eligible && (
                   <p className="text-[11px] text-[#DC2626] mt-1.5">Cannot generate yet: {row.reasons.join("; ")}</p>
                 )}
-                {isAdmin && (
-                  <button onClick={() => generateCertificate(row)} disabled={!row.eligible}
-                    className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white disabled:opacity-40" style={{ background: row.eligible ? "#16A34A" : "#9CA3AF" }}>
-                    Generate Certificate
-                  </button>
-                )}
+                <button onClick={() => generateCertificate(row)} disabled={!row.eligible}
+                  className="w-full mt-3 rounded-lg py-1.5 text-[11.5px] font-medium text-white disabled:opacity-40" style={{ background: row.eligible ? "#16A34A" : "#9CA3AF" }}>
+                  Generate Certificate
+                </button>
               </div>
             ))}
           </div>
@@ -5940,10 +5939,12 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
                     </span>
                   </div>
                   <div className="flex gap-2 mt-3 flex-wrap">
-                    <button onClick={() => setPreview(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">Preview</button>
-                    <button onClick={() => doPrint(c, !!c.printed_at)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>
-                      {c.printed_at ? "Reprint" : "Print"}
-                    </button>
+                    <button onClick={() => setPreview(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                    {isAdmin && (
+                      <button onClick={() => doPrint(c, !!c.printed_at)} className="flex-1 rounded-lg py-1.5 text-[11.5px] font-medium text-white" style={{ background: "#1E3A8A" }}>
+                        {c.printed_at ? "Reprint" : "Print"}
+                      </button>
+                    )}
                     {isAdmin && c.status === "Active" && (
                       <button onClick={() => setRevokeTarget(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Revoke</button>
                     )}
@@ -5990,7 +5991,7 @@ function CertificateManagement({ isAdmin, currentUser, showToast, logAppAudit, o
   );
 }
 
-function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose, onVerify }) {
+function CertificatePreview({ cert, settings, orgSettings, isAdmin, onPrint, onClose, onVerify }) {
   const [logoPosition, setLogoPosition] = useState("center");
   const [logoSize, setLogoSize] = useState(44);
   const [showBorder, setShowBorder] = useState(true);
@@ -6092,12 +6093,18 @@ function CertificatePreview({ cert, settings, orgSettings, onPrint, onClose, onV
 
           <div className="bg-white/70 backdrop-blur rounded-[20px] border border-[#E5E7EB] p-4 space-y-2">
             <p className="text-[12px] font-bold text-[#111827] mb-1">Actions</p>
-            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-bold text-white transition active:scale-[0.98]" style={{ background: `linear-gradient(90deg,${primary},#16A34A)` }}>
-              <Download size={15} /> Download PDF
-            </button>
-            <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
-              <Printer size={15} /> Print
-            </button>
+            {isAdmin ? (
+              <>
+                <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-bold text-white transition active:scale-[0.98]" style={{ background: `linear-gradient(90deg,${primary},#16A34A)` }}>
+                  <Download size={15} /> Download PDF
+                </button>
+                <button onClick={onPrint} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
+                  <Printer size={15} /> Print
+                </button>
+              </>
+            ) : (
+              <p className="text-[11px] text-[#9CA3AF] text-center py-1">Certificates are printed only at the NGO office.</p>
+            )}
             {onVerify && (
               <button onClick={onVerify} className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]">
                 <CheckCircle size={15} /> Verify QR
