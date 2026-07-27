@@ -873,7 +873,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   const validate = () => {
     const e = {};
     if (!form.name.trim()) e.name = "Required";
-    if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required (1-120)";
+    if (!form.age || form.age < 1 || form.age > 99) e.age = "Valid age required (1-99)";
     if (!form.phone.trim()) e.phone = "Required";
     else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
     if (!form.identity_number.trim()) e.identity_number = "Document number required";
@@ -936,7 +936,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     const e = {};
     if (s === 1) {
       if (!form.name.trim()) e.name = "Required";
-      if (!form.age || form.age < 1 || form.age > 120) e.age = "Valid age required (1-120)";
+      if (!form.age || form.age < 1 || form.age > 99) e.age = "Valid age required (1-99)";
       if (!form.phone.trim()) e.phone = "Required";
       else if (!/^\d{10}$/.test(form.phone)) e.phone = "Must be 10 digits";
     } else if (s === 2) {
@@ -1043,7 +1043,9 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                   <Select value={form.gender} onChange={set("gender")} options={["Male", "Female", "Other"]} />
                 </Field>
                 <Field label="Age" required error={errors.age}>
-                  <Input type="number" min="1" max="120" value={form.age} onChange={set("age")} placeholder="Years" inputMode="numeric" />
+                  <Input type="number" min="1" max="99" value={form.age}
+                    onChange={e => setForm(f => ({ ...f, age: e.target.value.replace(/\D/g, "").slice(0, 2) }))}
+                    placeholder="Years" inputMode="numeric" />
                 </Field>
                 <Field label="Mobile Number" required error={errors.phone}>
                   <Input value={form.phone}
