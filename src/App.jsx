@@ -390,6 +390,15 @@ function Badge({ label, color, tint }) {
   return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold" style={{ background: tint, color }}>{label}</span>;
 }
 
+function InfoRow({ label, value }) {
+  return (
+    <div>
+      <p className="text-[9.5px] text-[#9CA3AF] uppercase tracking-wide">{label}</p>
+      <p className="text-[12.5px] font-semibold text-[#111827] mt-0.5">{value || "—"}</p>
+    </div>
+  );
+}
+
 function StatCard({ icon: Icon, label, value, color, tint, sub }) {
   return (
     <div className="rounded-xl bg-white border border-[#E5E7EB] p-4 flex items-center gap-3.5" style={{ borderRadius: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
