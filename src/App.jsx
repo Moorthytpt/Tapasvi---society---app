@@ -7530,6 +7530,7 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
   const [districtFilter, setDistrictFilter] = useState("all");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 10;
 
@@ -7538,6 +7539,7 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
   const programOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.supported_programs || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
 
   const TYPE_COLORS = { company: "#1E3A8A", industry: "#7C3AED", shg: "#F97316", ngo: "#16A34A", csr: "#0EA5E9", government: "#DC2626", bank: "#7C3AED", recycler: "#065F46", training_partner: "#F97316", placement_partner: "#0369A1" };
+  const activeFilterCount = [typeFilter, stateFilter, districtFilter, programFilter, statusFilter].filter(f => f !== "all").length;
 
   const filtered = useMemo(() => partners.filter(p => {
     if (typeFilter !== "all" && p.partner_type !== typeFilter) return false;
@@ -7554,95 +7556,140 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
 
   useEffect(() => { setPage(1); }, [query, typeFilter, stateFilter, districtFilter, programFilter, statusFilter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
 
   return (
-    <div>
+    <div className="relative pb-16">
+      {/* Sticky header: back + title + search + collapsible filters */}
       <div className="sticky top-0 z-10 bg-[#F8FAFC] pb-3 -mx-4 px-4 md:mx-0 md:px-0">
-        <div className="flex items-center gap-2 mb-4 pt-1">
-          <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex items-center gap-2 mb-3 pt-1">
+          <button onClick={onBack} className="p-2 rounded-lg hover:bg-[#F3F4F6]" style={{ minWidth: 44, minHeight: 44 }}><ChevronRight size={16} className="rotate-180" /></button>
           <div className="flex-1">
             <h2 className="text-[17px] font-bold text-[#111827]">Partner List</h2>
             <p className="text-[12px] text-[#6B7280]">{filtered.length} partner{filtered.length !== 1 ? "s" : ""}</p>
           </div>
-          <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-bold text-white transition active:scale-95" style={{ background: "#1E3A8A" }}><Plus size={14} /> Add</button>
+          <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 text-[12px] text-[#111827]" style={{ minHeight: 44 }}><FileSpreadsheet size={13} /> CSV</button>
         </div>
 
-        <div className="relative mb-3">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search code, name, contact person, mobile..." className={inputCls + " pl-9 text-[12.5px]"} />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search code, name, contact, mobile..." className={inputCls + " pl-9 text-[12.5px]"} style={{ minHeight: 44 }} />
+          </div>
+          <button onClick={() => setFiltersOpen(o => !o)}
+            className="flex items-center gap-1.5 rounded-xl border px-3.5 text-[12.5px] font-semibold shrink-0 transition-colors"
+            style={{ minHeight: 44, minWidth: 44, borderColor: activeFilterCount > 0 ? "#1E3A8A" : "#E5E7EB", background: activeFilterCount > 0 ? "#EFF6FF" : "#fff", color: activeFilterCount > 0 ? "#1E3A8A" : "#374151" }}>
+            <Filter size={14} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+            <ChevronRight size={13} className="transition-transform duration-300" style={{ transform: filtersOpen ? "rotate(-90deg)" : "rotate(90deg)" }} />
+          </button>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-            <option value="all">All Types</option>
-            {PARTNER_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
-          <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-            <option value="all">All States</option>
-            {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-            <option value="all">All Districts</option>
-            {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-            <option value="all">All Programs</option>
-            {programOptions.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-            <option value="all">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
+
+        <div className="overflow-hidden transition-all duration-300 ease-in-out" style={{ maxHeight: filtersOpen ? 220 : 0, opacity: filtersOpen ? 1 : 0, marginTop: filtersOpen ? 10 : 0 }}>
+          <div className="flex gap-2 flex-wrap">
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+              <option value="all">All Types</option>
+              {PARTNER_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+              <option value="all">All States</option>
+              {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+              <option value="all">All Districts</option>
+              {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+              <option value="all">All Programs</option>
+              {programOptions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+              <option value="all">All Status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+            {activeFilterCount > 0 && (
+              <button onClick={() => { setTypeFilter("all"); setStateFilter("all"); setDistrictFilter("all"); setProgramFilter("all"); setStatusFilter("all"); }}
+                className="text-[11.5px] font-semibold text-[#DC2626] px-2">Clear all</button>
+            )}
+          </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse">
-              <div className="h-3.5 w-1/3 bg-[#F3F4F6] rounded mb-2.5" />
-              <div className="h-2.5 w-2/3 bg-[#F3F4F6] rounded mb-3" />
-              <div className="h-7 w-full bg-[#F3F4F6] rounded" />
+            <div key={i} className="bg-white rounded-[20px] border border-[#E5E7EB] p-4 animate-pulse" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div className="h-3.5 w-2/5 bg-[#F3F4F6] rounded mb-2.5" />
+              <div className="h-2.5 w-1/3 bg-[#F3F4F6] rounded mb-3" />
+              <div className="h-2.5 w-3/5 bg-[#F3F4F6] rounded mb-3" />
+              <div className="h-9 w-full bg-[#F3F4F6] rounded-xl" />
             </div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-[#9CA3AF]">
-          <Building2 size={28} className="mx-auto mb-3 opacity-40" />
-          <p className="text-[13px] font-medium">No Records Found</p>
-          <p className="text-[11.5px] mt-1">{partners.length === 0 ? "No partners added yet." : "Try adjusting your search or filters."}</p>
+        <div className="text-center py-16">
+          <div className="w-16 h-16 rounded-full bg-[#EFF6FF] flex items-center justify-center mx-auto mb-4">
+            <Building2 size={26} className="text-[#93C5FD]" />
+          </div>
+          <p className="text-[14px] font-semibold text-[#374151]">No Partners Found</p>
+          <p className="text-[12px] text-[#9CA3AF] mt-1 mb-5">{partners.length === 0 ? "Get started by adding your first partner." : "Try adjusting your search or filters."}</p>
+          <button onClick={onAdd} className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white" style={{ background: "#1E3A8A", minHeight: 44 }}>
+            <Plus size={15} /> Add Partner
+          </button>
         </div>
       ) : (
         <>
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {paginated.map(p => {
               const tColor = TYPE_COLORS[p.partner_type] || "#6B7280";
+              const programList = (p.supported_programs || "").split(",").map(s => s.trim()).filter(Boolean);
+              const shownPrograms = programList.slice(0, 2);
+              const extraPrograms = programList.length - shownPrograms.length;
+              const location = [p.districts, p.state].filter(Boolean).join(" / ");
               return (
-                <div key={p.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-[13.5px] font-semibold text-[#111827]">{p.partner_name}</p>
-                        <span className="text-[10.5px] font-mono text-[#9CA3AF]">{p.partner_code}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                <div key={p.id} className="bg-white rounded-[22px] border border-[#E5E7EB] p-4.5 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5" style={{ padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <div className="flex items-start justify-between gap-3 mb-2.5">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-bold text-[#111827] truncate">{p.partner_name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                        <span className="text-[10px] font-mono font-semibold text-[#6B7280] bg-[#F3F4F6] px-1.5 py-0.5 rounded-md">{p.partner_code}</span>
                         <Badge label={PARTNER_TYPE_MAP[p.partner_type]?.label || "—"} color={tColor} tint={tColor + "18"} />
-                        <span className="text-[11px] text-[#6B7280]">{p.contact_person || "—"} · {p.mobile || "—"} · {p.districts || "—"}</span>
                       </div>
-                      {p.supported_programs && <p className="text-[10.5px] text-[#9CA3AF] mt-1">Programs: {p.supported_programs}</p>}
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: p.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: p.status === "Active" ? "#16A34A" : "#6B7280" }}>
+                    <span className="px-2.5 py-1 rounded-full text-[10.5px] font-bold shrink-0" style={{ background: p.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: p.status === "Active" ? "#16A34A" : "#6B7280" }}>
                       {p.status}
                     </span>
                   </div>
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => onView(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151] transition hover:bg-[#F8FAFC]">View</button>
-                    {isAdmin && <button onClick={() => onEdit(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A] transition hover:bg-[#EFF6FF]">Edit</button>}
+
+                  <div className="text-[12px] text-[#4B5563] space-y-1 mb-2.5">
+                    {p.mobile && <p className="truncate">📱 {p.mobile}</p>}
+                    {location && <p className="truncate">📍 {location}</p>}
+                  </div>
+
+                  {shownPrograms.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                      {shownPrograms.map(pr => (
+                        <span key={pr} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#374151]">{pr}</span>
+                      ))}
+                      {extraPrograms > 0 && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">+{extraPrograms} More</span>}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button onClick={() => onView(p)} title="View" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] text-[12px] font-medium text-[#374151] transition hover:bg-[#F8FAFC]" style={{ minHeight: 44 }}>
+                      👁 View
+                    </button>
                     {isAdmin && (
-                      <button onClick={() => onToggleStatus(p)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151] transition hover:bg-[#F8FAFC]">
-                        {p.status === "Active" ? "Deactivate" : "Activate"}
+                      <button onClick={() => onEdit(p)} title="Edit" className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB] text-[12px] font-medium text-[#1E3A8A] transition hover:bg-[#EFF6FF]" style={{ minHeight: 44 }}>
+                        ✏ Edit
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button onClick={() => onToggleStatus(p)} title={p.status === "Active" ? "Deactivate" : "Activate"}
+                        className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border text-[12px] font-medium transition"
+                        style={{ minHeight: 44, borderColor: p.status === "Active" ? "#FCA5A5" : "#BBF7D0", color: p.status === "Active" ? "#DC2626" : "#16A34A" }}>
+                        {p.status === "Active" ? "⏸ Deactivate" : "▶ Activate"}
                       </button>
                     )}
                   </div>
@@ -7652,16 +7699,32 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center justify-between mt-5 flex-wrap gap-2">
               <p className="text-[11.5px] text-[#6B7280]">Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}</p>
-              <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">← Prev</button>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] disabled:opacity-40">Next →</button>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>← Previous</button>
+                {pageNumbers.map(n => (
+                  <button key={n} onClick={() => setPage(n)}
+                    className="rounded-lg text-[12px] font-semibold transition-colors"
+                    style={{ minWidth: 36, minHeight: 40, background: n === page ? "#1E3A8A" : "transparent", color: n === page ? "#fff" : "#374151" }}>
+                    {n}
+                  </button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>Next →</button>
               </div>
             </div>
           )}
         </>
       )}
+
+      {/* Floating Add Button */}
+      <button onClick={onAdd} aria-label="Add Partner"
+        className="fixed bottom-6 right-6 z-30 w-14 h-14 rounded-full flex items-center justify-center text-white transition-all active:scale-90"
+        style={{ background: "#1E3A8A", boxShadow: "0 10px 25px -6px rgba(30,58,138,0.5)" }}>
+        <Plus size={24} />
+      </button>
     </div>
   );
 }
