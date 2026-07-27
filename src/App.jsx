@@ -7442,7 +7442,7 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
     return <PartnerForm editing={editing} onSave={savePartner} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
   }
   if (sub === "profile" && viewing) {
-    return <PartnerProfile partner={viewing} currentUser={currentUser} onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
+    return <PartnerProfile partner={viewing} currentUser={currentUser} showToast={showToast} onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
   }
   if (sub === "list") {
     return (
@@ -7843,10 +7843,28 @@ function PartnerForm({ editing, onSave, onCancel }) {
   );
 }
 
-function PartnerProfile({ partner: p, onEdit, onBack, currentUser }) {
+function PartnerProfile({ partner: p, onEdit, onBack, currentUser, showToast }) {
   const [tab, setTab] = useState("overview");
   const [activity, setActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
+  const [counts, setCounts] = useState({ programs: 0, batches: 0, beneficiaries: 0, districts: 0 });
+
+  useEffect(() => {
+    (async () => {
+      const [pr, bt, lv, cv] = await Promise.all([
+        supabase.from("partner_programs").select("id", { count: "exact", head: true }).eq("partner_id", p.id).eq("status", "Active"),
+        supabase.from("partner_training_batches").select("id", { count: "exact", head: true }).eq("partner_id", p.id).eq("status", "Active"),
+        supabase.from("partner_livelihood").select("beneficiary_count").eq("partner_id", p.id).eq("status", "Active"),
+        supabase.from("partner_coverage").select("district").eq("partner_id", p.id).eq("status", "Active"),
+      ]);
+      setCounts({
+        programs: pr.count || 0,
+        batches: bt.count || 0,
+        beneficiaries: (lv.data || []).reduce((s, l) => s + (l.beneficiary_count || 0), 0),
+        districts: new Set((cv.data || []).map(c => c.district).filter(Boolean)).size,
+      });
+    })();
+  }, [p.id]);
 
   useEffect(() => {
     (async () => {
@@ -7890,6 +7908,12 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser }) {
 
       {tab === "overview" && (
         <>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center"><p className="text-[16px] font-bold text-[#1E3A8A]">{counts.programs}</p><p className="text-[9px] text-[#6B7280]">Programs</p></div>
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center"><p className="text-[16px] font-bold text-[#7C3AED]">{counts.batches}</p><p className="text-[9px] text-[#6B7280]">Batches</p></div>
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center"><p className="text-[16px] font-bold text-[#16A34A]">{counts.districts}</p><p className="text-[9px] text-[#6B7280]">Districts</p></div>
+            <div className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center"><p className="text-[16px] font-bold text-[#F97316]">{counts.beneficiaries}</p><p className="text-[9px] text-[#6B7280]">Beneficiaries</p></div>
+          </div>
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
             <SectionHeader title="Overview" color="#1E3A8A" />
             <div className="grid grid-cols-2 gap-y-3">
@@ -7970,31 +7994,49 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser }) {
         </>
       )}
 
-      {tab === "projects" && <PartnerProjectsTab partner={p} currentUser={currentUser} />}
-      {tab === "training" && <PartnerTrainingTab partner={p} currentUser={currentUser} />}
-      {tab === "coverage" && <PartnerCoverageTab partner={p} currentUser={currentUser} />}
-      {tab === "livelihood" && <PartnerLivelihoodTab partner={p} currentUser={currentUser} />}
+      {tab === "projects" && <PartnerProjectsTab partner={p} currentUser={currentUser} showToast={showToast} />}
+      {tab === "training" && <PartnerTrainingTab partner={p} currentUser={currentUser} showToast={showToast} />}
+      {tab === "coverage" && <PartnerCoverageTab partner={p} currentUser={currentUser} showToast={showToast} />}
+      {tab === "livelihood" && <PartnerLivelihoodTab partner={p} currentUser={currentUser} showToast={showToast} />}
     </div>
   );
 }
 
 const PARTNER_ROLES = ["Funding Partner", "Implementation Partner", "Training Partner", "Placement Partner", "Technical Partner", "Monitoring Partner", "CSR Partner"];
-const LIVELIHOOD_LINK_TYPES = ["Employment", "Self Employment", "Group Enterprise", "Home Based Work", "Waste Management", "Placement", "Skill Development"];
+const LIVELIHOOD_LINK_TYPES = ["Employment", "Self Employment", "Entrepreneurship", "Skill Development", "Apprenticeship", "Internship", "Placement", "Other"];
 
 function LinkEmptyState({ label }) {
   return (
     <div className="text-center py-10 text-[#9CA3AF]">
-      <p className="text-[12.5px]">No {label} linked yet.</p>
+      <p className="text-[12.5px]">No {label}.</p>
     </div>
   );
 }
 
-function PartnerProjectsTab({ partner, currentUser }) {
+function ConfirmDialog({ title, message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center px-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl max-w-[340px] w-full p-5" onClick={e => e.stopPropagation()}>
+        <p className="text-[14.5px] font-bold text-[#111827] mb-1.5">{title}</p>
+        <p className="text-[12.5px] text-[#6B7280] leading-relaxed mb-5">{message}</p>
+        <div className="flex gap-2.5">
+          <button onClick={onCancel} className="flex-1 rounded-xl border border-[#E5E7EB] py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-white" style={{ background: "#DC2626" }}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PartnerProjectsTab({ partner, currentUser, showToast }) {
+  const blankForm = { program: PROGRAMS[0].key, partner_role: PARTNER_ROLES[0], effective_from: "", effective_to: "", remarks: "" };
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ program: PROGRAMS[0].key, partner_role: PARTNER_ROLES[0], effective_from: "", effective_to: "", remarks: "" });
+  const [editingLink, setEditingLink] = useState(null);
+  const [form, setForm] = useState(blankForm);
   const [err, setErr] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -8004,28 +8046,41 @@ function PartnerProjectsTab({ partner, currentUser }) {
   };
   useEffect(() => { load(); }, [partner.id]);
 
+  const openAdd = () => { setEditingLink(null); setForm(blankForm); setErr(""); setShowForm(true); };
+  const openEdit = (l) => { setEditingLink(l); setForm({ program: l.program, partner_role: l.partner_role, effective_from: l.effective_from || "", effective_to: l.effective_to || "", remarks: l.remarks || "" }); setErr(""); setShowForm(true); };
+
   const submit = async () => {
     setErr("");
-    const dup = links.find(l => l.program === form.program && l.partner_role === form.partner_role && l.status === "Active");
-    if (dup) { setErr("This partner is already linked to this program with this role."); return; }
     const who = currentUser?.username || currentUser?.email || "unknown";
-    const { error } = await supabase.from("partner_programs").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
-    if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
-    setShowForm(false); setForm({ program: PROGRAMS[0].key, partner_role: PARTNER_ROLES[0], effective_from: "", effective_to: "", remarks: "" });
-    load();
+    if (editingLink) {
+      const { error } = await supabase.from("partner_programs").update({ ...form, updated_by: who, updated_on: new Date().toISOString() }).eq("id", editingLink.id);
+      if (error) { setErr(error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Updated Successfully");
+    } else {
+      const dup = links.find(l => l.program === form.program && l.partner_role === form.partner_role && l.status === "Active");
+      if (dup) { setErr("This partner is already linked to this program with this role."); return; }
+      const { error } = await supabase.from("partner_programs").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+      if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Linked Successfully");
+    }
   };
 
   const toggleStatus = async (l) => {
     const newStatus = l.status === "Active" ? "Inactive" : "Active";
     await supabase.from("partner_programs").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
-    load();
+    load(); showToast && showToast(`Updated Successfully`);
+  };
+
+  const confirmDelete = async () => {
+    await supabase.from("partner_programs").delete().eq("id", deleteTarget.id);
+    setDeleteTarget(null); load(); showToast && showToast("Deleted Successfully");
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Linked Programs ({links.filter(l => l.status === "Active").length})</p>
-        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Program"}</button>
+        <button onClick={openAdd} className="text-[11.5px] font-semibold text-[#1E3A8A]">+ Link Program</button>
       </div>
 
       {showForm && (
@@ -8038,39 +8093,55 @@ function PartnerProjectsTab({ partner, currentUser }) {
             <Field label="Effective To"><Input type="date" value={form.effective_to} onChange={e => setForm(f => ({ ...f, effective_to: e.target.value }))} /></Field>
           </div>
           <Field label="Remarks"><textarea value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} rows={2} className={inputCls} /></Field>
-          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+          <div className="flex gap-2">
+            <button onClick={submit} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-[#E5E7EB] px-5 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          </div>
         </div>
       )}
 
-      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="programs" /> : (
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-1/3 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : links.length === 0 ? <LinkEmptyState label="Programs Linked Yet" /> : (
         <div className="space-y-2">
           {links.map(l => (
             <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <div>
                   <p className="text-[12.5px] font-semibold text-[#111827]">{PROGRAM_MAP[l.program]?.label || l.program}</p>
-                  <p className="text-[11px] text-[#6B7280]">{l.partner_role}{l.effective_from ? ` · From ${l.effective_from}` : ""}</p>
+                  <p className="text-[11px] text-[#6B7280]">{l.partner_role}{l.effective_from ? ` · ${l.effective_from} → ${l.effective_to || "—"}` : ""}</p>
+                  {l.remarks && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">{l.remarks}</p>}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
-                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
-                </div>
+                <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => openEdit(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => toggleStatus(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#374151]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                <button onClick={() => setDeleteTarget(l)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Delete</button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {deleteTarget && (
+        <ConfirmDialog title="Delete Program Link?" message={`Remove the link to ${PROGRAM_MAP[deleteTarget.program]?.label || deleteTarget.program}? This cannot be undone.`}
+          onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
+      )}
     </div>
   );
 }
 
-function PartnerTrainingTab({ partner, currentUser }) {
+function PartnerTrainingTab({ partner, currentUser, showToast }) {
   const [links, setLinks] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingLink, setEditingLink] = useState(null);
   const [selectedBatch, setSelectedBatch] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [err, setErr] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -8084,28 +8155,42 @@ function PartnerTrainingTab({ partner, currentUser }) {
   };
   useEffect(() => { load(); }, [partner.id]);
 
+  const openAdd = () => { setEditingLink(null); setSelectedBatch(""); setRemarks(""); setErr(""); setShowForm(true); };
+  const openEdit = (l) => { setEditingLink(l); setSelectedBatch(l.batch_id); setRemarks(l.remarks || ""); setErr(""); setShowForm(true); };
+
   const submit = async () => {
     setErr("");
     if (!selectedBatch) { setErr("Select a training batch."); return; }
-    const dup = links.find(l => l.batch_id === selectedBatch && l.status === "Active");
-    if (dup) { setErr("This batch is already linked."); return; }
     const who = currentUser?.username || currentUser?.email || "unknown";
-    const { error } = await supabase.from("partner_training_batches").insert({ partner_id: partner.id, batch_id: selectedBatch, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
-    if (error) { setErr(error.message.includes("duplicate") ? "This batch is already linked." : error.message); return; }
-    setShowForm(false); setSelectedBatch(""); load();
+    if (editingLink) {
+      const { error } = await supabase.from("partner_training_batches").update({ batch_id: selectedBatch, remarks, updated_by: who, updated_on: new Date().toISOString() }).eq("id", editingLink.id);
+      if (error) { setErr(error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Updated Successfully");
+    } else {
+      const dup = links.find(l => l.batch_id === selectedBatch && l.status === "Active");
+      if (dup) { setErr("This batch is already linked."); return; }
+      const { error } = await supabase.from("partner_training_batches").insert({ partner_id: partner.id, batch_id: selectedBatch, remarks, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+      if (error) { setErr(error.message.includes("duplicate") ? "This batch is already linked." : error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Linked Successfully");
+    }
   };
 
   const toggleStatus = async (l) => {
     const newStatus = l.status === "Active" ? "Inactive" : "Active";
     await supabase.from("partner_training_batches").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
-    load();
+    load(); showToast && showToast("Updated Successfully");
+  };
+
+  const confirmDelete = async () => {
+    await supabase.from("partner_training_batches").delete().eq("id", deleteTarget.id);
+    setDeleteTarget(null); load(); showToast && showToast("Deleted Successfully");
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Linked Training Batches ({links.filter(l => l.status === "Active").length})</p>
-        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Batch"}</button>
+        <button onClick={openAdd} className="text-[11.5px] font-semibold text-[#1E3A8A]">+ Link Batch</button>
       </div>
 
       {showForm && (
@@ -8115,41 +8200,62 @@ function PartnerTrainingTab({ partner, currentUser }) {
             <Select value={selectedBatch} onChange={e => setSelectedBatch(e.target.value)} placeholder="Select batch"
               options={batches.map(b => ({ value: b.batch_id, label: `${b.training_name} · ${b.venue}` }))} />
           </Field>
-          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+          {selectedBatch && (() => {
+            const b = batches.find(x => x.batch_id === selectedBatch);
+            return b ? <p className="text-[11px] text-[#6B7280] -mt-2 mb-3">Trainer: {b.trainer_name || "—"} · {b.start_date} → {b.end_date}</p> : null;
+          })()}
+          <Field label="Remarks"><textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={2} className={inputCls} /></Field>
+          <div className="flex gap-2">
+            <button onClick={submit} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-[#E5E7EB] px-5 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          </div>
         </div>
       )}
 
-      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="training batches" /> : (
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-3/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : links.length === 0 ? <LinkEmptyState label="Training Batches Linked Yet" /> : (
         <div className="space-y-2">
           {links.map(l => {
             const b = l.batch_trainings;
             return (
               <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <div>
                     <p className="text-[12.5px] font-semibold text-[#111827]">{b?.training_name || "—"}</p>
                     <p className="text-[11px] text-[#6B7280]">{PROGRAM_MAP[b?.program]?.short} · {b?.trainer_name || "—"} · {b?.venue || "—"} · {b?.start_date} → {b?.end_date}</p>
+                    {l.remarks && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">{l.remarks}</p>}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
-                    <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
-                  </div>
+                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openEdit(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                  <button onClick={() => toggleStatus(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#374151]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                  <button onClick={() => setDeleteTarget(l)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Delete</button>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {deleteTarget && (
+        <ConfirmDialog title="Delete Training Link?" message="Remove this training batch link? This cannot be undone."
+          onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
+      )}
     </div>
   );
 }
 
-function PartnerCoverageTab({ partner, currentUser }) {
+function PartnerCoverageTab({ partner, currentUser, showToast }) {
+  const blankForm = { state: "Andhra Pradesh", district: "", mandal: "", village: "" };
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ state: "Andhra Pradesh", district: "", mandal: "", village: "" });
+  const [editingLink, setEditingLink] = useState(null);
+  const [form, setForm] = useState(blankForm);
   const [err, setErr] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -8159,19 +8265,35 @@ function PartnerCoverageTab({ partner, currentUser }) {
   };
   useEffect(() => { load(); }, [partner.id]);
 
+  const openAdd = () => { setEditingLink(null); setForm(blankForm); setErr(""); setShowForm(true); };
+  const openEdit = (l) => { setEditingLink(l); setForm({ state: l.state || "Andhra Pradesh", district: l.district || "", mandal: l.mandal || "", village: l.village || "" }); setErr(""); setShowForm(true); };
+
   const submit = async () => {
     setErr("");
     if (!form.district.trim()) { setErr("District is required."); return; }
     const who = currentUser?.username || currentUser?.email || "unknown";
-    const { error } = await supabase.from("partner_coverage").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
-    if (error) { setErr(error.message); return; }
-    setShowForm(false); setForm({ state: "Andhra Pradesh", district: "", mandal: "", village: "" }); load();
+    if (editingLink) {
+      const { error } = await supabase.from("partner_coverage").update({ ...form, updated_by: who, updated_on: new Date().toISOString() }).eq("id", editingLink.id);
+      if (error) { setErr(error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Updated Successfully");
+    } else {
+      const dup = links.find(l => l.status === "Active" && l.district === form.district && (l.mandal || "") === (form.mandal || "") && (l.village || "") === (form.village || ""));
+      if (dup) { setErr("This coverage area is already added."); return; }
+      const { error } = await supabase.from("partner_coverage").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+      if (error) { setErr(error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Added Successfully");
+    }
   };
 
   const toggleStatus = async (l) => {
     const newStatus = l.status === "Active" ? "Inactive" : "Active";
     await supabase.from("partner_coverage").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
-    load();
+    load(); showToast && showToast("Updated Successfully");
+  };
+
+  const confirmDelete = async () => {
+    await supabase.from("partner_coverage").delete().eq("id", deleteTarget.id);
+    setDeleteTarget(null); load(); showToast && showToast("Deleted Successfully");
   };
 
   const activeCoverage = links.filter(l => l.status === "Active");
@@ -8186,49 +8308,62 @@ function PartnerCoverageTab({ partner, currentUser }) {
       </div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Coverage Areas</p>
-        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Add Coverage"}</button>
+        <button onClick={openAdd} className="text-[11.5px] font-semibold text-[#1E3A8A]">+ Add Coverage</button>
       </div>
 
       {showForm && (
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
           {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
           <div className="grid grid-cols-2 gap-x-4">
-            <Field label="State"><Input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} /></Field>
+            <Field label="State"><Input value={form.state} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} /></Field>
             <Field label="District" required><Select value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value }))} options={DISTRICTS_AP} placeholder="Select district" /></Field>
             <Field label="Mandal"><Input value={form.mandal} onChange={e => setForm(f => ({ ...f, mandal: e.target.value }))} /></Field>
             <Field label="Village"><Input value={form.village} onChange={e => setForm(f => ({ ...f, village: e.target.value }))} /></Field>
           </div>
-          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Coverage</button>
+          <div className="flex gap-2">
+            <button onClick={submit} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Coverage</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-[#E5E7EB] px-5 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          </div>
         </div>
       )}
 
-      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="coverage areas" /> : (
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 animate-pulse"><div className="h-3 w-3/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : links.length === 0 ? <LinkEmptyState label="Coverage Areas Linked Yet" /> : (
         <div className="space-y-2">
           {links.map(l => (
             <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[12.5px] font-semibold text-[#111827]">{[l.village, l.mandal, l.district, l.state].filter(Boolean).join(", ")}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
-                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
-                </div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-[12.5px] font-semibold text-[#111827]">{[l.village, l.mandal, l.district, l.state].filter(Boolean).join(", ")}</p>
+                <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => openEdit(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => toggleStatus(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#374151]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                <button onClick={() => setDeleteTarget(l)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Delete</button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {deleteTarget && (
+        <ConfirmDialog title="Delete Coverage Area?" message="Remove this coverage area? This cannot be undone."
+          onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
+      )}
     </div>
   );
 }
 
-function PartnerLivelihoodTab({ partner, currentUser }) {
+function PartnerLivelihoodTab({ partner, currentUser, showToast }) {
+  const blankForm = { livelihood_type: LIVELIHOOD_LINK_TYPES[0], beneficiary_count: "", remarks: "" };
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ livelihood_type: LIVELIHOOD_LINK_TYPES[0], beneficiary_count: "" });
+  const [editingLink, setEditingLink] = useState(null);
+  const [form, setForm] = useState(blankForm);
   const [err, setErr] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -8238,20 +8373,35 @@ function PartnerLivelihoodTab({ partner, currentUser }) {
   };
   useEffect(() => { load(); }, [partner.id]);
 
+  const openAdd = () => { setEditingLink(null); setForm(blankForm); setErr(""); setShowForm(true); };
+  const openEdit = (l) => { setEditingLink(l); setForm({ livelihood_type: l.livelihood_type, beneficiary_count: String(l.beneficiary_count || ""), remarks: l.remarks || "" }); setErr(""); setShowForm(true); };
+
   const submit = async () => {
     setErr("");
-    const dup = links.find(l => l.livelihood_type === form.livelihood_type && l.status === "Active");
-    if (dup) { setErr("This livelihood activity is already linked."); return; }
     const who = currentUser?.username || currentUser?.email || "unknown";
-    const { error } = await supabase.from("partner_livelihood").insert({ ...form, beneficiary_count: parseInt(form.beneficiary_count) || 0, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
-    if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
-    setShowForm(false); setForm({ livelihood_type: LIVELIHOOD_LINK_TYPES[0], beneficiary_count: "" }); load();
+    const payload = { livelihood_type: form.livelihood_type, beneficiary_count: parseInt(form.beneficiary_count) || 0, remarks: form.remarks };
+    if (editingLink) {
+      const { error } = await supabase.from("partner_livelihood").update({ ...payload, updated_by: who, updated_on: new Date().toISOString() }).eq("id", editingLink.id);
+      if (error) { setErr(error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Updated Successfully");
+    } else {
+      const dup = links.find(l => l.livelihood_type === form.livelihood_type && l.status === "Active");
+      if (dup) { setErr("This livelihood activity is already linked."); return; }
+      const { error } = await supabase.from("partner_livelihood").insert({ ...payload, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+      if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
+      setShowForm(false); load(); showToast && showToast("Linked Successfully");
+    }
   };
 
   const toggleStatus = async (l) => {
     const newStatus = l.status === "Active" ? "Inactive" : "Active";
     await supabase.from("partner_livelihood").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
-    load();
+    load(); showToast && showToast("Updated Successfully");
+  };
+
+  const confirmDelete = async () => {
+    await supabase.from("partner_livelihood").delete().eq("id", deleteTarget.id);
+    setDeleteTarget(null); load(); showToast && showToast("Deleted Successfully");
   };
 
   const totalBeneficiaries = links.filter(l => l.status === "Active").reduce((s, l) => s + (l.beneficiary_count || 0), 0);
@@ -8264,7 +8414,7 @@ function PartnerLivelihoodTab({ partner, currentUser }) {
       </div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Livelihood Activities</p>
-        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Activity"}</button>
+        <button onClick={openAdd} className="text-[11.5px] font-semibold text-[#1E3A8A]">+ Add Activity</button>
       </div>
 
       {showForm && (
@@ -8272,27 +8422,41 @@ function PartnerLivelihoodTab({ partner, currentUser }) {
           {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
           <Field label="Livelihood Type"><Select value={form.livelihood_type} onChange={e => setForm(f => ({ ...f, livelihood_type: e.target.value }))} options={LIVELIHOOD_LINK_TYPES} /></Field>
           <Field label="Beneficiary Count"><Input type="number" value={form.beneficiary_count} onChange={e => setForm(f => ({ ...f, beneficiary_count: e.target.value }))} /></Field>
-          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+          <Field label="Remarks"><textarea value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} rows={2} className={inputCls} /></Field>
+          <div className="flex gap-2">
+            <button onClick={submit} className="flex-1 rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+            <button onClick={() => setShowForm(false)} className="rounded-lg border border-[#E5E7EB] px-5 py-2.5 text-[13px] font-medium text-[#374151]">Cancel</button>
+          </div>
         </div>
       )}
 
-      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="livelihood activities" /> : (
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-1/3 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : links.length === 0 ? <LinkEmptyState label="Livelihood Activities Linked Yet" /> : (
         <div className="space-y-2">
           {links.map(l => (
             <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <div>
                   <p className="text-[12.5px] font-semibold text-[#111827]">{l.livelihood_type}</p>
                   <p className="text-[11px] text-[#6B7280]">{l.beneficiary_count || 0} beneficiaries</p>
+                  {l.remarks && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">{l.remarks}</p>}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
-                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
-                </div>
+                <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => openEdit(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => toggleStatus(l)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#374151]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                <button onClick={() => setDeleteTarget(l)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Delete</button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog title="Delete Livelihood Link?" message="Remove this livelihood activity link? This cannot be undone."
+          onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)} />
       )}
     </div>
   );
