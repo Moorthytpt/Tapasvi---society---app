@@ -7368,15 +7368,18 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
   useEffect(() => { load(); }, []);
 
   const savePartner = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
     if (editing) {
-      const { error } = await supabase.from("partners").update(form).eq("id", editing.id);
+      const rec = { ...form, updated_at: new Date().toISOString(), updated_by: who };
+      const { error } = await supabase.from("partners").update(rec).eq("id", editing.id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
-      setPartners(ps => ps.map(p => p.id === editing.id ? { ...p, ...form } : p));
+      setPartners(ps => ps.map(p => p.id === editing.id ? { ...p, ...rec } : p));
       await logAppAudit("UPDATE", "Partners", `Updated partner: ${form.partner_name} (${form.partner_code})`);
       showToast("Partner updated.");
     } else {
       const prefix = PARTNER_TYPE_MAP[form.partner_type]?.prefix || "PTR";
-      const rec = { ...form, partner_code: nextPartnerCode(partners, prefix), status: form.status || "Active", created_at: new Date().toISOString() };
+      const now = new Date().toISOString();
+      const rec = { ...form, partner_code: nextPartnerCode(partners, prefix), status: form.status || "Active", created_at: now, updated_at: now, created_by: who, updated_by: who };
       const { data, error } = await supabase.from("partners").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setPartners(ps => [data, ...ps]);
@@ -7388,10 +7391,11 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
 
   const toggleStatus = async (p) => {
     const newStatus = p.status === "Active" ? "Inactive" : "Active";
-    const { error } = await supabase.from("partners").update({ status: newStatus }).eq("id", p.id);
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("partners").update({ status: newStatus, updated_at: new Date().toISOString(), updated_by: who }).eq("id", p.id);
     if (error) { showToast("Error: " + error.message, "error"); return; }
     setPartners(ps => ps.map(x => x.id === p.id ? { ...x, status: newStatus } : x));
-    await logAppAudit(newStatus === "Active" ? "ACTIVATE" : "DEACTIVATE", "Partners", `${p.partner_name} → ${newStatus}`);
+    await logAppAudit(newStatus === "Active" ? "ACTIVATE" : "DEACTIVATE", "Partners", `${p.partner_name} (${p.partner_code}) → ${newStatus}`);
     showToast(`${p.partner_name} ${newStatus === "Active" ? "activated" : "deactivated"}.`);
   };
 
@@ -7411,6 +7415,8 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
     { label: "Govt Departments", value: countByType("government"), icon: ShieldCheck, grad: ["#DC2626", "#F87171"] },
     { label: "Banks", value: countByType("bank"), icon: Briefcase, grad: ["#7C3AED", "#C4B5FD"] },
     { label: "Waste Recyclers", value: countByType("recycler"), icon: Leaf, grad: ["#16A34A", "#065F46"] },
+    { label: "Training Partners", value: countByType("training_partner"), icon: BookOpen, grad: ["#F97316", "#FB923C"] },
+    { label: "Placement Partners", value: countByType("placement_partner"), icon: Briefcase, grad: ["#0EA5E9", "#0369A1"] },
     { label: "Active Partners", value: activeCount, icon: CheckCircle, grad: ["#16A34A", "#22C55E"] },
     { label: "Inactive Partners", value: inactiveCount, icon: XCircle, grad: ["#6B7280", "#9CA3AF"] },
   ];
@@ -7430,7 +7436,7 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
         onToggleStatus={toggleStatus}
         onExport={() => downloadCSV(partners.map(p => ({
           "Partner Code": p.partner_code, "Name": p.partner_name, "Type": PARTNER_TYPE_MAP[p.partner_type]?.label || p.partner_type,
-          "Contact": p.contact_person, "Mobile": p.mobile, "District": p.districts, "Programs": p.programs_supported, "Status": p.status,
+          "Contact": p.contact_person, "Mobile": p.mobile, "District": p.districts, "Programs": p.supported_programs, "Status": p.status,
         })), `TAPASVI_Partners_${new Date().toISOString().slice(0, 10)}.csv`)}
         onBack={() => setSub("dashboard")} />
     );
@@ -7503,21 +7509,24 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
 function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onToggleStatus, onExport, onBack }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  const stateOptions = useMemo(() => [...new Set(partners.map(p => p.state).filter(Boolean))], [partners]);
   const districtOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.districts || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
-  const programOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.programs_supported || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
+  const programOptions = useMemo(() => [...new Set(partners.flatMap(p => (p.supported_programs || "").split(",").map(d => d.trim()).filter(Boolean)))], [partners]);
 
   const filtered = partners.filter(p => {
     if (typeFilter !== "all" && p.partner_type !== typeFilter) return false;
+    if (stateFilter !== "all" && p.state !== stateFilter) return false;
     if (districtFilter !== "all" && !(p.districts || "").includes(districtFilter)) return false;
-    if (programFilter !== "all" && !(p.programs_supported || "").includes(programFilter)) return false;
+    if (programFilter !== "all" && !(p.supported_programs || "").includes(programFilter)) return false;
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (query.trim()) {
       const q = query.toLowerCase();
-      if (!(p.partner_name?.toLowerCase().includes(q) || p.contact_person?.toLowerCase().includes(q) || p.mobile?.includes(q))) return false;
+      if (!(p.partner_name?.toLowerCase().includes(q) || p.partner_code?.toLowerCase().includes(q) || p.contact_person?.toLowerCase().includes(q) || p.mobile?.includes(q))) return false;
     }
     return true;
   });
@@ -7536,12 +7545,16 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
 
       <div className="relative mb-3">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, contact person, mobile..." className={inputCls + " pl-9 text-[12.5px]"} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, code, contact person, mobile..." className={inputCls + " pl-9 text-[12.5px]"} />
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
           <option value="all">All Types</option>
           {PARTNER_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All States</option>
+          {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
           <option value="all">All Districts</option>
@@ -7570,7 +7583,7 @@ function PartnerList({ partners, isAdmin, loading, onAdd, onView, onEdit, onTogg
                 <div>
                   <p className="text-[13.5px] font-semibold text-[#111827]">{p.partner_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{p.partner_code}</span></p>
                   <p className="text-[11px] text-[#6B7280] mt-0.5">{PARTNER_TYPE_MAP[p.partner_type]?.label} · {p.contact_person || "—"} · {p.mobile || "—"} · {p.districts || "—"}</p>
-                  {p.programs_supported && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">Programs: {p.programs_supported}</p>}
+                  {p.supported_programs && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">Programs: {p.supported_programs}</p>}
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: p.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: p.status === "Active" ? "#16A34A" : "#6B7280" }}>
                   {p.status}
@@ -7598,12 +7611,12 @@ function PartnerForm({ editing, onSave, onCancel }) {
     partner_name: "", partner_type: "company", registration_number: "", gst: "", pan: "",
     contact_person: "", designation: "", mobile: "", alternate_mobile: "", email: "", website: "",
     state: "Andhra Pradesh", districts: "", mandal: "", coverage_notes: "",
-    programs_supported: "", address: "", village_city: "", pincode: "",
+    supported_programs: "", address: "", village_city: "", pincode: "",
     status: "Active", remarks: "",
   };
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
   const [selectedDistricts, setSelectedDistricts] = useState(new Set((editing?.districts || "").split(",").map(s => s.trim()).filter(Boolean)));
-  const [selectedPrograms, setSelectedPrograms] = useState(new Set((editing?.programs_supported || "").split(",").map(s => s.trim()).filter(Boolean)));
+  const [selectedPrograms, setSelectedPrograms] = useState(new Set((editing?.supported_programs || "").split(",").map(s => s.trim()).filter(Boolean)));
   const [errors, setErrors] = useState({});
   const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
 
@@ -7613,14 +7626,18 @@ function PartnerForm({ editing, onSave, onCancel }) {
   const validate = () => {
     const e = {};
     if (!form.partner_name.trim()) e.partner_name = "Required";
-    if (form.mobile && !/^\d{10}$/.test(form.mobile)) e.mobile = "Must be 10 digits";
+    if (!form.partner_type) e.partner_type = "Required";
+    if (!form.contact_person.trim()) e.contact_person = "Required";
+    if (!form.mobile.trim()) e.mobile = "Required";
+    else if (!/^\d{10}$/.test(form.mobile)) e.mobile = "Must be 10 digits";
+    if (!form.status) e.status = "Required";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const submit = () => {
     if (!validate()) return;
-    onSave({ ...form, districts: [...selectedDistricts].join(", "), programs_supported: [...selectedPrograms].join(", ") });
+    onSave({ ...form, districts: [...selectedDistricts].join(", "), supported_programs: [...selectedPrograms].join(", ") });
   };
 
   return (
@@ -7636,7 +7653,7 @@ function PartnerForm({ editing, onSave, onCancel }) {
         )}
         <div className="grid grid-cols-2 gap-x-4">
           <Field label="Partner Name" required error={errors.partner_name}><Input value={form.partner_name} onChange={set("partner_name")} /></Field>
-          <Field label="Partner Type"><Select value={form.partner_type} onChange={set("partner_type")} options={PARTNER_TYPES.map(t => ({ value: t.key, label: t.label }))} /></Field>
+          <Field label="Partner Type" required error={errors.partner_type}><Select value={form.partner_type} onChange={set("partner_type")} options={PARTNER_TYPES.map(t => ({ value: t.key, label: t.label }))} /></Field>
           <Field label="Registration Number"><Input value={form.registration_number} onChange={set("registration_number")} /></Field>
           <Field label="GST (Optional)"><Input value={form.gst} onChange={set("gst")} /></Field>
           <Field label="PAN (Optional)"><Input value={form.pan} onChange={set("pan")} /></Field>
@@ -7644,9 +7661,9 @@ function PartnerForm({ editing, onSave, onCancel }) {
 
         <SectionHeader title="Contact" color="#1E3A8A" />
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Contact Person"><Input value={form.contact_person} onChange={set("contact_person")} /></Field>
+          <Field label="Contact Person" required error={errors.contact_person}><Input value={form.contact_person} onChange={set("contact_person")} /></Field>
           <Field label="Designation"><Input value={form.designation} onChange={set("designation")} /></Field>
-          <Field label="Mobile" error={errors.mobile}><Input value={form.mobile} onChange={e => setForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) }))} inputMode="numeric" /></Field>
+          <Field label="Mobile" required error={errors.mobile}><Input value={form.mobile} onChange={e => setForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) }))} inputMode="numeric" /></Field>
           <Field label="Alternate Mobile"><Input value={form.alternate_mobile} onChange={set("alternate_mobile")} inputMode="numeric" /></Field>
           <Field label="Email"><Input type="email" value={form.email} onChange={set("email")} /></Field>
           <Field label="Website"><Input value={form.website} onChange={set("website")} /></Field>
@@ -7691,7 +7708,7 @@ function PartnerForm({ editing, onSave, onCancel }) {
         </div>
 
         <SectionHeader title="Status" color="#1E3A8A" />
-        <Field label="Status"><Select value={form.status} onChange={set("status")} options={["Active", "Inactive"]} /></Field>
+        <Field label="Status" required error={errors.status}><Select value={form.status} onChange={set("status")} options={["Active", "Inactive"]} /></Field>
         <Field label="Remarks"><textarea value={form.remarks} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
 
         <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
@@ -7704,6 +7721,20 @@ function PartnerForm({ editing, onSave, onCancel }) {
 }
 
 function PartnerProfile({ partner: p, onEdit, onBack }) {
+  const [activity, setActivity] = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingActivity(true);
+      const { data } = await supabase.from("audit_logs").select("*")
+        .eq("module", "Partners").ilike("details", `%${p.partner_code}%`)
+        .order("created_at", { ascending: false }).limit(10);
+      setActivity(data || []);
+      setLoadingActivity(false);
+    })();
+  }, [p.partner_code]);
+
   return (
     <div className="max-w-[640px] mx-auto">
       <div className="flex items-center gap-2 mb-4">
@@ -7716,12 +7747,14 @@ function PartnerProfile({ partner: p, onEdit, onBack }) {
       </div>
 
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-        <SectionHeader title="Basic Information" color="#1E3A8A" />
+        <SectionHeader title="Overview" color="#1E3A8A" />
         <div className="grid grid-cols-2 gap-y-3">
           <InfoRow label="Registration No." value={p.registration_number} />
           <InfoRow label="GST" value={p.gst} />
           <InfoRow label="PAN" value={p.pan} />
           <InfoRow label="Status" value={p.status} />
+          <InfoRow label="Created By" value={p.created_by} />
+          <InfoRow label="Updated By" value={p.updated_by} />
         </div>
 
         <SectionHeader title="Contact Details" color="#1E3A8A" />
@@ -7743,7 +7776,7 @@ function PartnerProfile({ partner: p, onEdit, onBack }) {
         {p.coverage_notes && <p className="text-[12px] text-[#6B7280] mt-2">{p.coverage_notes}</p>}
 
         <SectionHeader title="Programs Supported" color="#1E3A8A" />
-        <p className="text-[12.5px] text-[#111827]">{p.programs_supported || "—"}</p>
+        <p className="text-[12.5px] text-[#111827]">{p.supported_programs || "—"}</p>
 
         <SectionHeader title="Address" color="#1E3A8A" />
         <p className="text-[12.5px] text-[#111827]">{p.address}{p.village_city ? `, ${p.village_city}` : ""}{p.pincode ? ` — ${p.pincode}` : ""}</p>
@@ -7756,9 +7789,34 @@ function PartnerProfile({ partner: p, onEdit, onBack }) {
         )}
       </div>
 
-      {/* Reserved for future tabs: Documents, Linked Beneficiaries, Reports, Activity Timeline */}
+      {/* Activity History — basic version using the existing audit_logs pattern */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <SectionHeader title="Activity History" color="#1E3A8A" />
+        {loadingActivity ? (
+          <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
+        ) : activity.length === 0 ? (
+          <p className="text-[12px] text-[#9CA3AF] text-center py-4">No activity recorded yet.</p>
+        ) : (
+          <div className="space-y-0">
+            {activity.map((a, i) => (
+              <div key={a.id || i} className="flex gap-2.5">
+                <div className="flex flex-col items-center">
+                  <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: a.action === "CREATE" ? "#16A34A" : a.action === "DEACTIVATE" ? "#DC2626" : "#1E3A8A" }} />
+                  {i < activity.length - 1 && <div className="w-px flex-1 min-h-[20px] bg-[#E5E7EB]" />}
+                </div>
+                <div className="pb-3 flex-1 min-w-0">
+                  <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                  <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "—"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reserved for future tabs: Documents, Linked Beneficiaries, Reports */}
       <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
-        <p className="text-[11px] text-[#9CA3AF]">Documents · Linked Beneficiaries · Reports · Activity Timeline — coming soon</p>
+        <p className="text-[11px] text-[#9CA3AF]">Documents · Linked Beneficiaries · Reports — coming soon</p>
       </div>
     </div>
   );
