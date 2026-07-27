@@ -7442,7 +7442,7 @@ function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
     return <PartnerForm editing={editing} onSave={savePartner} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
   }
   if (sub === "profile" && viewing) {
-    return <PartnerProfile partner={viewing} onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
+    return <PartnerProfile partner={viewing} currentUser={currentUser} onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
   }
   if (sub === "list") {
     return (
@@ -7843,7 +7843,8 @@ function PartnerForm({ editing, onSave, onCancel }) {
   );
 }
 
-function PartnerProfile({ partner: p, onEdit, onBack }) {
+function PartnerProfile({ partner: p, onEdit, onBack, currentUser }) {
+  const [tab, setTab] = useState("overview");
   const [activity, setActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
 
@@ -7858,6 +7859,14 @@ function PartnerProfile({ partner: p, onEdit, onBack }) {
     })();
   }, [p.partner_code]);
 
+  const TABS = [
+    { key: "overview", label: "Overview" },
+    { key: "projects", label: "Projects" },
+    { key: "training", label: "Training" },
+    { key: "coverage", label: "Coverage" },
+    { key: "livelihood", label: "Livelihood" },
+  ];
+
   return (
     <div className="max-w-[640px] mx-auto">
       <div className="flex items-center gap-2 mb-4">
@@ -7869,78 +7878,422 @@ function PartnerProfile({ partner: p, onEdit, onBack }) {
         <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-        <SectionHeader title="Overview" color="#1E3A8A" />
-        <div className="grid grid-cols-2 gap-y-3">
-          <InfoRow label="Registration No." value={p.registration_number} />
-          <InfoRow label="GST" value={p.gst} />
-          <InfoRow label="PAN" value={p.pan} />
-          <InfoRow label="Status" value={p.status} />
-          <InfoRow label="Created By" value={p.created_by} />
-          <InfoRow label="Updated By" value={p.updated_by} />
-        </div>
-
-        <SectionHeader title="Contact Details" color="#1E3A8A" />
-        <div className="grid grid-cols-2 gap-y-3">
-          <InfoRow label="Contact Person" value={p.contact_person} />
-          <InfoRow label="Designation" value={p.designation} />
-          <InfoRow label="Mobile" value={p.mobile} />
-          <InfoRow label="Alternate Mobile" value={p.alternate_mobile} />
-          <InfoRow label="Email" value={p.email} />
-          <InfoRow label="Website" value={p.website} />
-        </div>
-
-        <SectionHeader title="Coverage Area" color="#1E3A8A" />
-        <div className="grid grid-cols-2 gap-y-3">
-          <InfoRow label="State" value={p.state} />
-          <InfoRow label="Mandal" value={p.mandal} />
-          <InfoRow label="Districts" value={p.districts} />
-        </div>
-        {p.coverage_notes && <p className="text-[12px] text-[#6B7280] mt-2">{p.coverage_notes}</p>}
-
-        <SectionHeader title="Programs Supported" color="#1E3A8A" />
-        <p className="text-[12.5px] text-[#111827]">{p.supported_programs || "—"}</p>
-
-        <SectionHeader title="Address" color="#1E3A8A" />
-        <p className="text-[12.5px] text-[#111827]">{p.address}{p.village_city ? `, ${p.village_city}` : ""}{p.pincode ? ` — ${p.pincode}` : ""}</p>
-
-        {p.remarks && (
-          <>
-            <SectionHeader title="Remarks" color="#1E3A8A" />
-            <p className="text-[12.5px] text-[#111827]">{p.remarks}</p>
-          </>
-        )}
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap transition-colors shrink-0"
+            style={tab === t.key ? { background: "#1E3A8A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Activity History — basic version using the existing audit_logs pattern */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-        <SectionHeader title="Activity History" color="#1E3A8A" />
-        {loadingActivity ? (
-          <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
-        ) : activity.length === 0 ? (
-          <p className="text-[12px] text-[#9CA3AF] text-center py-4">No activity recorded yet.</p>
-        ) : (
-          <div className="space-y-0">
-            {activity.map((a, i) => (
-              <div key={a.id || i} className="flex gap-2.5">
-                <div className="flex flex-col items-center">
-                  <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: a.action === "CREATE" ? "#16A34A" : a.action === "DEACTIVATE" ? "#DC2626" : "#1E3A8A" }} />
-                  {i < activity.length - 1 && <div className="w-px flex-1 min-h-[20px] bg-[#E5E7EB]" />}
+      {tab === "overview" && (
+        <>
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+            <SectionHeader title="Overview" color="#1E3A8A" />
+            <div className="grid grid-cols-2 gap-y-3">
+              <InfoRow label="Registration No." value={p.registration_number} />
+              <InfoRow label="GST" value={p.gst} />
+              <InfoRow label="PAN" value={p.pan} />
+              <InfoRow label="Status" value={p.status} />
+            </div>
+
+            <SectionHeader title="Contact Details" color="#1E3A8A" />
+            <div className="grid grid-cols-2 gap-y-3">
+              <InfoRow label="Contact Person" value={p.contact_person} />
+              <InfoRow label="Designation" value={p.designation} />
+              <InfoRow label="Mobile" value={p.mobile} />
+              <InfoRow label="Alternate Mobile" value={p.alternate_mobile} />
+              <InfoRow label="Email" value={p.email} />
+              <InfoRow label="Website" value={p.website} />
+            </div>
+
+            <SectionHeader title="Coverage Area" color="#1E3A8A" />
+            <div className="grid grid-cols-2 gap-y-3">
+              <InfoRow label="State" value={p.state} />
+              <InfoRow label="Mandal" value={p.mandal} />
+              <InfoRow label="Districts" value={p.districts} />
+            </div>
+            {p.coverage_notes && <p className="text-[12px] text-[#6B7280] mt-2">{p.coverage_notes}</p>}
+
+            <SectionHeader title="Programs Supported" color="#1E3A8A" />
+            <p className="text-[12.5px] text-[#111827]">{p.supported_programs || "—"}</p>
+
+            <SectionHeader title="Address" color="#1E3A8A" />
+            <p className="text-[12.5px] text-[#111827]">{p.address}{p.village_city ? `, ${p.village_city}` : ""}{p.pincode ? ` — ${p.pincode}` : ""}</p>
+
+            {p.remarks && (
+              <>
+                <SectionHeader title="Remarks" color="#1E3A8A" />
+                <p className="text-[12.5px] text-[#111827]">{p.remarks}</p>
+              </>
+            )}
+
+            <SectionHeader title="Audit Information" color="#1E3A8A" />
+            <div className="grid grid-cols-2 gap-y-3">
+              <InfoRow label="Created At" value={p.created_at ? new Date(p.created_at).toLocaleString() : "—"} />
+              <InfoRow label="Updated At" value={p.updated_at ? new Date(p.updated_at).toLocaleString() : "—"} />
+              <InfoRow label="Created By" value={p.created_by} />
+              <InfoRow label="Updated By" value={p.updated_by} />
+            </div>
+          </div>
+
+          {/* Activity History — basic version using the existing audit_logs pattern */}
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+            <SectionHeader title="Activity History" color="#1E3A8A" />
+            {loadingActivity ? (
+              <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
+            ) : activity.length === 0 ? (
+              <p className="text-[12px] text-[#9CA3AF] text-center py-4">No activity recorded yet.</p>
+            ) : (
+              <div className="space-y-0">
+                {activity.map((a, i) => (
+                  <div key={a.id || i} className="flex gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: a.action === "CREATE" ? "#16A34A" : a.action === "DEACTIVATE" ? "#DC2626" : "#1E3A8A" }} />
+                      {i < activity.length - 1 && <div className="w-px flex-1 min-h-[20px] bg-[#E5E7EB]" />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                      <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "—"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
+            <p className="text-[11px] text-[#9CA3AF]">Documents · Reports — coming soon</p>
+          </div>
+        </>
+      )}
+
+      {tab === "projects" && <PartnerProjectsTab partner={p} currentUser={currentUser} />}
+      {tab === "training" && <PartnerTrainingTab partner={p} currentUser={currentUser} />}
+      {tab === "coverage" && <PartnerCoverageTab partner={p} currentUser={currentUser} />}
+      {tab === "livelihood" && <PartnerLivelihoodTab partner={p} currentUser={currentUser} />}
+    </div>
+  );
+}
+
+const PARTNER_ROLES = ["Funding Partner", "Implementation Partner", "Training Partner", "Placement Partner", "Technical Partner", "Monitoring Partner", "CSR Partner"];
+const LIVELIHOOD_LINK_TYPES = ["Employment", "Self Employment", "Group Enterprise", "Home Based Work", "Waste Management", "Placement", "Skill Development"];
+
+function LinkEmptyState({ label }) {
+  return (
+    <div className="text-center py-10 text-[#9CA3AF]">
+      <p className="text-[12.5px]">No {label} linked yet.</p>
+    </div>
+  );
+}
+
+function PartnerProjectsTab({ partner, currentUser }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ program: PROGRAMS[0].key, partner_role: PARTNER_ROLES[0], effective_from: "", effective_to: "", remarks: "" });
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("partner_programs").select("*").eq("partner_id", partner.id).order("linked_on", { ascending: false });
+    setLinks(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [partner.id]);
+
+  const submit = async () => {
+    setErr("");
+    const dup = links.find(l => l.program === form.program && l.partner_role === form.partner_role && l.status === "Active");
+    if (dup) { setErr("This partner is already linked to this program with this role."); return; }
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("partner_programs").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+    if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
+    setShowForm(false); setForm({ program: PROGRAMS[0].key, partner_role: PARTNER_ROLES[0], effective_from: "", effective_to: "", remarks: "" });
+    load();
+  };
+
+  const toggleStatus = async (l) => {
+    const newStatus = l.status === "Active" ? "Inactive" : "Active";
+    await supabase.from("partner_programs").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
+    load();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Linked Programs ({links.filter(l => l.status === "Active").length})</p>
+        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Program"}</button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
+          <Field label="Program"><Select value={form.program} onChange={e => setForm(f => ({ ...f, program: e.target.value }))} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} /></Field>
+          <Field label="Partner Role"><Select value={form.partner_role} onChange={e => setForm(f => ({ ...f, partner_role: e.target.value }))} options={PARTNER_ROLES} /></Field>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="Effective From"><Input type="date" value={form.effective_from} onChange={e => setForm(f => ({ ...f, effective_from: e.target.value }))} /></Field>
+            <Field label="Effective To"><Input type="date" value={form.effective_to} onChange={e => setForm(f => ({ ...f, effective_to: e.target.value }))} /></Field>
+          </div>
+          <Field label="Remarks"><textarea value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} rows={2} className={inputCls} /></Field>
+          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+        </div>
+      )}
+
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="programs" /> : (
+        <div className="space-y-2">
+          {links.map(l => (
+            <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{PROGRAM_MAP[l.program]?.label || l.program}</p>
+                  <p className="text-[11px] text-[#6B7280]">{l.partner_role}{l.effective_from ? ` · From ${l.effective_from}` : ""}</p>
                 </div>
-                <div className="pb-3 flex-1 min-w-0">
-                  <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
-                  <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "—"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerTrainingTab({ partner, currentUser }) {
+  const [links, setLinks] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState("");
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    const [lk, bt] = await Promise.all([
+      supabase.from("partner_training_batches").select("*, batch_trainings(*)").eq("partner_id", partner.id).order("linked_on", { ascending: false }),
+      supabase.from("batch_trainings").select("*"),
+    ]);
+    setLinks(lk.data || []);
+    setBatches(bt.data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [partner.id]);
+
+  const submit = async () => {
+    setErr("");
+    if (!selectedBatch) { setErr("Select a training batch."); return; }
+    const dup = links.find(l => l.batch_id === selectedBatch && l.status === "Active");
+    if (dup) { setErr("This batch is already linked."); return; }
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("partner_training_batches").insert({ partner_id: partner.id, batch_id: selectedBatch, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+    if (error) { setErr(error.message.includes("duplicate") ? "This batch is already linked." : error.message); return; }
+    setShowForm(false); setSelectedBatch(""); load();
+  };
+
+  const toggleStatus = async (l) => {
+    const newStatus = l.status === "Active" ? "Inactive" : "Active";
+    await supabase.from("partner_training_batches").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
+    load();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Linked Training Batches ({links.filter(l => l.status === "Active").length})</p>
+        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Batch"}</button>
       </div>
 
-      {/* Reserved for future tabs: Documents, Linked Beneficiaries, Reports */}
-      <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
-        <p className="text-[11px] text-[#9CA3AF]">Documents · Linked Beneficiaries · Reports — coming soon</p>
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
+          <Field label="Training Batch">
+            <Select value={selectedBatch} onChange={e => setSelectedBatch(e.target.value)} placeholder="Select batch"
+              options={batches.map(b => ({ value: b.batch_id, label: `${b.training_name} · ${b.venue}` }))} />
+          </Field>
+          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+        </div>
+      )}
+
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="training batches" /> : (
+        <div className="space-y-2">
+          {links.map(l => {
+            const b = l.batch_trainings;
+            return (
+              <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[12.5px] font-semibold text-[#111827]">{b?.training_name || "—"}</p>
+                    <p className="text-[11px] text-[#6B7280]">{PROGRAM_MAP[b?.program]?.short} · {b?.trainer_name || "—"} · {b?.venue || "—"} · {b?.start_date} → {b?.end_date}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                    <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerCoverageTab({ partner, currentUser }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ state: "Andhra Pradesh", district: "", mandal: "", village: "" });
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("partner_coverage").select("*").eq("partner_id", partner.id).order("linked_on", { ascending: false });
+    setLinks(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [partner.id]);
+
+  const submit = async () => {
+    setErr("");
+    if (!form.district.trim()) { setErr("District is required."); return; }
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("partner_coverage").insert({ ...form, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+    if (error) { setErr(error.message); return; }
+    setShowForm(false); setForm({ state: "Andhra Pradesh", district: "", mandal: "", village: "" }); load();
+  };
+
+  const toggleStatus = async (l) => {
+    const newStatus = l.status === "Active" ? "Inactive" : "Active";
+    await supabase.from("partner_coverage").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
+    load();
+  };
+
+  const activeCoverage = links.filter(l => l.status === "Active");
+  const districtCount = new Set(activeCoverage.map(l => l.district).filter(Boolean)).size;
+  const villageCount = new Set(activeCoverage.map(l => l.village).filter(Boolean)).size;
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2.5 mb-4">
+        <div className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center"><p className="text-[18px] font-bold text-[#1E3A8A]">{districtCount}</p><p className="text-[10px] text-[#6B7280]">Districts</p></div>
+        <div className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center"><p className="text-[18px] font-bold text-[#16A34A]">{villageCount}</p><p className="text-[10px] text-[#6B7280]">Villages</p></div>
       </div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Coverage Areas</p>
+        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Add Coverage"}</button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
+          <div className="grid grid-cols-2 gap-x-4">
+            <Field label="State"><Input value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} /></Field>
+            <Field label="District" required><Select value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value }))} options={DISTRICTS_AP} placeholder="Select district" /></Field>
+            <Field label="Mandal"><Input value={form.mandal} onChange={e => setForm(f => ({ ...f, mandal: e.target.value }))} /></Field>
+            <Field label="Village"><Input value={form.village} onChange={e => setForm(f => ({ ...f, village: e.target.value }))} /></Field>
+          </div>
+          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Coverage</button>
+        </div>
+      )}
+
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="coverage areas" /> : (
+        <div className="space-y-2">
+          {links.map(l => (
+            <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{[l.village, l.mandal, l.district, l.state].filter(Boolean).join(", ")}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerLivelihoodTab({ partner, currentUser }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ livelihood_type: LIVELIHOOD_LINK_TYPES[0], beneficiary_count: "" });
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("partner_livelihood").select("*").eq("partner_id", partner.id).order("linked_on", { ascending: false });
+    setLinks(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [partner.id]);
+
+  const submit = async () => {
+    setErr("");
+    const dup = links.find(l => l.livelihood_type === form.livelihood_type && l.status === "Active");
+    if (dup) { setErr("This livelihood activity is already linked."); return; }
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("partner_livelihood").insert({ ...form, beneficiary_count: parseInt(form.beneficiary_count) || 0, partner_id: partner.id, status: "Active", linked_by: who, linked_on: new Date().toISOString(), updated_by: who, updated_on: new Date().toISOString() });
+    if (error) { setErr(error.message.includes("duplicate") ? "This link already exists." : error.message); return; }
+    setShowForm(false); setForm({ livelihood_type: LIVELIHOOD_LINK_TYPES[0], beneficiary_count: "" }); load();
+  };
+
+  const toggleStatus = async (l) => {
+    const newStatus = l.status === "Active" ? "Inactive" : "Active";
+    await supabase.from("partner_livelihood").update({ status: newStatus, updated_by: currentUser?.username, updated_on: new Date().toISOString() }).eq("id", l.id);
+    load();
+  };
+
+  const totalBeneficiaries = links.filter(l => l.status === "Active").reduce((s, l) => s + (l.beneficiary_count || 0), 0);
+
+  return (
+    <div>
+      <div className="bg-white rounded-xl border border-[#E5E7EB] p-3 text-center mb-4">
+        <p className="text-[20px] font-bold text-[#16A34A]">{totalBeneficiaries}</p>
+        <p className="text-[10.5px] text-[#6B7280]">Beneficiaries Supported</p>
+      </div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[12px] font-bold uppercase tracking-wide text-[#6B7280]">Livelihood Activities</p>
+        <button onClick={() => setShowForm(s => !s)} className="text-[11.5px] font-semibold text-[#1E3A8A]">{showForm ? "Cancel" : "+ Link Activity"}</button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          {err && <p className="text-[11.5px] text-[#DC2626] mb-2">⚠ {err}</p>}
+          <Field label="Livelihood Type"><Select value={form.livelihood_type} onChange={e => setForm(f => ({ ...f, livelihood_type: e.target.value }))} options={LIVELIHOOD_LINK_TYPES} /></Field>
+          <Field label="Beneficiary Count"><Input type="number" value={form.beneficiary_count} onChange={e => setForm(f => ({ ...f, beneficiary_count: e.target.value }))} /></Field>
+          <button onClick={submit} className="w-full rounded-lg py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save Link</button>
+        </div>
+      )}
+
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-8">Loading...</p> : links.length === 0 ? <LinkEmptyState label="livelihood activities" /> : (
+        <div className="space-y-2">
+          {links.map(l => (
+            <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{l.livelihood_type}</p>
+                  <p className="text-[11px] text-[#6B7280]">{l.beneficiary_count || 0} beneficiaries</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge label={l.status} color={l.status === "Active" ? "#16A34A" : "#6B7280"} tint={l.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                  <button onClick={() => toggleStatus(l)} className="text-[10.5px] font-semibold text-[#1E3A8A]">{l.status === "Active" ? "Deactivate" : "Activate"}</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
