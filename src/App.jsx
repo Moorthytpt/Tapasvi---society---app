@@ -1138,7 +1138,13 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                   </Field>
                   <Field label="Document Number" required error={errors.identity_number} hint={identityInfo.hint}>
                     <Input value={form.identity_number}
-                      onChange={e => setForm(f => ({ ...f, identity_number: e.target.value.trim().toUpperCase() }))}
+                      onChange={e => {
+                        let val = e.target.value;
+                        if (form.identity_type === "aadhaar") val = val.replace(/\D/g, "").slice(0, 12);
+                        else val = val.trim().toUpperCase();
+                        setForm(f => ({ ...f, identity_number: val }));
+                      }}
+                      maxLength={form.identity_type === "aadhaar" ? 12 : undefined}
                       placeholder={identityInfo.placeholder}
                       inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
                   </Field>
