@@ -7556,6 +7556,12 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const [batchFilter, setBatchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [partnerFilter, setPartnerFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [mandalFilter, setMandalFilter] = useState("all");
+  const [genderFilter, setGenderFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -7600,13 +7606,27 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const scopedEmployment = useMemo(() => isFW ? employment.filter(e => scopedBeneficiaryIds.has(e.beneficiary_id)) : employment, [employment, isFW, scopedBeneficiaryIds]);
 
   // Apply global filter bar on top of scope
+  const stateOptions = useMemo(() => [...new Set(scopedBeneficiaries.map(b => b.state || "Andhra Pradesh"))].sort(), [scopedBeneficiaries]);
+  const districtOptions = useMemo(() => {
+    const scope = stateFilter === "all" ? scopedBeneficiaries : scopedBeneficiaries.filter(b => (b.state || "Andhra Pradesh") === stateFilter);
+    return [...new Set(scope.map(b => b.district).filter(Boolean))].sort();
+  }, [scopedBeneficiaries, stateFilter]);
+  const mandalOptions = useMemo(() => districtFilter === "all" ? [] : [...new Set(scopedBeneficiaries.filter(b => b.district === districtFilter).map(b => b.mandal).filter(Boolean))].sort(), [scopedBeneficiaries, districtFilter]);
+  const onStateChange = (v) => { setStateFilter(v); setDistrictFilter("all"); setMandalFilter("all"); };
+  const onDistrictChange = (v) => { setDistrictFilter(v); setMandalFilter("all"); };
+
   const filteredBeneficiaries = useMemo(() => scopedBeneficiaries.filter(b =>
     (programFilter === "all" || b.program === programFilter) &&
     (villageFilter === "all" || b.village === villageFilter) &&
     (fwFilter === "all" || b.field_worker_name === fwFilter) &&
+    (stateFilter === "all" || (b.state || "Andhra Pradesh") === stateFilter) &&
+    (districtFilter === "all" || b.district === districtFilter) &&
+    (mandalFilter === "all" || b.mandal === mandalFilter) &&
+    (genderFilter === "all" || b.gender === genderFilter) &&
+    (categoryFilter === "all" || b.category === categoryFilter) &&
     (!dateFrom || (b.registration_date || "") >= dateFrom) &&
     (!dateTo || (b.registration_date || "") <= dateTo)
-  ), [scopedBeneficiaries, programFilter, villageFilter, fwFilter, dateFrom, dateTo]);
+  ), [scopedBeneficiaries, programFilter, villageFilter, fwFilter, stateFilter, districtFilter, mandalFilter, genderFilter, categoryFilter, dateFrom, dateTo]);
 
   const filteredBatches = useMemo(() => scopedBatches.filter(b =>
     (programFilter === "all" || b.program === programFilter) &&
@@ -7635,6 +7655,7 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   // Summary cards
   const totalBeneficiaries = filteredBeneficiaries.length;
   const activeBeneficiaries = filteredBeneficiaries.filter(b => b.status !== "Dropped" && b.status !== "Archived").length;
+  const inactiveBeneficiaries = totalBeneficiaries - activeBeneficiaries;
   const activePrograms = new Set(filteredBeneficiaries.map(b => b.program).filter(Boolean)).size;
   const activePartners = partners.filter(p => p.status === "Active").length;
   const totalTrainings = filteredBatches.length;
@@ -7652,6 +7673,7 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const SUMMARY = [
     { label: "Total Beneficiaries", value: totalBeneficiaries, icon: Users, color: "#1E3A8A" },
     { label: "Active Beneficiaries", value: activeBeneficiaries, icon: CheckCircle, color: "#16A34A" },
+    { label: "Inactive Beneficiaries", value: inactiveBeneficiaries, icon: XCircle, color: "#DC2626" },
     { label: "Active Programs", value: activePrograms, icon: BookOpen, color: "#7C3AED" },
     { label: "Active Partners", value: activePartners, icon: Building2, color: "#0EA5E9" },
     { label: "Training Batches", value: totalTrainings, icon: BookOpen, color: "#DB2777" },
@@ -7672,6 +7694,32 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const educationWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.education), [filteredBeneficiaries]);
   const skillWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.skill_interest), [filteredBeneficiaries]);
   const fwWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.field_worker_name), [filteredBeneficiaries]);
+  const districtWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.district), [filteredBeneficiaries]);
+  const categoryWise = useMemo(() => reportsGroupBy(filteredBeneficiaries, b => b.category), [filteredBeneficiaries]);
+
+  // Top 10 lists
+  const top10Programs = useMemo(() => [...programWise].sort((a, b) => b.count - a.count).slice(0, 10), [programWise]);
+  const top10Partners = useMemo(() => {
+    const counts = {};
+    partners.forEach(p => { counts[p.partner_name] = (counts[p.partner_name] || 0) + 1; });
+    return Object.entries(counts).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+  }, [partners]);
+  const top10Districts = useMemo(() => [...districtWise].sort((a, b) => b.count - a.count).slice(0, 10), [districtWise]);
+  const top10Villages = useMemo(() => [...villageWise].sort((a, b) => b.count - a.count).slice(0, 10), [villageWise]);
+  const newestRegistrations = useMemo(() => [...filteredBeneficiaries].sort((a, b) => (b.registration_date || "").localeCompare(a.registration_date || "")).slice(0, 10), [filteredBeneficiaries]);
+
+  // Partner-wise Programs — how many program links each partner has (from Sprint 2A linking table)
+  const [partnerProgramLinks, setPartnerProgramLinks] = useState([]);
+  useEffect(() => { (async () => { const { data } = await supabase.from("partner_programs").select("*").eq("status", "Active"); setPartnerProgramLinks(data || []); })(); }, []);
+  const partnerWisePrograms = useMemo(() => {
+    const counts = {};
+    partnerProgramLinks.forEach(l => {
+      const partner = partners.find(p => p.id === l.partner_id);
+      const name = partner?.partner_name || "Unknown";
+      counts[name] = (counts[name] || 0) + 1;
+    });
+    return Object.entries(counts).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+  }, [partnerProgramLinks, partners]);
 
   // Training breakdowns
   const batchWise = useMemo(() => filteredBatches.map(b => ({
@@ -7816,7 +7864,54 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
             <option value="Upcoming">Upcoming</option>
             <option value="Active">Active</option>
           </select>
+          <button onClick={() => setShowMoreFilters(s => !s)} className="flex items-center gap-1.5 rounded-lg border border-[#1E3A8A] px-3 py-1.5 text-[11px] font-semibold text-[#1E3A8A]">
+            <Filter size={12} /> {showMoreFilters ? "Hide" : "More"} Filters
+          </button>
         </div>
+
+        {showMoreFilters && (
+          <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3 mt-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Location</p>
+            <div className="flex gap-2 flex-wrap mb-3">
+              <select value={stateFilter} onChange={e => onStateChange(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+                <option value="all">All States</option>
+                {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select value={districtFilter} onChange={e => onDistrictChange(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+                <option value="all">All Districts</option>
+                {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select value={mandalFilter} onChange={e => setMandalFilter(e.target.value)} disabled={districtFilter === "all"} className={selectCls + " w-auto text-[11px] py-1.5 disabled:opacity-50"}>
+                <option value="all">{districtFilter === "all" ? "Select District first" : "All Mandals"}</option>
+                {mandalOptions.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Demographics</p>
+            <div className="flex gap-2 flex-wrap">
+              <select value={genderFilter} onChange={e => setGenderFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+                <option value="all">All Genders</option>
+                {GENDER_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+                <option value="all">All Categories</option>
+                {CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Dynamic summary — updates instantly with every filter change */}
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 mb-4">
+        {[["Total", totalBeneficiaries, "#1E3A8A"], ["Male", genderWise.find(g => g.label === "Male")?.count || 0, "#2563EB"],
+          ["Female", genderWise.find(g => g.label === "Female")?.count || 0, "#DB2777"], ["Other", genderWise.find(g => g.label === "Other")?.count || 0, "#7C3AED"],
+          ["Active", activeBeneficiaries, "#16A34A"], ["Inactive", inactiveBeneficiaries, "#DC2626"],
+          ["Programs", activePrograms, "#F97316"], ["Partners", activePartners, "#0EA5E9"]].map(([l, v, c]) => (
+          <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-2 text-center">
+            <p className="text-[14px] font-bold" style={{ color: c }}>{v}</p>
+            <p className="text-[9px] text-[#6B7280]">{l}</p>
+          </div>
+        ))}
       </div>
 
       {/* Summary cards */}
@@ -7862,6 +7957,50 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
           <p className="text-[12px] font-bold text-[#111827] mb-2">Documents by Category</p>
           <MiniBarChart data={docCategoryWise} color="#F97316" />
         </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Beneficiaries by District</p>
+          <MiniBarChart data={districtWise} color="#1E3A8A" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Beneficiaries by Category</p>
+          <MiniDonut data={categoryWise} />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Partner-wise Programs</p>
+          {partnerWisePrograms.length === 0 ? <p className="text-[11px] text-[#9CA3AF] text-center py-6">No partner-program links yet.</p> : <MiniBarChart data={partnerWisePrograms} color="#7C3AED" />}
+        </div>
+      </div>
+
+      {/* Top 10 Lists */}
+      <div className="grid sm:grid-cols-2 gap-3 mb-5">
+        {[["Top 10 Programs", top10Programs], ["Top 10 Partners", top10Partners], ["Top 10 Districts", top10Districts], ["Top 10 Villages", top10Villages]].map(([title, rows]) => (
+          <div key={title} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+            <p className="text-[12px] font-bold text-[#111827] mb-2">{title}</p>
+            {rows.length === 0 ? <p className="text-[11px] text-[#9CA3AF] text-center py-4">No data.</p> : (
+              <div className="space-y-1">
+                {rows.map((r, i) => (
+                  <div key={r.label} className="flex items-center justify-between text-[11.5px]">
+                    <span className="text-[#374151] truncate">{i + 1}. {r.label}</span>
+                    <span className="font-bold text-[#1E3A8A] shrink-0">{r.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:col-span-2">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Newest Registrations</p>
+          {newestRegistrations.length === 0 ? <p className="text-[11px] text-[#9CA3AF] text-center py-4">No data.</p> : (
+            <div className="space-y-1">
+              {newestRegistrations.map(b => (
+                <div key={b.beneficiary_id} className="flex items-center justify-between text-[11.5px]">
+                  <span className="text-[#374151]">{b.name} <span className="text-[#9CA3AF] font-mono">({b.beneficiary_id})</span></span>
+                  <span className="text-[#6B7280] shrink-0">{b.registration_date}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Section tabs */}
@@ -7876,8 +8015,21 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
 
       {section === "beneficiary" && (
         <>
+          <ReportTable title="Beneficiary Report" filenamePrefix="beneficiary_report"
+            columns={[
+              { key: "beneficiary_id", label: "Beneficiary ID" }, { key: "name", label: "Name" }, { key: "gender", label: "Gender" },
+              { key: "program", label: "Program" }, { key: "field_worker_name", label: "Field Worker" }, { key: "village", label: "Village" },
+              { key: "mandal", label: "Mandal" }, { key: "district", label: "District" }, { key: "status", label: "Status" }, { key: "registration_date", label: "Registration Date" },
+            ]}
+            rows={filteredBeneficiaries.map(b => ({
+              beneficiary_id: b.beneficiary_id, name: b.name, gender: b.gender, program: PROGRAM_MAP[b.program]?.short || b.program,
+              field_worker_name: b.field_worker_name || "—", village: b.village || "—", mandal: b.mandal || "—", district: b.district || "—",
+              status: b.status || "Registered", registration_date: b.registration_date || "—",
+            }))} />
           <ReportTable title="Program-wise" columns={[{ key: "label", label: "Program" }, { key: "count", label: "Count" }]} rows={programWise} filenamePrefix="beneficiaries_program" />
           <ReportTable title="Village-wise" columns={[{ key: "label", label: "Village" }, { key: "count", label: "Count" }]} rows={villageWise} filenamePrefix="beneficiaries_village" />
+          <ReportTable title="District-wise" columns={[{ key: "label", label: "District" }, { key: "count", label: "Count" }]} rows={districtWise} filenamePrefix="beneficiaries_district" />
+          <ReportTable title="Category-wise" columns={[{ key: "label", label: "Category" }, { key: "count", label: "Count" }]} rows={categoryWise} filenamePrefix="beneficiaries_category" />
           <ReportTable title="Gender-wise" columns={[{ key: "label", label: "Gender" }, { key: "count", label: "Count" }]} rows={genderWise} filenamePrefix="beneficiaries_gender" />
           <ReportTable title="Age-wise" columns={[{ key: "label", label: "Age Group" }, { key: "count", label: "Count" }]} rows={ageWise} filenamePrefix="beneficiaries_age" />
           <ReportTable title="Education-wise" columns={[{ key: "label", label: "Education" }, { key: "count", label: "Count" }]} rows={educationWise} filenamePrefix="beneficiaries_education" />
