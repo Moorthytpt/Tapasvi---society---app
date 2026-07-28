@@ -2798,7 +2798,16 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [mandalFilter, setMandalFilter] = useState("all");
   const [villageFilter, setVillageFilter] = useState("all");
+  const [genderFilter, setGenderFilter] = useState("all");
+  const [ageGroupFilter, setAgeGroupFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [regFrom, setRegFrom] = useState("");
+  const [regTo, setRegTo] = useState("");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [page, setPage] = useState(1);
   const PER_PAGE = 20;
 
@@ -2824,22 +2833,76 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const fieldWorkerOptions = useMemo(() => {
     return [...new Set(beneficiaries.map(b => b.field_worker_name).filter(Boolean))].sort();
   }, [beneficiaries]);
-  const villageOptions = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))].sort(), [beneficiaries]);
+
+  // Hierarchical location — built from the real distinct values already on beneficiary
+  // records (no separate master tables to keep in sync, no fake data). Each level's
+  // options are derived only from records matching the level above it, so a Mandal/Village
+  // list never shows anything unrelated to the selected District/Mandal.
+  const stateOptions = useMemo(() => [...new Set(beneficiaries.map(b => b.state || "Andhra Pradesh"))].sort(), [beneficiaries]);
+  const districtOptions = useMemo(() => {
+    const scope = stateFilter === "all" ? beneficiaries : beneficiaries.filter(b => (b.state || "Andhra Pradesh") === stateFilter);
+    return [...new Set(scope.map(b => b.district).filter(Boolean))].sort();
+  }, [beneficiaries, stateFilter]);
+  const mandalOptions = useMemo(() => {
+    if (districtFilter === "all") return [];
+    return [...new Set(beneficiaries.filter(b => b.district === districtFilter).map(b => b.mandal).filter(Boolean))].sort();
+  }, [beneficiaries, districtFilter]);
+  const villageOptions = useMemo(() => {
+    let scope = beneficiaries;
+    if (districtFilter !== "all") scope = scope.filter(b => b.district === districtFilter);
+    if (mandalFilter !== "all") scope = scope.filter(b => b.mandal === mandalFilter);
+    return [...new Set(scope.map(b => b.village).filter(Boolean))].sort();
+  }, [beneficiaries, districtFilter, mandalFilter]);
+
+  // Cascade resets: changing a parent level clears the now-stale child selections.
+  const onStateChange = (v) => { setStateFilter(v); setDistrictFilter("all"); setMandalFilter("all"); setVillageFilter("all"); };
+  const onDistrictChange = (v) => { setDistrictFilter(v); setMandalFilter("all"); setVillageFilter("all"); };
+  const onMandalChange = (v) => { setMandalFilter(v); setVillageFilter("all"); };
+
+  const ageGroups = [["Below 18", 0, 17], ["18-25", 18, 25], ["26-35", 26, 35], ["36-45", 36, 45], ["46-60", 46, 60], ["60+", 61, 999]];
+  const inAgeGroup = (age, key) => {
+    const g = ageGroups.find(g => g[0] === key);
+    return g && age >= g[1] && age <= g[2];
+  };
 
   const filtered = useMemo(() => {
     let r = beneficiaries;
     if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (workerFilter !== "all") r = r.filter(b => b.field_worker_name === workerFilter);
+    if (stateFilter !== "all") r = r.filter(b => (b.state || "Andhra Pradesh") === stateFilter);
+    if (districtFilter !== "all") r = r.filter(b => b.district === districtFilter);
+    if (mandalFilter !== "all") r = r.filter(b => b.mandal === mandalFilter);
     if (villageFilter !== "all") r = r.filter(b => b.village === villageFilter);
+    if (genderFilter !== "all") r = r.filter(b => b.gender === genderFilter);
+    if (ageGroupFilter !== "all") r = r.filter(b => inAgeGroup(Number(b.age), ageGroupFilter));
+    if (categoryFilter !== "all") r = r.filter(b => b.category === categoryFilter);
+    if (regFrom) r = r.filter(b => (b.registration_date || "") >= regFrom);
+    if (regTo) r = r.filter(b => (b.registration_date || "") <= regTo);
     if (query.trim()) {
       const q = query.toLowerCase();
-      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
+      r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [beneficiaries, query, programFilter, statusFilter, workerFilter, villageFilter]);
+  }, [beneficiaries, query, programFilter, statusFilter, workerFilter, stateFilter, districtFilter, mandalFilter, villageFilter, genderFilter, ageGroupFilter, categoryFilter, regFrom, regTo]);
 
-  useEffect(() => { setPage(1); }, [query, programFilter, statusFilter, workerFilter, villageFilter]);
+  const clearAllFilters = () => {
+    setQuery(""); setProgramFilter("all"); setStatusFilter("all"); setWorkerFilter("all");
+    setStateFilter("all"); setDistrictFilter("all"); setMandalFilter("all"); setVillageFilter("all");
+    setGenderFilter("all"); setAgeGroupFilter("all"); setCategoryFilter("all"); setRegFrom(""); setRegTo("");
+  };
+
+  // Dynamic summary — always reflects whatever filters are currently applied.
+  const summary = useMemo(() => ({
+    total: filtered.length,
+    male: filtered.filter(b => b.gender === "Male").length,
+    female: filtered.filter(b => b.gender === "Female").length,
+    other: filtered.filter(b => b.gender === "Other").length,
+    active: filtered.filter(b => b.status !== "Dropped" && b.status !== "Archived").length,
+    inactive: filtered.filter(b => b.status === "Dropped" || b.status === "Archived").length,
+  }), [filtered]);
+
+  useEffect(() => { setPage(1); }, [query, programFilter, statusFilter, workerFilter, stateFilter, districtFilter, mandalFilter, villageFilter, genderFilter, ageGroupFilter, categoryFilter, regFrom, regTo]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
   const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
@@ -2863,18 +2926,26 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
         )}
       </div>
 
-      <div className="flex gap-3 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, phone, village..." className={inputCls + " pl-9 text-[12.5px]"} />
-        </div>
+      {/* Dynamic summary — updates with whatever filters are applied */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+        {[["Total", summary.total, "#1E3A8A"], ["Male", summary.male, "#2563EB"], ["Female", summary.female, "#DB2777"],
+          ["Other", summary.other, "#7C3AED"], ["Active", summary.active, "#16A34A"], ["Inactive", summary.inactive, "#6B7280"]].map(([l, v, c]) => (
+          <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center">
+            <p className="text-[16px] font-bold" style={{ color: c }}>{v}</p>
+            <p className="text-[9.5px] text-[#6B7280]">{l}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by name, ID, or mobile number..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+
+      <div className="flex gap-3 mb-3 flex-wrap">
         <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Programs</option>
           {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
-        </select>
-        <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
-          <option value="all">All Villages</option>
-          {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
@@ -2886,12 +2957,62 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
             {fieldWorkerOptions.map(w => <option key={w} value={w}>{w}</option>)}
           </select>
         )}
+        <button onClick={() => setShowMoreFilters(s => !s)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">
+          <Filter size={13} /> {showMoreFilters ? "Hide" : "More"} Filters
+        </button>
       </div>
+
+      {showMoreFilters && (
+        <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3.5 mb-4">
+          <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Location (State → District → Mandal → Village)</p>
+          <div className="flex gap-2 flex-wrap mb-3">
+            <select value={stateFilter} onChange={e => onStateChange(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All States</option>
+              {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={districtFilter} onChange={e => onDistrictChange(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Districts</option>
+              {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={mandalFilter} onChange={e => onMandalChange(e.target.value)} disabled={districtFilter === "all"} className={selectCls + " w-auto text-[12px] disabled:opacity-50"}>
+              <option value="all">{districtFilter === "all" ? "Select District first" : "All Mandals"}</option>
+              {mandalOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Villages</option>
+              {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Other Filters</p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <select value={genderFilter} onChange={e => setGenderFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Genders</option>
+              {GENDER_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <select value={ageGroupFilter} onChange={e => setAgeGroupFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Ages</option>
+              {ageGroups.map(g => <option key={g[0]} value={g[0]}>{g[0]}</option>)}
+            </select>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Categories</option>
+              {CATEGORY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <label className="text-[11px] text-[#6B7280]">Registered</label>
+            <input type="date" value={regFrom} onChange={e => setRegFrom(e.target.value)} className={inputCls + " w-auto text-[12px]"} />
+            <span className="text-[11px] text-[#9CA3AF]">to</span>
+            <input type="date" value={regTo} onChange={e => setRegTo(e.target.value)} className={inputCls + " w-auto text-[12px]"} />
+            <button onClick={clearAllFilters} className="text-[11.5px] font-semibold text-[#DC2626] px-2 py-1.5">Clear Filters</button>
+          </div>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-[#9CA3AF]">
           <ClipboardList size={30} className="mx-auto mb-3 opacity-40" />
-          <p className="text-[13px]">No records match your search.</p>
+          <p className="text-[13px]">No beneficiaries found for the selected filters.</p>
+          <button onClick={clearAllFilters} className="mt-4 inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12.5px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            Clear Filters
+          </button>
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -2920,10 +3041,10 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
                           </span>
                         )}
                       </div>
-                      {(b.village || b.mandal) && (
+                      {(b.village || b.mandal || b.district) && (
                         <div className="flex items-center gap-1">
                           <MapPin size={10} className="shrink-0" />
-                          <span>{[b.village, b.mandal].filter(Boolean).join(", ")}</span>
+                          <span>{[b.village, b.mandal, b.district].filter(Boolean).join(", ")}</span>
                         </div>
                       )}
                       <div className="flex items-center gap-3 flex-wrap">
