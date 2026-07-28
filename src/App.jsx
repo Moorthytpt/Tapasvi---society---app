@@ -2448,6 +2448,9 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 20;
 
   // Phase 2 follow-up: filter dropdown + badges must reflect the dynamic program list too,
   // otherwise beneficiaries registered under a new program (e.g. "Kids education") become unfilterable.
@@ -2471,18 +2474,25 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const fieldWorkerOptions = useMemo(() => {
     return [...new Set(beneficiaries.map(b => b.field_worker_name).filter(Boolean))].sort();
   }, [beneficiaries]);
+  const villageOptions = useMemo(() => [...new Set(beneficiaries.map(b => b.village).filter(Boolean))].sort(), [beneficiaries]);
 
   const filtered = useMemo(() => {
     let r = beneficiaries;
     if (programFilter !== "all") r = r.filter(b => b.program === programFilter);
     if (statusFilter !== "all") r = r.filter(b => b.status === statusFilter);
     if (workerFilter !== "all") r = r.filter(b => b.field_worker_name === workerFilter);
+    if (villageFilter !== "all") r = r.filter(b => b.village === villageFilter);
     if (query.trim()) {
       const q = query.toLowerCase();
       r = r.filter(b => b.name?.toLowerCase().includes(q) || b.beneficiary_id?.toLowerCase().includes(q) || b.phone?.includes(q) || b.village?.toLowerCase().includes(q) || b.field_worker_name?.toLowerCase().includes(q));
     }
     return [...r].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }, [beneficiaries, query, programFilter, statusFilter, workerFilter]);
+  }, [beneficiaries, query, programFilter, statusFilter, workerFilter, villageFilter]);
+
+  useEffect(() => { setPage(1); }, [query, programFilter, statusFilter, workerFilter, villageFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
 
   return (
     <div>
@@ -2512,6 +2522,10 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
           <option value="all">All Programs</option>
           {resolvedPrograms.map(p => <option key={p.key} value={p.key}>{p.short}</option>)}
         </select>
+        <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
+          <option value="all">All Villages</option>
+          {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12.5px]"}>
           <option value="all">All Status</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
@@ -2531,7 +2545,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
         </div>
       ) : (
         <div className="space-y-2.5">
-          {filtered.map(b => {
+          {paginated.map(b => {
             const p = resolvedProgramMap[b.program] || resolvedPrograms[0] || { color: "#6B7280", tint: "#F3F4F6", short: b.program, icon: ClipboardList };
             const Icon = p.icon;
             return (
@@ -2604,6 +2618,25 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
               </div>
             );
           })}
+        </div>
+      )}
+
+      {filtered.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-5 flex-wrap gap-2">
+          <p className="text-[11.5px] text-[#6B7280]">Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}</p>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>← Previous</button>
+            {pageNumbers.map(n => (
+              <button key={n} onClick={() => setPage(n)}
+                className="rounded-lg text-[12px] font-semibold transition-colors"
+                style={{ minWidth: 36, minHeight: 40, background: n === page ? "#1E3A8A" : "transparent", color: n === page ? "#fff" : "#374151" }}>
+                {n}
+              </button>
+            ))}
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+              className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>Next →</button>
+          </div>
         </div>
       )}
     </div>
