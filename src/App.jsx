@@ -174,6 +174,45 @@ const DISTRICTS_AP = ["Tirupati", "Chittoor", "Ananthapuramu", "YSR Kadapa", "Ne
 /* ============================================================
    HELPERS
    ============================================================ */
+// Compresses/resizes an image client-side before upload: caps the longer edge at maxDim,
+// re-encodes as JPEG (which drops EXIF metadata as a side effect of canvas re-encoding),
+// and steps quality down until the result is comfortably under the 5MB bucket limit.
+// Non-image files (e.g. PDFs) pass through untouched.
+function compressImageFile(file, maxDim = 1600, startQuality = 0.85) {
+  return new Promise((resolve, reject) => {
+    if (!file.type || !file.type.startsWith("image/")) { resolve(file); return; }
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(objectUrl); reject(new Error("Canvas not supported")); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(objectUrl);
+
+      const tryQuality = (q) => {
+        canvas.toBlob(blob => {
+          if (!blob) { reject(new Error("Could not process image")); return; }
+          if (blob.size > 5 * 1024 * 1024 && q > 0.4) {
+            tryQuality(q - 0.15);
+          } else {
+            resolve(new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }));
+          }
+        }, "image/jpeg", q);
+      };
+      tryQuality(startQuality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Could not read image file")); };
+    img.src = objectUrl;
+  });
+}
+
 function nextId(records, prefix) {
   const nums = records.filter(r => r.beneficiary_id?.startsWith(prefix + "-")).map(r => {
     const m = r.beneficiary_id?.match(/(\d+)$/);
@@ -842,8 +881,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
   });
   const [errors, setErrors] = useState({});
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoStage, setPhotoStage] = useState(""); // "" | "optimizing" | "uploading"
   const [aadhaarUploading, setAadhaarUploading] = useState(false);
+  const [aadhaarStage, setAadhaarStage] = useState("");
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
+  const [localPreview, setLocalPreview] = useState(null); // instant local preview, before the signed URL comes back
 
   useEffect(() => {
     if (!form.photo_path) { setPhotoPreviewUrl(null); return; }
@@ -854,14 +896,29 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     // eslint-disable-next-line
   }, [form.photo_path]);
 
-  const uploadFile = async (file, folder, setUploading, formKey) => {
+  const uploadFile = async (file, folder, setUploading, formKey, setStage) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { window.alert("File must be under 5 MB."); return; }
     setUploading(true);
-    const ext = file.name.split(".").pop();
+    if (formKey === "photo_path") setLocalPreview(URL.createObjectURL(file));
+    let toUpload = file;
+    try {
+      if (setStage) setStage("optimizing");
+      toUpload = await compressImageFile(file);
+    } catch (e) {
+      setUploading(false); if (setStage) setStage("");
+      window.alert("We couldn't process that image. Please try a different photo.");
+      return;
+    }
+    if (toUpload.size > 5 * 1024 * 1024) {
+      setUploading(false); if (setStage) setStage("");
+      window.alert("This file is still too large after optimization. Please choose a smaller file.");
+      return;
+    }
+    if (setStage) setStage("uploading");
+    const ext = toUpload.name.split(".").pop();
     const path = `${folder}/${form.beneficiary_id || "new"}-${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("beneficiary-documents").upload(path, file, { upsert: true });
-    setUploading(false);
+    const { error } = await supabase.storage.from("beneficiary-documents").upload(path, toUpload, { upsert: true });
+    setUploading(false); if (setStage) setStage("");
     if (error) { window.alert("Upload failed: " + error.message); return; }
     setForm(f => ({ ...f, [formKey]: path }));
   };
@@ -1062,14 +1119,32 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
               )}
               <SectionHeader title="Personal Information" color={p.color} />
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-16 h-16 rounded-full overflow-hidden bg-[#F3F4F6] flex items-center justify-center shrink-0 border border-[#E5E7EB]">
-                  {photoPreviewUrl ? <img src={photoPreviewUrl} alt="Photo" className="w-full h-full object-cover" /> : <User size={24} className="text-[#9CA3AF]" />}
+                <div className="w-16 h-16 rounded-full overflow-hidden bg-[#F3F4F6] flex items-center justify-center shrink-0 border border-[#E5E7EB] relative">
+                  {(localPreview || photoPreviewUrl) ? <img src={localPreview || photoPreviewUrl} alt="Photo" className="w-full h-full object-cover" /> : <User size={24} className="text-[#9CA3AF]" />}
+                  {photoUploading && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <RefreshCw size={16} className="text-white animate-spin" />
+                    </div>
+                  )}
                 </div>
-                <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
-                  {photoUploading ? "Uploading..." : form.photo_path ? "Change Photo" : "Upload Photo"}
-                  <input type="file" accept="image/*" className="hidden" disabled={photoUploading}
-                    onChange={e => uploadFile(e.target.files[0], "photos", setPhotoUploading, "photo_path")} />
-                </label>
+                <div className="flex flex-col gap-1.5">
+                  {photoUploading ? (
+                    <span className="text-[11.5px] text-[#6B7280]">{photoStage === "optimizing" ? "Optimizing photo…" : "Uploading…"}</span>
+                  ) : (
+                    <div className="flex gap-2">
+                      <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+                        📷 Take Photo
+                        <input type="file" accept="image/*" capture="environment" className="hidden"
+                          onChange={e => uploadFile(e.target.files[0], "photos", setPhotoUploading, "photo_path", setPhotoStage)} />
+                      </label>
+                      <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+                        🖼 Gallery
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={e => uploadFile(e.target.files[0], "photos", setPhotoUploading, "photo_path", setPhotoStage)} />
+                      </label>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-x-4">
                 <Field label="Beneficiary Name" required error={errors.name}>
@@ -1191,11 +1266,11 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                   <label className="text-[12px] font-medium text-[#374151] mb-1.5 block">Document Upload (Optional)</label>
                   <div className="flex items-center gap-2">
                     <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer bg-white">
-                      {aadhaarUploading ? "Uploading..." : form.aadhaar_doc_path ? "Change File" : "Upload Document"}
+                      {aadhaarUploading ? (aadhaarStage === "optimizing" ? "Optimizing…" : "Uploading…") : form.aadhaar_doc_path ? "Change File" : "Upload Document"}
                       <input type="file" accept="image/*,application/pdf" className="hidden" disabled={aadhaarUploading}
-                        onChange={e => uploadFile(e.target.files[0], "identity-docs", setAadhaarUploading, "aadhaar_doc_path")} />
+                        onChange={e => uploadFile(e.target.files[0], "identity-docs", setAadhaarUploading, "aadhaar_doc_path", setAadhaarStage)} />
                     </label>
-                    {form.aadhaar_doc_path && <span className="text-[11px] text-[#16A34A] flex items-center gap-1"><CheckCircle size={13} /> Uploaded</span>}
+                    {!aadhaarUploading && form.aadhaar_doc_path && <span className="text-[11px] text-[#16A34A] flex items-center gap-1"><CheckCircle size={13} /> Uploaded</span>}
                   </div>
                 </div>
               </div>
