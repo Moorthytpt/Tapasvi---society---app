@@ -213,6 +213,155 @@ function compressImageFile(file, maxDim = 1600, startQuality = 0.85) {
   });
 }
 
+/* ============================================================
+   DOCUMENT MANAGEMENT SYSTEM (DMS) — one centralized system reused
+   by every module. Same private bucket, same compression engine,
+   same signed-URL pattern already built for Beneficiary uploads.
+   ============================================================ */
+const DOCUMENT_CATEGORIES = {
+  beneficiary: "Beneficiary Documents", partner: "Partner Documents", program: "Program Documents",
+  training_batch: "Training Documents", assessment: "Assessment Documents", certificate: "Certificate Documents",
+  general: "General Documents",
+};
+const DOCUMENT_TYPES = [
+  "Identity Proof", "Photo", "Education Certificate", "Training Certificate", "Income Certificate",
+  "Caste Certificate", "Disability Certificate", "MoU", "Agreement", "Project Document",
+  "Attendance Sheet", "Assessment Report", "Completion Certificate", "Other",
+];
+const DOC_ACCEPT = "image/jpeg,image/png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Single shared upload path for every module — compresses images (via compressImageFile),
+// passes non-images through untouched, and writes one row into the central `documents` table.
+async function uploadDocument({ file, entityType, entityId, documentType, uploadedBy }) {
+  if (file.size > 5 * 1024 * 1024 && !file.type.startsWith("image/")) {
+    throw new Error("File must be under 5 MB.");
+  }
+  const toUpload = await compressImageFile(file);
+  if (toUpload.size > 5 * 1024 * 1024) throw new Error("File is still too large after optimization. Please choose a smaller file.");
+  const ext = (toUpload.name.split(".").pop() || "dat").toLowerCase();
+  const path = `dms/${entityType}/${entityId || "unlinked"}-${Date.now()}.${ext}`;
+  const { error: upErr } = await supabase.storage.from("beneficiary-documents").upload(path, toUpload, { upsert: true });
+  if (upErr) throw upErr;
+  const rec = {
+    entity_type: entityType, entity_id: entityId ? String(entityId) : null,
+    category: DOCUMENT_CATEGORIES[entityType] || "General Documents", document_type: documentType,
+    file_path: path, file_name: file.name, file_size: toUpload.size, mime_type: toUpload.type,
+    status: "Active", uploaded_by: uploadedBy, uploaded_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from("documents").insert(rec).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// Reusable uploader: Take Photo / Choose from Gallery / Choose File + a document-type picker.
+// Drop this into any module's profile/detail screen.
+function DocumentUploader({ entityType, entityId, currentUser, onUploaded, showToast }) {
+  const [documentType, setDocumentType] = useState(DOCUMENT_TYPES[0]);
+  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState("");
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setBusy(true); setStage("optimizing");
+    try {
+      const who = currentUser?.username || currentUser?.email || "unknown";
+      setStage("uploading");
+      const doc = await uploadDocument({ file, entityType, entityId, documentType, uploadedBy: who });
+      onUploaded && onUploaded(doc);
+      showToast && showToast("Uploaded Successfully");
+    } catch (e) {
+      window.alert(e.message && e.message.includes("too large") ? e.message : "We couldn't upload that file. Please try again.");
+    } finally {
+      setBusy(false); setStage("");
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+      <Field label="Document Type"><Select value={documentType} onChange={e => setDocumentType(e.target.value)} options={DOCUMENT_TYPES} /></Field>
+      {busy ? (
+        <p className="text-[12px] text-[#6B7280] text-center py-2">{stage === "optimizing" ? "Optimizing…" : "Uploading…"}</p>
+      ) : (
+        <div className="flex gap-2 flex-wrap">
+          <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+            📷 Take Photo
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+          </label>
+          <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+            🖼 Gallery
+            <input type="file" accept="image/*" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+          </label>
+          <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+            📎 Choose File
+            <input type="file" accept={DOC_ACCEPT} className="hidden" onChange={e => handleFile(e.target.files[0])} />
+          </label>
+        </div>
+      )}
+      <p className="text-[10px] text-[#9CA3AF] mt-2">PDF, JPG, PNG, DOCX, XLSX · Max 5 MB · Images are auto-compressed</p>
+    </div>
+  );
+}
+
+// Reusable repository: lists every document linked to one entity, with view (signed URL) + archive.
+function DocumentRepository({ entityType, entityId, currentUser, showToast }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("documents").select("*")
+      .eq("entity_type", entityType).eq("entity_id", String(entityId)).eq("status", "Active")
+      .order("uploaded_at", { ascending: false });
+    setDocs(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [entityType, entityId]);
+
+  const view = async (doc) => {
+    const { data, error } = await supabase.storage.from("beneficiary-documents").createSignedUrl(doc.file_path, 3600);
+    if (error || !data?.signedUrl) { window.alert("Could not open this document."); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const confirmArchive = async () => {
+    await supabase.from("documents").update({ status: "Archived" }).eq("id", archiveTarget.id);
+    setArchiveTarget(null); load(); showToast && showToast("Removed Successfully");
+  };
+
+  const sizeLabel = (bytes) => bytes ? (bytes / 1024 / 1024 >= 1 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`) : "";
+
+  return (
+    <div>
+      <DocumentUploader entityType={entityType} entityId={entityId} currentUser={currentUser} showToast={showToast} onUploaded={() => load()} />
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : docs.length === 0 ? (
+        <div className="text-center py-8 text-[#9CA3AF]"><p className="text-[12.5px]">No documents uploaded yet.</p></div>
+      ) : (
+        <div className="space-y-2">
+          {docs.map(d => (
+            <div key={d.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[#EFF6FF] flex items-center justify-center shrink-0"><FileSpreadsheet size={16} className="text-[#1E3A8A]" /></div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12.5px] font-semibold text-[#111827] truncate">{d.document_type}</p>
+                <p className="text-[10.5px] text-[#6B7280] truncate">{d.file_name} · {sizeLabel(d.file_size)} · {d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : ""}</p>
+              </div>
+              <button onClick={() => view(d)} className="rounded-lg border border-[#E5E7EB] px-2.5 py-1.5 text-[11px] font-medium text-[#1E3A8A] shrink-0">View</button>
+              <button onClick={() => setArchiveTarget(d)} className="rounded-lg border border-[#FCA5A5] px-2.5 py-1.5 text-[11px] font-medium text-[#DC2626] shrink-0">Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {archiveTarget && (
+        <ConfirmDialog title="Remove Document?" message={`Remove "${archiveTarget.document_type}"? It will no longer appear here.`}
+          onConfirm={confirmArchive} onCancel={() => setArchiveTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+
 function nextId(records, prefix) {
   const nums = records.filter(r => r.beneficiary_id?.startsWith(prefix + "-")).map(r => {
     const m = r.beneficiary_id?.match(/(\d+)$/);
@@ -4144,7 +4293,7 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
 /* ============================================================
    BENEFICIARY PROFILE
    ============================================================ */
-function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, isSuperAdmin, enrollments }) {
+function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, isSuperAdmin, enrollments, currentUser, showToast }) {
   const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
   const [photoUrl, setPhotoUrl] = useState(null);
 
@@ -4506,6 +4655,12 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
           <p className="text-[12.5px] text-[#374151]">{b.notes}</p>
         </div>
       )}
+
+      {/* Documents — shared DMS, reused as-is */}
+      <div className="mb-4">
+        <h4 className="text-[13px] font-bold text-[#111827] mb-2 px-1">📁 Documents</h4>
+        <DocumentRepository entityType="beneficiary" entityId={b.beneficiary_id} currentUser={currentUser} showToast={showToast} />
+      </div>
 
     </div>
   );
@@ -8047,6 +8202,7 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser, showToast }) 
     { key: "training", label: "Training" },
     { key: "coverage", label: "Coverage" },
     { key: "livelihood", label: "Livelihood" },
+    { key: "documents", label: "Documents" },
   ];
 
   return (
@@ -8153,7 +8309,7 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser, showToast }) 
           </div>
 
           <div className="bg-[#F8FAFC] rounded-2xl border border-dashed border-[#E5E7EB] p-5 text-center">
-            <p className="text-[11px] text-[#9CA3AF]">Documents · Reports — coming soon</p>
+            <p className="text-[11px] text-[#9CA3AF]">Reports — coming soon</p>
           </div>
         </>
       )}
@@ -8162,6 +8318,7 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser, showToast }) 
       {tab === "training" && <PartnerTrainingTab partner={p} currentUser={currentUser} showToast={showToast} />}
       {tab === "coverage" && <PartnerCoverageTab partner={p} currentUser={currentUser} showToast={showToast} />}
       {tab === "livelihood" && <PartnerLivelihoodTab partner={p} currentUser={currentUser} showToast={showToast} />}
+      {tab === "documents" && <DocumentRepository entityType="partner" entityId={p.id} currentUser={currentUser} showToast={showToast} />}
     </div>
   );
 }
@@ -9807,6 +9964,8 @@ export default function App() {
               isAdmin={isAdmin}
               isSuperAdmin={isSuperAdmin}
               enrollments={enrollments}
+              currentUser={user}
+              showToast={showToast}
               onClose={() => setProfileBeneficiary(null)} />
           )}
           {!subView && !trainingSubView && view === "training" && (
