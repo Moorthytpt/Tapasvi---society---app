@@ -362,6 +362,85 @@ function DocumentRepository({ entityType, entityId, currentUser, showToast }) {
 }
 
 
+/* ============================================================
+   RBAC SERVICE — Sprint 5A Phase 2 (integration only, no enforcement).
+   Loads the new roles/permissions/role_permissions tables once per
+   session, caches them, and exposes hasRole/hasPermission/canX()
+   helpers for future use. Nothing in the app calls these to gate
+   anything yet — existing isAdmin/isSuperAdmin checks are untouched
+   and keep working exactly as before. This hook simply makes the
+   same information available in the new shape, for later phases.
+   ============================================================ */
+function useRBAC(currentUser) {
+  const [loading, setLoading] = useState(true);
+  const [roles, setRoles] = useState([]);
+  const [permissions, setPermissions] = useState([]);
+  const [rolePermissions, setRolePermissions] = useState([]);
+  const [userRoles, setUserRoles] = useState([]);
+
+  useEffect(() => {
+    if (!currentUser) { setLoading(false); return; }
+    const cacheKey = "tapasvi_rbac_cache_" + (currentUser.username || currentUser.supabaseUser?.id || "anon");
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setRoles(parsed.roles || []); setPermissions(parsed.permissions || []);
+        setRolePermissions(parsed.rolePermissions || []); setUserRoles(parsed.userRoles || []);
+        setLoading(false);
+        return;
+      } catch (_) { /* fall through to a fresh fetch */ }
+    }
+    (async () => {
+      const [rl, pm, rp, ur] = await Promise.all([
+        supabase.from("roles").select("*"),
+        supabase.from("permissions").select("*"),
+        supabase.from("role_permissions").select("*"),
+        supabase.from("user_roles").select("*"),
+      ]);
+      const result = { roles: rl.data || [], permissions: pm.data || [], rolePermissions: rp.data || [], userRoles: ur.data || [] };
+      setRoles(result.roles); setPermissions(result.permissions);
+      setRolePermissions(result.rolePermissions); setUserRoles(result.userRoles);
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (_) { /* storage full — non-fatal, just skip caching */ }
+      setLoading(false);
+    })();
+  }, [currentUser?.username]);
+
+  // Map the current user onto a role_key. Falls back to the existing admin/super_admin/fieldworker
+  // model (from currentUser.role) when no matching row exists yet in the new user_roles table —
+  // this is exactly the "backward compatible" mapping the sprint asked for.
+  const myUserRoleRow = useMemo(() => {
+    if (!currentUser) return null;
+    const uid = currentUser.supabaseUser?.id || currentUser.userId;
+    return userRoles.find(r => r.id === uid) || null;
+  }, [userRoles, currentUser]);
+
+  const currentRoleKey = myUserRoleRow?.role || currentUser?.role || null;
+  const currentRole = useMemo(() => roles.find(r => r.role_key === currentRoleKey) || null, [roles, currentRoleKey]);
+
+  const myPermissionKeys = useMemo(() => {
+    if (!currentRole) return new Set();
+    const allowedIds = new Set(rolePermissions.filter(rp => rp.role_id === currentRole.id && rp.allowed).map(rp => rp.permission_id));
+    const keys = new Set();
+    permissions.forEach(p => { if (allowedIds.has(p.id)) keys.add(`${p.module}:${p.action}`); });
+    return keys;
+  }, [currentRole, rolePermissions, permissions]);
+
+  const hasRole = (roleKey) => currentRoleKey === roleKey;
+  const hasPermission = (module, action) => myPermissionKeys.has(`${module}:${action}`);
+  const canView = (module) => hasPermission(module, "view");
+  const canCreate = (module) => hasPermission(module, "create");
+  const canEdit = (module) => hasPermission(module, "edit");
+  const canDelete = (module) => hasPermission(module, "delete");
+  const canExport = (module) => hasPermission(module, "export");
+
+  return {
+    loading, roles, permissions, rolePermissions, userRoles,
+    currentRoleKey, currentRole, myUserRoleRow,
+    hasRole, hasPermission, canView, canCreate, canEdit, canDelete, canExport,
+  };
+}
+
 function nextId(records, prefix) {
   const nums = records.filter(r => r.beneficiary_id?.startsWith(prefix + "-")).map(r => {
     const m = r.beneficiary_id?.match(/(\d+)$/);
@@ -5258,6 +5337,7 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
     { key: "locations", label: "Location Master", desc: "District, Mandal, Village", icon: MapPin, color: "#16A34A", tint: "#DCFCE7", ready: false },
     { key: "masterdata", label: "Master Data", desc: "Education, Occupation, Skills, Gender...", icon: Database, color: "#0EA5E9", tint: "#F0F9FF", ready: false },
     { key: "training", label: "Training Settings", desc: "Courses, trainers, assessments, certificates", icon: BookOpen, color: "#DB2777", tint: "#FDF2F8", ready: true },
+    { key: "roles", label: "Roles & Permissions", desc: "RBAC roles, permission matrix (read-only, Phase 2)", icon: Lock, color: "#0EA5E9", tint: "#F0F9FF", ready: true },
     { key: "security", label: "Security", desc: "Password policy, session timeout, audit logs", icon: ShieldCheck, color: "#DC2626", tint: "#FEF2F2", ready: false },
     { key: "preferences", label: "App Preferences", desc: "Theme, language", icon: Palette, color: "#6366F1", tint: "#EEF2FF", ready: false },
   ];
@@ -5278,6 +5358,9 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
   }
   if (subView === "training") {
     return <TrainingSettingsHub currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} onBack={() => setSubView(null)} />;
+  }
+  if (subView === "roles") {
+    return <RoleManagementScreen currentUser={currentUser} onBack={() => setSubView(null)} />;
   }
 
   return (
@@ -5306,6 +5389,118 @@ function SettingsHub({ currentUser, showToast, logAppAudit, beneficiaries }) {
     </div>
   );
 }
+
+function RoleManagementScreen({ currentUser, onBack }) {
+  const rbac = useRBAC(currentUser);
+  const [tab, setTab] = useState("account"); // account | roles | permissions
+  const [query, setQuery] = useState("");
+  const [moduleFilter, setModuleFilter] = useState("all");
+
+  const usersPerRole = useMemo(() => {
+    const m = {};
+    rbac.userRoles.forEach(ur => { m[ur.role] = (m[ur.role] || 0) + 1; });
+    return m;
+  }, [rbac.userRoles]);
+
+  const permsPerRole = useMemo(() => {
+    const m = {};
+    rbac.rolePermissions.forEach(rp => { if (rp.allowed) m[rp.role_id] = (m[rp.role_id] || 0) + 1; });
+    return m;
+  }, [rbac.rolePermissions]);
+
+  const moduleOptions = useMemo(() => [...new Set(rbac.permissions.map(p => p.module))], [rbac.permissions]);
+  const filteredPermissions = useMemo(() => rbac.permissions.filter(p =>
+    (moduleFilter === "all" || p.module === moduleFilter) &&
+    (!query.trim() || p.module.toLowerCase().includes(query.toLowerCase()) || p.action.toLowerCase().includes(query.toLowerCase()))
+  ), [rbac.permissions, moduleFilter, query]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">Roles & Permissions</h2>
+          <p className="text-[12px] text-[#6B7280]">Read-only · RBAC Phase 2 — infrastructure integration, no enforcement yet</p>
+        </div>
+      </div>
+
+      <div className="flex gap-1 mb-4">
+        {[["account", "My Account"], ["roles", "Role Management"], ["permissions", "Permissions"]].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold transition-colors"
+            style={tab === key ? { background: "#1E3A8A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {rbac.loading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="bg-white rounded-xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : (
+        <>
+          {tab === "account" && (
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+              <SectionHeader title="My Account" color="#1E3A8A" />
+              <div className="grid grid-cols-2 gap-y-3">
+                <InfoRow label="Current Role" value={rbac.currentRole?.role_name || currentUser?.role} />
+                <InfoRow label="Account Status" value={rbac.currentRole?.status || "Active"} />
+                <InfoRow label="Assigned State" value={rbac.myUserRoleRow?.assigned_state} />
+                <InfoRow label="Assigned District" value={rbac.myUserRoleRow?.assigned_district} />
+                <InfoRow label="Assigned Partner" value={rbac.myUserRoleRow?.assigned_partner_id} />
+              </div>
+              <p className="text-[10.5px] text-[#9CA3AF] mt-3">Scope assignment (state/district/partner) will be editable in a future phase.</p>
+            </div>
+          )}
+
+          {tab === "roles" && (
+            <div className="space-y-2">
+              {rbac.roles.length === 0 ? (
+                <div className="text-center py-10 text-[#9CA3AF]"><p className="text-[12.5px]">No roles found.</p></div>
+              ) : rbac.roles.map(r => (
+                <div key={r.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#111827]">{r.role_name}</p>
+                    <p className="text-[10.5px] text-[#6B7280] mt-0.5">{r.description}</p>
+                    <p className="text-[10.5px] text-[#6B7280] mt-1">{usersPerRole[r.role_key] || 0} users · {permsPerRole[r.id] || 0} permissions</p>
+                  </div>
+                  <Badge label={r.status} color={r.status === "Active" ? "#16A34A" : "#9CA3AF"} tint={r.status === "Active" ? "#DCFCE7" : "#F3F4F6"} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === "permissions" && (
+            <div>
+              <div className="flex gap-2 mb-3 flex-wrap">
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+                  <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search module or action…" className={inputCls + " pl-8 text-[12px]"} />
+                </div>
+                <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+                  <option value="all">All Modules</option>
+                  {moduleOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              {filteredPermissions.length === 0 ? (
+                <div className="text-center py-10 text-[#9CA3AF]"><p className="text-[12.5px]">No permissions found.</p></div>
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredPermissions.map(p => (
+                    <div key={p.id} className="bg-white rounded-lg border border-[#E5E7EB] px-3.5 py-2.5 flex items-center justify-between">
+                      <span className="text-[12.5px] font-medium text-[#111827]">{p.module}</span>
+                      <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#6B7280] uppercase">{p.action}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 function OrganizationSettings({ currentUser, showToast, logAppAudit, onBack }) {
   const [form, setForm] = useState(null);
