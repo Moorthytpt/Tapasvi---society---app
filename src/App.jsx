@@ -833,6 +833,7 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     category: "BC", disability: "No", shg: "No", skill_interest: "",
     field_worker_name: "", notes: "",
     aadhaar_number: "", aadhaar_verified: "No", ekyc_status: "No",
+    photo_path: "", aadhaar_doc_path: "",
   };
 
   const [form, setForm] = useState(editing ? { ...blank, ...editing } : {
@@ -840,6 +841,31 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
     field_worker_name: currentUser.role === "fieldworker" ? currentUser.username : "",
   });
   const [errors, setErrors] = useState({});
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [aadhaarUploading, setAadhaarUploading] = useState(false);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    if (!form.photo_path) { setPhotoPreviewUrl(null); return; }
+    (async () => {
+      const { data } = await supabase.storage.from("beneficiary-documents").createSignedUrl(form.photo_path, 3600);
+      if (data?.signedUrl) setPhotoPreviewUrl(data.signedUrl);
+    })();
+    // eslint-disable-next-line
+  }, [form.photo_path]);
+
+  const uploadFile = async (file, folder, setUploading, formKey) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { window.alert("File must be under 5 MB."); return; }
+    setUploading(true);
+    const ext = file.name.split(".").pop();
+    const path = `${folder}/${form.beneficiary_id || "new"}-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("beneficiary-documents").upload(path, file, { upsert: true });
+    setUploading(false);
+    if (error) { window.alert("Upload failed: " + error.message); return; }
+    setForm(f => ({ ...f, [formKey]: path }));
+  };
+
 
   // Phase 2: Program dropdown is sourced from the dynamic `programs` table (active only, sorted by display_order).
   // If that fetch failed or hasn't returned anything yet, fall back to the static PROGRAMS list so registration
@@ -1035,6 +1061,16 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                 </>
               )}
               <SectionHeader title="Personal Information" color={p.color} />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-16 h-16 rounded-full overflow-hidden bg-[#F3F4F6] flex items-center justify-center shrink-0 border border-[#E5E7EB]">
+                  {photoPreviewUrl ? <img src={photoPreviewUrl} alt="Photo" className="w-full h-full object-cover" /> : <User size={24} className="text-[#9CA3AF]" />}
+                </div>
+                <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer">
+                  {photoUploading ? "Uploading..." : form.photo_path ? "Change Photo" : "Upload Photo"}
+                  <input type="file" accept="image/*" className="hidden" disabled={photoUploading}
+                    onChange={e => uploadFile(e.target.files[0], "photos", setPhotoUploading, "photo_path")} />
+                </label>
+              </div>
               <div className="grid grid-cols-2 gap-x-4">
                 <Field label="Beneficiary Name" required error={errors.name}>
                   <Input value={form.name} onChange={set("name")} placeholder="Full name" autoFocus />
@@ -1150,6 +1186,17 @@ function BeneficiaryForm({ editing, onSave, onCancel, currentUser, beneficiaries
                       placeholder={identityInfo.placeholder}
                       inputMode={form.identity_type === "aadhaar" ? "numeric" : "text"} />
                   </Field>
+                </div>
+                <div className="mt-3">
+                  <label className="text-[12px] font-medium text-[#374151] mb-1.5 block">Document Upload (Optional)</label>
+                  <div className="flex items-center gap-2">
+                    <label className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#374151] cursor-pointer bg-white">
+                      {aadhaarUploading ? "Uploading..." : form.aadhaar_doc_path ? "Change File" : "Upload Document"}
+                      <input type="file" accept="image/*,application/pdf" className="hidden" disabled={aadhaarUploading}
+                        onChange={e => uploadFile(e.target.files[0], "identity-docs", setAadhaarUploading, "aadhaar_doc_path")} />
+                    </label>
+                    {form.aadhaar_doc_path && <span className="text-[11px] text-[#16A34A] flex items-center gap-1"><CheckCircle size={13} /> Uploaded</span>}
+                  </div>
                 </div>
               </div>
 
@@ -4024,6 +4071,15 @@ function VillageMasterList({ villages, isAdmin, onAdd, onEdit, onDelete }) {
    ============================================================ */
 function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, isSuperAdmin, enrollments }) {
   const p = PROGRAM_MAP[b.program] || PROGRAMS[0];
+  const [photoUrl, setPhotoUrl] = useState(null);
+
+  useEffect(() => {
+    if (!b.photo_path) { setPhotoUrl(null); return; }
+    (async () => {
+      const { data } = await supabase.storage.from("beneficiary-documents").createSignedUrl(b.photo_path, 3600);
+      if (data?.signedUrl) setPhotoUrl(data.signedUrl);
+    })();
+  }, [b.photo_path]);
 
   // Calculate profile completion
   const sections = {
@@ -4134,9 +4190,9 @@ function BeneficiaryProfile({ beneficiary: b, onClose, beneficiaries, isAdmin, i
       {/* Profile Header Card */}
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0"
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-[24px] font-black text-white shrink-0 overflow-hidden"
             style={{ background: p.color }}>
-            {(b.name || "?").charAt(0).toUpperCase()}
+            {photoUrl ? <img src={photoUrl} alt={b.name} className="w-full h-full object-cover" /> : (b.name || "?").charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-[16px] font-bold text-[#111827]">{b.name || "—"}</h3>
