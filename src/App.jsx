@@ -7227,6 +7227,8 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const [employment, setEmployment] = useState([]);
   const [villages, setVillages] = useState([]);
   const [fieldWorkers, setFieldWorkers] = useState([]);
+  const [partners, setPartners] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [section, setSection] = useState("beneficiary");
 
   const [dateFrom, setDateFrom] = useState("");
@@ -7237,11 +7239,12 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
   const [fwFilter, setFwFilter] = useState("all");
   const [batchFilter, setBatchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [partnerFilter, setPartnerFilter] = useState("all");
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [b, bt, en, ar, asr, asm, ct, em, vl, us] = await Promise.all([
+      const [b, bt, en, ar, asr, asm, ct, em, vl, us, pt, dc] = await Promise.all([
         supabase.from("beneficiaries").select("*"),
         supabase.from("batch_trainings").select("*"),
         supabase.from("training_enrollments").select("*"),
@@ -7252,11 +7255,14 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
         supabase.from("employment").select("*"),
         supabase.from("village_master").select("*"),
         supabase.from("users").select("*"),
+        supabase.from("partners").select("*"),
+        supabase.from("documents").select("*").eq("status", "Active"),
       ]);
       setBeneficiaries(b.data || []); setBatches(bt.data || []); setEnrollments(en.data || []);
       setAttendanceRecords(ar.data || []); setAssessmentRecords(asr.data || []); setAssessmentMarks(asm.data || []);
       setCertificates(ct.data || []); setEmployment(em.data || []); setVillages(vl.data || []);
       setFieldWorkers((us.data || []).filter(u => u.role === "fieldworker"));
+      setPartners(pt.data || []); setDocuments(dc.data || []);
       setLoading(false);
     })();
   }, []);
@@ -7312,25 +7318,34 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
 
   // Summary cards
   const totalBeneficiaries = filteredBeneficiaries.length;
+  const activeBeneficiaries = filteredBeneficiaries.filter(b => b.status !== "Dropped" && b.status !== "Archived").length;
+  const activePrograms = new Set(filteredBeneficiaries.map(b => b.program).filter(Boolean)).size;
+  const activePartners = partners.filter(p => p.status === "Active").length;
   const totalTrainings = filteredBatches.length;
   const totalAssessments = filteredAssessmentRecords.length;
   const certsIssued = filteredCertificates.filter(c => c.status === "Active").length;
   const placements = filteredEmployment.filter(e => e.status === "Active").length;
+  const livelihoodOutcomes = filteredEmployment.length;
   const totalVillages = new Set(filteredBeneficiaries.map(b => b.village).filter(Boolean)).size;
   const totalTrainers = new Set(filteredBatches.map(b => b.trainer_name).filter(Boolean)).size;
   const completionPct = totalTrainings > 0 ? Math.round(filteredBatches.filter(b => b.status === "Completed").length / totalTrainings * 100) : 0;
   const placementPct = totalBeneficiaries > 0 ? Math.round(placements / totalBeneficiaries * 100) : 0;
+  const attendancePct = scopedAttendance.length > 0 ? Math.round(scopedAttendance.filter(a => a.status === "Present" || a.status === "Late").length / scopedAttendance.length * 100) : 0;
+  const documentsUploaded = documents.length;
 
   const SUMMARY = [
     { label: "Total Beneficiaries", value: totalBeneficiaries, icon: Users, color: "#1E3A8A" },
-    { label: "Total Trainings", value: totalTrainings, icon: BookOpen, color: "#DB2777" },
-    { label: "Total Assessments", value: totalAssessments, icon: ClipboardList, color: "#F97316" },
+    { label: "Active Beneficiaries", value: activeBeneficiaries, icon: CheckCircle, color: "#16A34A" },
+    { label: "Active Programs", value: activePrograms, icon: BookOpen, color: "#7C3AED" },
+    { label: "Active Partners", value: activePartners, icon: Building2, color: "#0EA5E9" },
+    { label: "Training Batches", value: totalTrainings, icon: BookOpen, color: "#DB2777" },
+    { label: "Attendance %", value: attendancePct + "%", icon: ClipboardList, color: "#F97316" },
+    { label: "Assessments Completed", value: totalAssessments, icon: ClipboardList, color: "#F97316" },
     { label: "Certificates Issued", value: certsIssued, icon: Award, color: "#16A34A" },
-    { label: "Placements", value: placements, icon: Briefcase, color: "#0EA5E9" },
+    { label: "Livelihood Outcomes", value: livelihoodOutcomes, icon: Briefcase, color: "#0EA5E9" },
+    { label: "Documents Uploaded", value: documentsUploaded, icon: FileSpreadsheet, color: "#7C3AED" },
     { label: "Total Villages", value: totalVillages, icon: MapPin, color: "#7C3AED" },
-    { label: "Total Trainers", value: totalTrainers, icon: Users, color: "#DC2626" },
     { label: "Training Completion %", value: completionPct + "%", icon: CheckCircle, color: "#16A34A" },
-    { label: "Placement %", value: placementPct + "%", icon: TrendingUp, color: "#0EA5E9" },
   ];
 
   // Beneficiary breakdowns
@@ -7404,7 +7419,24 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
     { key: "assessment", label: "Assessment" },
     { key: "certificate", label: "Certificate" },
     { key: "placement", label: "Placement" },
+    { key: "partner", label: "Partner" },
+    { key: "livelihood", label: "Livelihood" },
+    { key: "document", label: "Document" },
   ];
+
+  // Partner breakdowns
+  const filteredPartners = useMemo(() => partnerFilter === "all" ? partners : partners.filter(p => p.id === partnerFilter), [partners, partnerFilter]);
+  const partnerTypeWise = useMemo(() => reportsGroupBy(filteredPartners, p => PARTNER_TYPE_MAP[p.partner_type]?.label || p.partner_type), [filteredPartners]);
+  const partnerStatusWise = useMemo(() => reportsGroupBy(filteredPartners, p => p.status), [filteredPartners]);
+  const partnerDistrictWise = useMemo(() => reportsGroupBy(filteredPartners, p => p.districts || "—"), [filteredPartners]);
+
+  // Livelihood breakdowns (uses the newer outcome_type/details model where present)
+  const outcomeTypeWise = useMemo(() => reportsGroupBy(filteredEmployment, e => OUTCOME_TYPE_LABELS[e.outcome_type] || e.employment_type || "Legacy"), [filteredEmployment]);
+  const outcomeProgramWise = useMemo(() => reportsGroupBy(filteredEmployment, e => PROGRAM_MAP[e.program]?.label || e.program || "—"), [filteredEmployment]);
+
+  // Document breakdowns
+  const docCategoryWise = useMemo(() => reportsGroupBy(documents, d => d.category), [documents]);
+  const docTypeWise = useMemo(() => reportsGroupBy(documents, d => d.document_type), [documents]);
 
   if (loading) {
     return (
@@ -7457,6 +7489,10 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
             <option value="all">All Batches</option>
             {batchOptions.map(b => <option key={b.batch_id} value={b.batch_id}>{b.venue} · {b.training_type}</option>)}
           </select>
+          <select value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
+            <option value="all">All Partners</option>
+            {partners.map(p => <option key={p.id} value={p.id}>{p.partner_name}</option>)}
+          </select>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[11px] py-1.5"}>
             <option value="all">All Status</option>
             <option value="Ongoing">Ongoing</option>
@@ -7501,6 +7537,14 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 sm:col-span-2">
           <p className="text-[12px] font-bold text-[#111827] mb-2">Placement Trend</p>
           <MiniBarChart data={placementTrend} color="#0EA5E9" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Partner Type Distribution</p>
+          <MiniBarChart data={partnerTypeWise} color="#7C3AED" />
+        </div>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-2">Documents by Category</p>
+          <MiniBarChart data={docCategoryWise} color="#F97316" />
         </div>
       </div>
 
@@ -7587,6 +7631,50 @@ function ReportsModule({ currentUser, isAdmin, showToast }) {
           </div>
           <ReportTable title="Company-wise" columns={[{ key: "label", label: "Employer" }, { key: "count", label: "Count" }]} rows={companyWise} filenamePrefix="placement_company" />
           <ReportTable title="Salary-wise" columns={[{ key: "label", label: "Income Range" }, { key: "count", label: "Count" }]} rows={salaryWise} filenamePrefix="placement_salary" />
+        </>
+      )}
+
+      {section === "partner" && (
+        <>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[["Total Partners", filteredPartners.length, "#1E3A8A"], ["Active", activePartners, "#16A34A"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Type-wise" columns={[{ key: "label", label: "Partner Type" }, { key: "count", label: "Count" }]} rows={partnerTypeWise} filenamePrefix="partner_type" />
+          <ReportTable title="Status-wise" columns={[{ key: "label", label: "Status" }, { key: "count", label: "Count" }]} rows={partnerStatusWise} filenamePrefix="partner_status" />
+          <ReportTable title="District-wise" columns={[{ key: "label", label: "District" }, { key: "count", label: "Count" }]} rows={partnerDistrictWise} filenamePrefix="partner_district" />
+        </>
+      )}
+
+      {section === "livelihood" && (
+        <>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {[["Total Outcomes", livelihoodOutcomes, "#0EA5E9"], ["Active", placements, "#16A34A"]].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+                <p className="text-[18px] font-bold" style={{ color: c }}>{v}</p>
+                <p className="text-[10px] text-[#6B7280]">{l}</p>
+              </div>
+            ))}
+          </div>
+          <ReportTable title="Outcome Type-wise" columns={[{ key: "label", label: "Outcome Type" }, { key: "count", label: "Count" }]} rows={outcomeTypeWise} filenamePrefix="livelihood_outcome" />
+          <ReportTable title="Program-wise" columns={[{ key: "label", label: "Program" }, { key: "count", label: "Count" }]} rows={outcomeProgramWise} filenamePrefix="livelihood_program" />
+        </>
+      )}
+
+      {section === "document" && (
+        <>
+          <div className="grid grid-cols-1 gap-2 mb-4">
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 text-center">
+              <p className="text-[18px] font-bold text-[#7C3AED]">{documentsUploaded}</p>
+              <p className="text-[10px] text-[#6B7280]">Documents Uploaded</p>
+            </div>
+          </div>
+          <ReportTable title="By Category" columns={[{ key: "label", label: "Category" }, { key: "count", label: "Count" }]} rows={docCategoryWise} filenamePrefix="documents_category" />
+          <ReportTable title="By Document Type" columns={[{ key: "label", label: "Document Type" }, { key: "count", label: "Count" }]} rows={docTypeWise} filenamePrefix="documents_type" />
         </>
       )}
     </div>
