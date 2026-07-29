@@ -8243,6 +8243,415 @@ function NavDrawer({ open, onClose, sections, currentUser, isSuperAdmin, isAdmin
   );
 }
 
+/* ============================================================
+   WASTE MANAGEMENT — Sprint 1 master module.
+   Mirrors the Partners module architecture exactly (List/Form/Profile,
+   search, hierarchical filters, pagination, export, soft delete).
+   Reuses DocumentRepository (DMS) and the audit_logs Timeline pattern
+   already built for Partners — no new upload engine, no new Timeline.
+   ============================================================ */
+function nextWasteRegNumber(records) {
+  const nums = records.filter(r => r.registration_number?.startsWith("WM-")).map(r => {
+    const m = r.registration_number?.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  });
+  return `WM-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
+}
+
+function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sub, setSub] = useState("list"); // list | form | profile
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("waste_management").select("*").order("created_at", { ascending: false });
+    if (error) { showToast("Error loading records: " + error.message, "error"); setLoading(false); return; }
+    setRecords(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveRecord = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const rec = { ...form, updated_by: who, updated_at: new Date().toISOString() };
+      const { error } = await supabase.from("waste_management").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRecords(rs => rs.map(r => r.id === editing.id ? { ...r, ...rec } : r));
+      await logAppAudit("UPDATE", "Waste Management", `Updated: ${form.family_head_name} (${form.registration_number})`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      const rec = { ...form, registration_number: nextWasteRegNumber(records), status: form.status || "Active", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const { data, error } = await supabase.from("waste_management").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setRecords(rs => [data, ...rs]);
+      await logAppAudit("CREATE", "Waste Management", `Registered: ${data.family_head_name} (${data.registration_number})`);
+      showToast("Registered Successfully");
+    }
+    setEditing(null); setSub("list");
+  };
+
+  const toggleStatus = async (r) => {
+    const newStatus = r.status === "Active" ? "Inactive" : "Active";
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("waste_management").update({ status: newStatus, updated_by: who, updated_at: new Date().toISOString() }).eq("id", r.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setRecords(rs => rs.map(x => x.id === r.id ? { ...x, status: newStatus } : x));
+    await logAppAudit(newStatus === "Active" ? "RESTORE" : "DEACTIVATE", "Waste Management", `${r.family_head_name} (${r.registration_number}) → ${newStatus}`);
+    showToast(newStatus === "Active" ? "Restored Successfully" : "Deactivated Successfully");
+  };
+
+  if (sub === "form") {
+    return <WasteManagementForm editing={editing} records={records} onSave={saveRecord} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
+  }
+  if (sub === "profile" && viewing) {
+    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast}
+      onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
+  }
+  return (
+    <WasteManagementList records={records} isAdmin={isAdmin} loading={loading}
+      onAdd={() => { setEditing(null); setSub("form"); }}
+      onView={r => { setViewing(r); setSub("profile"); }}
+      onEdit={r => { setEditing(r); setSub("form"); }}
+      onToggleStatus={toggleStatus}
+      onExport={() => downloadCSV(records.map(r => ({
+        "Registration No": r.registration_number, "Household ID": r.household_id, "Family Head": r.family_head_name,
+        "Gender": r.gender, "Age": r.age, "Mobile": r.mobile_number, "Village": r.village, "Mandal": r.mandal,
+        "District": r.district, "Status": r.status,
+      })), `TAPASVI_WasteManagement_${new Date().toISOString().slice(0, 10)}.csv`)} />
+  );
+}
+
+function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit, onToggleStatus, onExport }) {
+  const [query, setQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [mandalFilter, setMandalFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
+
+  const stateOptions = useMemo(() => [...new Set(records.map(r => r.state || "Andhra Pradesh"))].sort(), [records]);
+  const districtOptions = useMemo(() => {
+    const scope = stateFilter === "all" ? records : records.filter(r => (r.state || "Andhra Pradesh") === stateFilter);
+    return [...new Set(scope.map(r => r.district).filter(Boolean))].sort();
+  }, [records, stateFilter]);
+  const mandalOptions = useMemo(() => districtFilter === "all" ? [] : [...new Set(records.filter(r => r.district === districtFilter).map(r => r.mandal).filter(Boolean))].sort(), [records, districtFilter]);
+  const villageOptions = useMemo(() => {
+    let scope = records;
+    if (districtFilter !== "all") scope = scope.filter(r => r.district === districtFilter);
+    if (mandalFilter !== "all") scope = scope.filter(r => r.mandal === mandalFilter);
+    return [...new Set(scope.map(r => r.village).filter(Boolean))].sort();
+  }, [records, districtFilter, mandalFilter]);
+  const onStateChange = (v) => { setStateFilter(v); setDistrictFilter("all"); setMandalFilter("all"); setVillageFilter("all"); };
+  const onDistrictChange = (v) => { setDistrictFilter(v); setMandalFilter("all"); setVillageFilter("all"); };
+  const onMandalChange = (v) => { setMandalFilter(v); setVillageFilter("all"); };
+
+  const filtered = useMemo(() => records.filter(r => {
+    if (stateFilter !== "all" && (r.state || "Andhra Pradesh") !== stateFilter) return false;
+    if (districtFilter !== "all" && r.district !== districtFilter) return false;
+    if (mandalFilter !== "all" && r.mandal !== mandalFilter) return false;
+    if (villageFilter !== "all" && r.village !== villageFilter) return false;
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      if (!(r.registration_number?.toLowerCase().includes(q) || r.household_id?.toLowerCase().includes(q) ||
+            r.family_head_name?.toLowerCase().includes(q) || r.mobile_number?.includes(q) || r.aadhaar_number?.includes(q) ||
+            r.village?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }), [records, query, stateFilter, districtFilter, mandalFilter, villageFilter, statusFilter]);
+
+  useEffect(() => { setPage(1); }, [query, stateFilter, districtFilter, mandalFilter, villageFilter, statusFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">♻️ Waste Management</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+          <button onClick={() => printSimpleTable("Waste Management", [{ key: "registration_number", label: "Reg No" }, { key: "family_head_name", label: "Family Head" }, { key: "village", label: "Village" }, { key: "status", label: "Status" }], records)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-bold text-white" style={{ background: "#16A34A" }}><Plus size={14} /> Add</button>
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Reg No, Household ID, Name, Mobile, Aadhaar, Village..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+          <option value="all">All Status</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+        <button onClick={() => setShowMoreFilters(s => !s)} className="flex items-center gap-1.5 rounded-lg border border-[#16A34A] px-3 py-2 text-[12px] font-semibold text-[#16A34A]">
+          <Filter size={13} /> {showMoreFilters ? "Hide" : "More"} Filters
+        </button>
+      </div>
+      {showMoreFilters && (
+        <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3.5 mb-4">
+          <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Location (State → District → Mandal → Village)</p>
+          <div className="flex gap-2 flex-wrap">
+            <select value={stateFilter} onChange={e => onStateChange(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All States</option>
+              {stateOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={districtFilter} onChange={e => onDistrictChange(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Districts</option>
+              {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={mandalFilter} onChange={e => onMandalChange(e.target.value)} disabled={districtFilter === "all"} className={selectCls + " w-auto text-[12px] disabled:opacity-50"}>
+              <option value="all">{districtFilter === "all" ? "Select District first" : "All Mandals"}</option>
+              {mandalOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Villages</option>
+              {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-3/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]">
+          <Leaf size={28} className="mx-auto mb-3 opacity-40" />
+          <p className="text-[13px]">No records found for the selected filters.</p>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {paginated.map(r => (
+              <div key={r.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-[13.5px] font-semibold text-[#111827]">{r.family_head_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{r.registration_number}</span></p>
+                    <p className="text-[11px] text-[#6B7280] mt-0.5">HH: {r.household_id || "—"} · {r.mobile_number || "—"} · {[r.village, r.mandal, r.district].filter(Boolean).join(", ")}</p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: r.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: r.status === "Active" ? "#16A34A" : "#6B7280" }}>{r.status}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => onView(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                  {isAdmin && <button onClick={() => onEdit(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
+                  {isAdmin && (
+                    <button onClick={() => onToggleStatus(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
+                      {r.status === "Active" ? "Deactivate" : "Restore"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-5 flex-wrap gap-2">
+              <p className="text-[11.5px] text-[#6B7280]">Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}</p>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>← Previous</button>
+                {pageNumbers.map(n => (
+                  <button key={n} onClick={() => setPage(n)} className="rounded-lg text-[12px] font-semibold transition-colors" style={{ minWidth: 36, minHeight: 40, background: n === page ? "#16A34A" : "transparent", color: n === page ? "#fff" : "#374151" }}>{n}</button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>Next →</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function WasteManagementForm({ editing, records, onSave, onCancel }) {
+  const blank = {
+    household_id: "", family_head_name: "", gender: "Male", age: "", mobile_number: "", aadhaar_number: "",
+    education: "", occupation: "", family_members: "", state: "Andhra Pradesh", district: "", mandal: "",
+    gram_panchayat: "", village: "", status: "Active", remarks: "",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.family_head_name.trim()) e.family_head_name = "Required";
+    if (!form.district) e.district = "Required";
+    if (form.mobile_number && !/^\d{10}$/.test(form.mobile_number)) e.mobile_number = "Must be 10 digits";
+    if (form.aadhaar_number && !/^\d{12}$/.test(form.aadhaar_number)) e.aadhaar_number = "Must be 12 digits";
+    if (!editing && form.aadhaar_number) {
+      const dup = records.find(r => r.aadhaar_number === form.aadhaar_number && r.status === "Active");
+      if (dup) e.aadhaar_number = `Already registered as ${dup.registration_number}`;
+    }
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = () => { if (validate()) onSave(form); };
+
+  return (
+    <div className="max-w-[620px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Registration" : "New Waste Management Registration"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        {editing && (
+          <Field label="Registration Number"><Input value={editing.registration_number} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} /></Field>
+        )}
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Household ID"><Input value={form.household_id} onChange={set("household_id")} /></Field>
+          <Field label="Family Head Name" required error={errors.family_head_name}><Input value={form.family_head_name} onChange={set("family_head_name")} /></Field>
+          <Field label="Gender"><Select value={form.gender} onChange={set("gender")} options={GENDER_OPTIONS} /></Field>
+          <Field label="Age"><Input type="number" min="1" max="99" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value.replace(/\D/g, "").slice(0, 2) }))} /></Field>
+          <Field label="Mobile Number" error={errors.mobile_number}><Input value={form.mobile_number} onChange={e => setForm(f => ({ ...f, mobile_number: e.target.value.replace(/\D/g, "").slice(0, 10) }))} inputMode="numeric" /></Field>
+          <Field label="Aadhaar Number" error={errors.aadhaar_number}><Input value={form.aadhaar_number} onChange={e => setForm(f => ({ ...f, aadhaar_number: e.target.value.replace(/\D/g, "").slice(0, 12) }))} inputMode="numeric" /></Field>
+          <Field label="Education"><Select value={form.education} onChange={set("education")} options={EDUCATION_OPTIONS} placeholder="Select" /></Field>
+          <Field label="Occupation"><Input value={form.occupation} onChange={set("occupation")} /></Field>
+          <Field label="Family Members"><Input type="number" min="1" value={form.family_members} onChange={set("family_members")} /></Field>
+        </div>
+
+        <SectionHeader title="Location" color="#16A34A" />
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="State"><Input value={form.state} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} /></Field>
+          <Field label="District" required error={errors.district}><Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} placeholder="Select district" /></Field>
+          <Field label="Mandal"><Input value={form.mandal} onChange={set("mandal")} /></Field>
+          <Field label="Gram Panchayat"><Input value={form.gram_panchayat} onChange={set("gram_panchayat")} /></Field>
+          <Field label="Village"><Input value={form.village} onChange={set("village")} /></Field>
+        </div>
+
+        <SectionHeader title="Status" color="#16A34A" />
+        <Field label="Status"><Select value={form.status} onChange={set("status")} options={["Active", "Inactive"]} /></Field>
+        <Field label="Remarks"><textarea value={form.remarks} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save</button>
+          <button onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WasteManagementProfile({ record: r, currentUser, showToast, onEdit, onBack }) {
+  const [tab, setTab] = useState("basic"); // basic | documents | timeline
+  const [activity, setActivity] = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingActivity(true);
+      const { data } = await supabase.from("audit_logs").select("*")
+        .eq("module", "Waste Management").ilike("details", `%${r.registration_number}%`)
+        .order("created_at", { ascending: false }).limit(10);
+      setActivity(data || []);
+      setLoadingActivity(false);
+    })();
+  }, [r.registration_number]);
+
+  return (
+    <div className="max-w-[640px] mx-auto">
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">{r.family_head_name}</h2>
+          <p className="text-[11.5px] text-[#6B7280] font-mono">{r.registration_number}</p>
+        </div>
+        <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>
+      </div>
+
+      <div className="flex gap-1 mb-4">
+        {[["basic", "Basic Information"], ["documents", "Documents"], ["timeline", "Timeline"]].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold transition-colors"
+            style={tab === key ? { background: "#16A34A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "basic" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <SectionHeader title="Basic Information" color="#16A34A" />
+          <div className="grid grid-cols-2 gap-y-3">
+            <InfoRow label="Household ID" value={r.household_id} />
+            <InfoRow label="Gender" value={r.gender} />
+            <InfoRow label="Age" value={r.age} />
+            <InfoRow label="Mobile Number" value={r.mobile_number} />
+            <InfoRow label="Aadhaar Number" value={r.aadhaar_number} />
+            <InfoRow label="Education" value={r.education} />
+            <InfoRow label="Occupation" value={r.occupation} />
+            <InfoRow label="Family Members" value={r.family_members} />
+            <InfoRow label="Status" value={r.status} />
+          </div>
+          <SectionHeader title="Location" color="#16A34A" />
+          <div className="grid grid-cols-2 gap-y-3">
+            <InfoRow label="State" value={r.state} />
+            <InfoRow label="District" value={r.district} />
+            <InfoRow label="Mandal" value={r.mandal} />
+            <InfoRow label="Gram Panchayat" value={r.gram_panchayat} />
+            <InfoRow label="Village" value={r.village} />
+          </div>
+          {r.remarks && (
+            <>
+              <SectionHeader title="Remarks" color="#16A34A" />
+              <p className="text-[12.5px] text-[#111827]">{r.remarks}</p>
+            </>
+          )}
+          <SectionHeader title="Audit Information" color="#16A34A" />
+          <div className="grid grid-cols-2 gap-y-3">
+            <InfoRow label="Created By" value={r.created_by} />
+            <InfoRow label="Created At" value={r.created_at ? new Date(r.created_at).toLocaleString() : "—"} />
+            <InfoRow label="Updated By" value={r.updated_by} />
+            <InfoRow label="Updated At" value={r.updated_at ? new Date(r.updated_at).toLocaleString() : "—"} />
+          </div>
+        </div>
+      )}
+
+      {tab === "documents" && (
+        <DocumentRepository entityType="waste_management" entityId={r.id} currentUser={currentUser} showToast={showToast} />
+      )}
+
+      {tab === "timeline" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          {loadingActivity ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p>
+          ) : activity.length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-4">No activity recorded yet.</p>
+          ) : (
+            <div className="space-y-0">
+              {activity.map((a, i) => (
+                <div key={a.id || i} className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: a.action === "CREATE" ? "#16A34A" : a.action === "DEACTIVATE" ? "#DC2626" : "#1E3A8A" }} />
+                    {i < activity.length - 1 && <div className="w-px flex-1 min-h-[20px] bg-[#E5E7EB]" />}
+                  </div>
+                  <div className="pb-3 flex-1 min-w-0">
+                    <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                    <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "—"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function PartnersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
   const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10279,6 +10688,7 @@ export default function App() {
       items: [
         ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
         ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
+        ...(isAdmin ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
         ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
       ],
     },
@@ -10562,6 +10972,9 @@ export default function App() {
           )}
           {!subView && view === "partners" && isAdmin && (
             <PartnersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "waste-management" && isAdmin && (
+            <WasteManagementModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
