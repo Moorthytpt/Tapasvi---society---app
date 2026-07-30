@@ -502,6 +502,64 @@ function checkOcrEligibility(rec) {
   return eligible;
 }
 
+let _pdfjsLoadPromise = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsLoadPromise) return _pdfjsLoadPromise;
+  _pdfjsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("Could not load the PDF engine. Check your internet connection."));
+    document.head.appendChild(script);
+  });
+  return _pdfjsLoadPromise;
+}
+
+// Extracts every voter record from an Electoral Roll PDF's actual text layer (no OCR/image
+// recognition involved — far more reliable than scanning photos). Segments the page text by
+// EPIC (Voter ID) number, then pulls Name / Father's-Husband's Name / House Number / Age /
+// Gender out of each segment using the label pattern seen on standard ECI rolls.
+async function extractElectoralRollRecords(file, onPageProgress) {
+  const pdfjsLib = await loadPdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let fullText = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    fullText += content.items.map(it => it.str).join(" ") + " \n ";
+    if (onPageProgress) onPageProgress(p, pdf.numPages);
+  }
+
+  const epicPattern = /([A-Z]{2,4}\d{6,7})/g;
+  const parts = fullText.split(epicPattern);
+  const records = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const voterId = parts[i];
+    const block = parts[i + 1] || "";
+    const nameMatch = block.match(/Name\s*:\s*(.+?)\s*(?:Fathers?\s*Name|Husbands?\s*Name|House\s*Number|$)/i);
+    const relMatch = block.match(/(?:Fathers?|Husbands?)\s*Name\s*:\s*(.+?)\s*(?:House\s*Number|$)/i);
+    const houseMatch = block.match(/House\s*Number\s*:\s*(.+?)\s*(?:Age\s*:|$)/i);
+    const ageMatch = block.match(/Age\s*:\s*(\d{1,3})/i);
+    const genderMatch = block.match(/Gender\s*:\s*(Male|Female|Other)/i);
+    if (!nameMatch && !ageMatch) continue; // segment didn't look like a real record — skip
+    records.push({
+      voter_id: voterId,
+      name: nameMatch ? nameMatch[1].trim() : "",
+      father_husband_name: relMatch ? relMatch[1].trim() : "",
+      house_no: houseMatch ? houseMatch[1].trim() : "",
+      age: ageMatch ? ageMatch[1] : "",
+      gender: genderMatch ? genderMatch[1] : "",
+    });
+  }
+  return records;
+}
+
+
 function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
   const [stage, setStage] = useState("upload"); // upload | processing | preview | summary
   const [files, setFiles] = useState([]);
@@ -526,40 +584,87 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     try {
       const Tesseract = await loadTesseract();
       const results = [];
+      let skipped = 0;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
-        const { data } = await Tesseract.recognize(file, "eng", {
-          logger: m => {
-            if (m.status === "recognizing text") {
-              const overall = ((i + m.progress) / files.length) * 100;
-              setProgress(Math.round(overall));
-            }
-          },
-        });
-        const parsed = parseVoterIdText(data.text || "");
-        results.push({
-          _id: `ocr-${i}-${Date.now()}`,
-          _selected: true,
-          _photoUrl: URL.createObjectURL(file),
-          _confidence: Math.round(data.confidence || 0),
-          _isDuplicate: false,
-          name: parsed.name, voter_id: parsed.voter_id, age: parsed.age, gender: parsed.gender,
-          house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
-          program: "waste", status: "New",
-        });
+        try {
+          const { data } = await Tesseract.recognize(file, "eng", {
+            logger: m => {
+              if (m.status === "recognizing text") {
+                const overall = ((i + m.progress) / files.length) * 100;
+                setProgress(Math.round(overall));
+              }
+            },
+          });
+          const parsed = parseVoterIdText(data.text || "");
+          results.push({
+            _id: `ocr-${i}-${Date.now()}`,
+            _selected: true,
+            _photoUrl: URL.createObjectURL(file),
+            _confidence: Math.round(data.confidence || 0),
+            _isDuplicate: false,
+            name: parsed.name, voter_id: parsed.voter_id, age: parsed.age, gender: parsed.gender,
+            house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
+            program: "waste", status: "New",
+          });
+        } catch (fileErr) {
+          skipped++; // one bad/corrupt image shouldn't abort the whole batch
+        }
       }
-      // Duplicate check against live beneficiaries (Voter ID = identity_number match)
-      const marked = results.map(r => {
-        const dup = r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id);
-        return { ...r, _isDuplicate: dup, status: dup ? "Duplicate" : "New" };
-      });
-      setRecords(marked);
-      setStage("preview");
+      if (results.length === 0) {
+        setOcrError(`Couldn't read ${skipped} of ${files.length} image(s). Try a clearer photo, or use "Upload PDF" instead if you have the source PDF.`);
+        setStage("upload");
+        return;
+      }
+      if (skipped > 0) showToast(`${skipped} image(s) couldn't be read and were skipped.`, "error");
+      finishWithResults(results);
     } catch (e) {
-      setOcrError(e.message || "OCR failed. Please try clearer photos.");
+      setOcrError((e.message || "OCR failed.") + " If you have the original PDF, try \"Upload PDF\" instead — it's far more reliable.");
       setStage("upload");
     }
+  };
+
+  const runPdfImport = async (file) => {
+    setOcrError("");
+    setStage("processing");
+    setProgress(0);
+    setProgressLabel(`Reading ${file.name}...`);
+    try {
+      const rows = await extractElectoralRollRecords(file, (page, total) => {
+        setProgress(Math.round((page / total) * 100));
+        setProgressLabel(`Reading page ${page} of ${total}...`);
+      });
+      if (rows.length === 0) {
+        setOcrError("No voter records were found in this PDF. It may be a scanned (image-only) PDF rather than a text PDF — in that case, photograph individual ID cards and use the image upload option instead.");
+        setStage("upload");
+        return;
+      }
+      const results = rows.map((r, i) => ({
+        _id: `pdf-${i}-${Date.now()}`,
+        _selected: true,
+        _photoUrl: null, // no photo available from a text PDF
+        _confidence: 100, // direct text extraction, not a visual guess
+        _isDuplicate: false,
+        name: r.name, voter_id: r.voter_id, age: r.age, gender: r.gender,
+        house_no: r.house_no, father_husband_name: r.father_husband_name, village: "",
+        program: "waste", status: "New",
+      }));
+      finishWithResults(results);
+    } catch (e) {
+      setOcrError((e.message || "Could not read this PDF.") + " Please confirm it's a valid, non-password-protected PDF.");
+      setStage("upload");
+    }
+  };
+
+  const finishWithResults = (results) => {
+    // Duplicate check against live beneficiaries (Voter ID = identity_number match)
+    const marked = results.map(r => {
+      const dup = r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id);
+      return { ...r, _isDuplicate: dup, status: dup ? "Duplicate" : "New" };
+    });
+    setRecords(marked);
+    setStage("preview");
   };
 
   const updateRecord = (id, key, val) => setRecords(rs => rs.map(r => r._id === id ? { ...r, [key]: val } : r));
@@ -615,6 +720,16 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         <h2 className="text-[17px] font-bold text-[#111827] mb-1">📇 Smart Beneficiary Import (OCR)</h2>
         <p className="text-[12px] text-[#6B7280] mb-4">Upload Voter ID card photos to auto-fill registration details. Every record must be reviewed before saving.</p>
         {ocrError && <div className="rounded-xl p-3 mb-3 text-[12px] text-[#DC2626]" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>⚠ {ocrError}</div>}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+          <p className="text-[12px] font-bold text-[#111827] mb-1">📄 Have the actual Electoral Roll PDF?</p>
+          <p className="text-[10.5px] text-[#6B7280] mb-3">This reads the PDF's real text directly — far more accurate than photo scanning, and works for many voters at once.</p>
+          <label className="block rounded-xl border-2 border-dashed border-[#16A34A] py-4 text-center cursor-pointer" style={{ minHeight: 44 }}>
+            <span className="text-[12.5px] font-semibold text-[#16A34A]">Upload PDF</span>
+            <input type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files[0] && runPdfImport(e.target.files[0])} />
+          </label>
+        </div>
+
+        <p className="text-[11px] font-semibold text-[#9CA3AF] mb-2 text-center">— OR scan individual ID card photos —</p>
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
           <div className="grid grid-cols-2 gap-2 mb-4">
             <label className="rounded-xl border-2 border-dashed border-[#16A34A] py-6 text-center cursor-pointer" style={{ minHeight: 44 }}>
@@ -628,7 +743,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
               <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
             </label>
           </div>
-          <p className="text-[10.5px] text-[#9CA3AF] mb-3">Note: PDF upload isn't OCR'd in this version — please photograph or screenshot each ID card as an image instead.</p>
+          <p className="text-[10.5px] text-[#9CA3AF] mb-3">Photo scanning uses OCR guessing and is less reliable — prefer the PDF option above when you have it.</p>
           {files.length > 0 && (
             <div className="mb-4">
               <p className="text-[11.5px] font-semibold text-[#374151] mb-2">{files.length} image(s) selected</p>
@@ -692,7 +807,11 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             <div key={rec._id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
               <div className="flex items-start gap-3 mb-3">
                 <input type="checkbox" checked={rec._selected} onChange={() => toggleSelect(rec._id)} className="mt-1.5" style={{ width: 18, height: 18 }} />
-                <img src={rec._photoUrl} alt="" className="w-14 h-14 rounded-lg object-cover border border-[#E5E7EB] shrink-0" />
+                {rec._photoUrl ? (
+                  <img src={rec._photoUrl} alt="" className="w-14 h-14 rounded-lg object-cover border border-[#E5E7EB] shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 rounded-lg border border-[#E5E7EB] shrink-0 flex items-center justify-center bg-[#F3F4F6]"><User size={20} className="text-[#9CA3AF]" /></div>
+                )}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge label={rec._isDuplicate ? "Duplicate" : "New"} color={rec._isDuplicate ? "#DC2626" : "#16A34A"} tint={rec._isDuplicate ? "#FEF2F2" : "#DCFCE7"} />
