@@ -541,8 +541,8 @@ async function extractElectoralRollRecords(file, onPageProgress) {
   for (let i = 1; i < parts.length; i += 2) {
     const voterId = parts[i];
     const block = parts[i + 1] || "";
-    const nameMatch = block.match(/Name\s*:\s*(.+?)\s*(?:Fathers?\s*Name|Husbands?\s*Name|House\s*Number|$)/i);
-    const relMatch = block.match(/(?:Fathers?|Husbands?)\s*Name\s*:\s*(.+?)\s*(?:House\s*Number|$)/i);
+    const nameMatch = block.match(/Name\s*:\s*(.+?)\s*(?:Fathers?\s*Name|Husbands?\s*Name|Mothers?\s*Name|House\s*Number|$)/i);
+    const relMatch = block.match(/(?:Fathers?|Husbands?|Mothers?)\s*Name\s*:\s*(.+?)\s*(?:House\s*Number|$)/i);
     const houseMatch = block.match(/House\s*Number\s*:\s*(.+?)\s*(?:Age\s*:|$)/i);
     const ageMatch = block.match(/Age\s*:\s*(\d{1,3})/i);
     const genderMatch = block.match(/Gender\s*:\s*(Male|Female|Other)/i);
