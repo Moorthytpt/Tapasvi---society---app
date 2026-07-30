@@ -8271,7 +8271,7 @@ const WASTE_TYPE_FIELDS = [
   ["paper_kg", "Paper (Kg)"], ["glass_kg", "Glass (Kg)"], ["metal_kg", "Metal (Kg)"], ["other_kg", "Other (Kg)"],
 ];
 
-function DailyWasteCollectionModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+function DailyWasteCollectionModule({ isAdmin, isSuperAdmin, currentUser, showToast, logAppAudit }) {
   const [collections, setCollections] = useState([]);
   const [households, setHouseholds] = useState([]); // active waste_management records, for the picker
   const [loading, setLoading] = useState(true);
@@ -8323,7 +8323,7 @@ function DailyWasteCollectionModule({ isAdmin, currentUser, showToast, logAppAud
 
   if (sub === "form") {
     return (
-      <DailyWasteCollectionForm editing={editing} households={households} preselected={preselected}
+      <DailyWasteCollectionForm editing={editing} households={households} preselected={preselected} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
         onSave={saveCollection} onCancel={() => { setEditing(null); setPreselected(null); setSub("list"); }} />
     );
   }
@@ -8491,7 +8491,7 @@ function DailyWasteCollectionList({ collections, households, isAdmin, loading, o
   );
 }
 
-function DailyWasteCollectionForm({ editing, households, preselected, onSave, onCancel }) {
+function DailyWasteCollectionForm({ editing, households, preselected, isAdmin, isSuperAdmin, onSave, onCancel }) {
   const blank = {
     waste_management_id: preselected?.id || "", collection_date: new Date().toISOString().slice(0, 10), collector: "",
     wet_waste_kg: "", dry_waste_kg: "", plastic_kg: "", paper_kg: "", glass_kg: "", metal_kg: "", other_kg: "",
@@ -8550,10 +8550,21 @@ function DailyWasteCollectionForm({ editing, households, preselected, onSave, on
             )}
           </Field>
         ) : (
-          <div className="rounded-xl p-3 mb-4" style={{ background: "#DCFCE7" }}>
-            <p className="text-[12.5px] font-bold text-[#16A34A]">{selectedHousehold.family_head_name} <span className="font-mono text-[10.5px]">{selectedHousehold.registration_number}</span></p>
-            <p className="text-[10.5px] text-[#166534]">Village: {selectedHousehold.village || "—"} (auto-filled)</p>
-            {!editing && <button type="button" onClick={() => setForm(f => ({ ...f, waste_management_id: "" }))} className="text-[10.5px] font-semibold text-[#DC2626] mt-1">Change household</button>}
+          <div className="rounded-xl p-3.5 mb-4" style={{ background: "#DCFCE7" }}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-[#166534]">Household Details (Auto-fetched · Read Only)</p>
+              {!editing && <button type="button" onClick={() => setForm(f => ({ ...f, waste_management_id: "" }))} className="text-[10.5px] font-semibold text-[#DC2626]">Change</button>}
+            </div>
+            <p className="text-[13px] font-bold text-[#16A34A] mb-2">{selectedHousehold.family_head_name} <span className="font-mono text-[10.5px] text-[#166534]">{selectedHousehold.registration_number}</span></p>
+            <div className="grid grid-cols-2 gap-y-2 text-[11px] text-[#166534]">
+              <div><span className="opacity-70">Mobile:</span> {selectedHousehold.mobile_number || "—"}</div>
+              <div><span className="opacity-70">Aadhaar:</span> {aadhaarForRole(selectedHousehold.aadhaar_number, isSuperAdmin, isAdmin) ?? "Restricted"}</div>
+              <div><span className="opacity-70">State:</span> {selectedHousehold.state || "—"}</div>
+              <div><span className="opacity-70">District:</span> {selectedHousehold.district || "—"}</div>
+              <div><span className="opacity-70">Mandal:</span> {selectedHousehold.mandal || "—"}</div>
+              <div><span className="opacity-70">Gram Panchayat:</span> {selectedHousehold.gram_panchayat || "—"}</div>
+              <div><span className="opacity-70">Village:</span> {selectedHousehold.village || "—"}</div>
+            </div>
           </div>
         )}
 
@@ -8587,7 +8598,7 @@ function DailyWasteCollectionForm({ editing, households, preselected, onSave, on
 
 // Reusable block dropped into WasteManagementProfile's "Waste Collection" tab —
 // same DailyWasteCollectionForm is reused for add/edit, scoped to one household.
-function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAudit }) {
+function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAudit, isAdmin, isSuperAdmin }) {
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -8640,7 +8651,7 @@ function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAu
   }, [collections]);
 
   if (showForm) {
-    return <DailyWasteCollectionForm editing={editing} households={[household]} preselected={household}
+    return <DailyWasteCollectionForm editing={editing} households={[household]} preselected={household} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
       onSave={saveCollection} onCancel={() => { setEditing(null); setShowForm(false); }} />;
   }
 
@@ -8684,7 +8695,7 @@ function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAu
 }
 
 
-function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+function WasteManagementModule({ isAdmin, isSuperAdmin, currentUser, showToast, logAppAudit }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sub, setSub] = useState("list"); // list | form | profile
@@ -8736,7 +8747,7 @@ function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit })
     return <WasteManagementForm editing={editing} records={records} onSave={saveRecord} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
   }
   if (sub === "profile" && viewing) {
-    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit}
+    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
       onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
   }
   return (
@@ -8973,7 +8984,7 @@ function WasteManagementForm({ editing, records, onSave, onCancel }) {
   );
 }
 
-function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit, onEdit, onBack }) {
+function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit, isAdmin, isSuperAdmin, onEdit, onBack }) {
   const [tab, setTab] = useState("basic"); // basic | collection | documents | timeline
   const [activity, setActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
@@ -9049,7 +9060,7 @@ function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit
       )}
 
       {tab === "collection" && (
-        <WasteCollectionProfileTab household={r} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} />
+        <WasteCollectionProfileTab household={r} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} />
       )}
 
       {tab === "documents" && (
@@ -11408,10 +11419,10 @@ export default function App() {
             <PartnersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "waste-management" && isAdmin && (
-            <WasteManagementModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+            <WasteManagementModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "waste-collection" && isAdmin && (
-            <DailyWasteCollectionModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+            <DailyWasteCollectionModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
