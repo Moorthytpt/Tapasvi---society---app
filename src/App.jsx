@@ -8695,7 +8695,7 @@ function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAu
 }
 
 
-function WasteManagementModule({ isAdmin, isSuperAdmin, currentUser, showToast, logAppAudit }) {
+function WasteManagementModule({ isAdmin, isSuperAdmin, canEdit, canDelete, currentUser, showToast, logAppAudit }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sub, setSub] = useState("list"); // list | form | profile
@@ -8747,11 +8747,11 @@ function WasteManagementModule({ isAdmin, isSuperAdmin, currentUser, showToast, 
     return <WasteManagementForm editing={editing} records={records} onSave={saveRecord} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
   }
   if (sub === "profile" && viewing) {
-    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin}
+    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} canEdit={canEdit}
       onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
   }
   return (
-    <WasteManagementList records={records} isAdmin={isAdmin} loading={loading}
+    <WasteManagementList records={records} isAdmin={isAdmin} canEdit={canEdit} canDelete={canDelete} loading={loading}
       onAdd={() => { setEditing(null); setSub("form"); }}
       onView={r => { setViewing(r); setSub("profile"); }}
       onEdit={r => { setEditing(r); setSub("form"); }}
@@ -8764,7 +8764,7 @@ function WasteManagementModule({ isAdmin, isSuperAdmin, currentUser, showToast, 
   );
 }
 
-function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit, onToggleStatus, onExport }) {
+function WasteManagementList({ records, isAdmin, canEdit, canDelete, loading, onAdd, onView, onEdit, onToggleStatus, onExport }) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
   const [districtFilter, setDistrictFilter] = useState("all");
@@ -8821,7 +8821,7 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
         <div className="flex gap-2">
           <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
           <button onClick={() => printSimpleTable("Waste Management", [{ key: "registration_number", label: "Reg No" }, { key: "family_head_name", label: "Family Head" }, { key: "village", label: "Village" }, { key: "status", label: "Status" }], records)} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
-          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-bold text-white" style={{ background: "#16A34A" }}><Plus size={14} /> Add</button>
+          {canEdit && <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-bold text-white" style={{ background: "#16A34A" }}><Plus size={14} /> Add</button>}
         </div>
       </div>
 
@@ -8884,8 +8884,8 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => onView(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
-                  {isAdmin && <button onClick={() => onEdit(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
-                  {isAdmin && (
+                  {canEdit && <button onClick={() => onEdit(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
+                  {canDelete && (
                     <button onClick={() => onToggleStatus(r)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">
                       {r.status === "Active" ? "Deactivate" : "Restore"}
                     </button>
@@ -8984,7 +8984,7 @@ function WasteManagementForm({ editing, records, onSave, onCancel }) {
   );
 }
 
-function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit, isAdmin, isSuperAdmin, onEdit, onBack }) {
+function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit, isAdmin, isSuperAdmin, canEdit, onEdit, onBack }) {
   const [tab, setTab] = useState("basic"); // basic | collection | documents | timeline
   const [activity, setActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
@@ -9008,7 +9008,7 @@ function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit
           <h2 className="text-[17px] font-bold text-[#111827]">{r.family_head_name}</h2>
           <p className="text-[11.5px] text-[#6B7280] font-mono">{r.registration_number}</p>
         </div>
-        <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>
+        {canEdit && <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>}
       </div>
 
       <div className="flex gap-1 mb-4">
@@ -10506,6 +10506,7 @@ export default function App() {
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
+  const rbac = useRBAC(user);
   // Field Workers only see beneficiaries they themselves registered — not other Field Workers' data
   const visibleBeneficiaries = user?.role === "fieldworker"
     ? beneficiaries.filter(b => b.field_worker_name === user.username)
@@ -11132,7 +11133,7 @@ export default function App() {
       items: [
         ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
         ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
-        ...(isAdmin ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
+        ...(rbac.canView("Waste Management") ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
         ...(isAdmin ? [{ key: "waste-collection", label: "Daily Collection", emoji: "♻", icon: Leaf, onClick: () => goTo("waste-collection"), active: view === "waste-collection" }] : []),
         ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
       ],
@@ -11418,8 +11419,8 @@ export default function App() {
           {!subView && view === "partners" && isAdmin && (
             <PartnersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
-          {!subView && view === "waste-management" && isAdmin && (
-            <WasteManagementModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          {!subView && view === "waste-management" && rbac.canView("Waste Management") && (
+            <WasteManagementModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} canEdit={rbac.canCreate("Waste Management") || rbac.canEdit("Waste Management")} canDelete={rbac.canDelete("Waste Management")} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "waste-collection" && isAdmin && (
             <DailyWasteCollectionModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
