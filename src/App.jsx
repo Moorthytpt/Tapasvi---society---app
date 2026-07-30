@@ -8695,6 +8695,784 @@ function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAu
 }
 
 
+/* ============================================================
+   WASTE MANAGEMENT — Phase 2: Village Management & Project Planning.
+   Sub-modules of Waste Management (same RBAC bucket, no new
+   permission rows needed). Village = operational planning unit,
+   distinct from the Waste Management Registration (household)
+   master created in Sprint 1 — no duplicate registration here.
+   ============================================================ */
+const VILLAGE_PROJECT_STATUSES = ["Planned", "Baseline Survey", "Awareness Running", "Collection Started", "Fully Operational", "Plastic-Free Village"];
+const MEETING_TYPES = ["District Collector", "Panchayat", "SHG", "CSR", "Community", "Review Meeting"];
+const AWARENESS_TYPES = ["Door-to-Door Campaign", "School Awareness", "SHG Meeting", "Street Play", "Plastic-Free Campaign", "Wall Painting", "Poster Campaign"];
+
+function nextVillageCode(records) {
+  const nums = records.filter(r => r.village_code?.startsWith("VLG-")).map(r => {
+    const m = r.village_code?.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  });
+  return `VLG-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
+}
+
+function VillageManagementModule({ canEdit, canDelete, currentUser, showToast, logAppAudit }) {
+  const [villages, setVillages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sub, setSub] = useState("list"); // list | form | profile
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("waste_villages").select("*").order("created_at", { ascending: false });
+    if (error) { showToast("Error loading villages: " + error.message, "error"); setLoading(false); return; }
+    setVillages(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveVillage = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const rec = { ...form, updated_by: who, updated_at: new Date().toISOString() };
+      const { error } = await supabase.from("waste_villages").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      const statusChanged = editing.project_status !== form.project_status;
+      await logAppAudit("UPDATE", "Waste Villages", `Updated village: ${form.village_name} (${form.village_code})${statusChanged ? ` — status → ${form.project_status}` : ""}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      const rec = { ...form, village_code: nextVillageCode(villages), status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const { error } = await supabase.from("waste_villages").insert(rec);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      await logAppAudit("CREATE", "Waste Villages", `Village created: ${rec.village_name} (${rec.village_code})`);
+      showToast("Village Created Successfully");
+    }
+    setEditing(null); setSub("list"); load();
+  };
+
+  const toggleStatus = async (v) => {
+    const newStatus = v.status === "Active" ? "Inactive" : "Active";
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("waste_villages").update({ status: newStatus, updated_by: who, updated_at: new Date().toISOString() }).eq("id", v.id);
+    await logAppAudit(newStatus === "Active" ? "RESTORE" : "DEACTIVATE", "Waste Villages", `${v.village_name} (${v.village_code}) → ${newStatus}`);
+    showToast(newStatus === "Active" ? "Restored Successfully" : "Deactivated Successfully");
+    load();
+  };
+
+  if (sub === "form") {
+    return <WasteVillageForm editing={editing} onSave={saveVillage} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
+  }
+  if (sub === "profile" && viewing) {
+    return <VillageProfile village={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} canEdit={canEdit}
+      onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
+  }
+  return (
+    <VillageList villages={villages} canEdit={canEdit} canDelete={canDelete} loading={loading}
+      onAdd={() => { setEditing(null); setSub("form"); }}
+      onView={v => { setViewing(v); setSub("profile"); }}
+      onEdit={v => { setEditing(v); setSub("form"); }}
+      onToggleStatus={toggleStatus}
+      onExport={() => downloadCSV(villages.map(v => ({
+        "Village Code": v.village_code, "Village Name": v.village_name, "Mandal": v.mandal, "District": v.district,
+        "Households": v.total_households, "Coordinator": v.field_coordinator, "Status": v.project_status,
+      })), `TAPASVI_Villages_${new Date().toISOString().slice(0, 10)}.csv`)} />
+  );
+}
+
+function VillageList({ villages, canEdit, canDelete, loading, onAdd, onView, onEdit, onToggleStatus, onExport }) {
+  const [query, setQuery] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [mandalFilter, setMandalFilter] = useState("all");
+  const [gpFilter, setGpFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
+
+  const districtOptions = useMemo(() => [...new Set(villages.map(v => v.district).filter(Boolean))].sort(), [villages]);
+  const mandalOptions = useMemo(() => districtFilter === "all" ? [] : [...new Set(villages.filter(v => v.district === districtFilter).map(v => v.mandal).filter(Boolean))].sort(), [villages, districtFilter]);
+  const gpOptions = useMemo(() => [...new Set(villages.map(v => v.gram_panchayat).filter(Boolean))].sort(), [villages]);
+
+  const filtered = useMemo(() => villages.filter(v => {
+    if (districtFilter !== "all" && v.district !== districtFilter) return false;
+    if (mandalFilter !== "all" && v.mandal !== mandalFilter) return false;
+    if (gpFilter !== "all" && v.gram_panchayat !== gpFilter) return false;
+    if (statusFilter !== "all" && v.project_status !== statusFilter) return false;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      if (!(v.village_name?.toLowerCase().includes(q) || v.village_code?.toLowerCase().includes(q) ||
+            v.mandal?.toLowerCase().includes(q) || v.district?.toLowerCase().includes(q) || v.field_coordinator?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }), [villages, query, districtFilter, mandalFilter, gpFilter, statusFilter]);
+
+  useEffect(() => { setPage(1); }, [query, districtFilter, mandalFilter, gpFilter, statusFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
+  const statusColors = { "Planned": "#6B7280", "Baseline Survey": "#F97316", "Awareness Running": "#7C3AED", "Collection Started": "#0EA5E9", "Fully Operational": "#16A34A", "Plastic-Free Village": "#059669" };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">📍 Villages</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} village{filtered.length !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+          {canEdit && <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[13px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}><Plus size={15} /> Add Village</button>}
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Village Name, Code, Mandal, District, Coordinator..." className={inputCls + " pl-9 text-[12.5px]"} style={{ minHeight: 44 }} />
+      </div>
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+          <option value="all">All Statuses</option>
+          {VILLAGE_PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <button onClick={() => setShowMoreFilters(s => !s)} className="flex items-center gap-1.5 rounded-lg border border-[#16A34A] px-3 py-2 text-[12px] font-semibold text-[#16A34A]" style={{ minHeight: 44 }}>
+          <Filter size={13} /> {showMoreFilters ? "Hide" : "More"} Filters
+        </button>
+      </div>
+      {showMoreFilters && (
+        <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3.5 mb-4">
+          <div className="flex gap-2 flex-wrap">
+            <select value={districtFilter} onChange={e => { setDistrictFilter(e.target.value); setMandalFilter("all"); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Districts</option>
+              {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={mandalFilter} onChange={e => setMandalFilter(e.target.value)} disabled={districtFilter === "all"} className={selectCls + " w-auto text-[12px] disabled:opacity-50"}>
+              <option value="all">All Mandals</option>
+              {mandalOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={gpFilter} onChange={e => setGpFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Gram Panchayats</option>
+              {gpOptions.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-3/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><MapPin size={28} className="mx-auto mb-3 opacity-40" /><p className="text-[13px]">No villages found.</p></div>
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {paginated.map(v => (
+              <div key={v.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-[13.5px] font-semibold text-[#111827]">{v.village_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{v.village_code}</span></p>
+                    <p className="text-[11px] text-[#6B7280] mt-0.5">{[v.gram_panchayat, v.mandal, v.district].filter(Boolean).join(", ")} · {v.field_coordinator || "No coordinator"}</p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: (statusColors[v.project_status] || "#6B7280") + "18", color: statusColors[v.project_status] || "#6B7280" }}>{v.project_status}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => onView(v)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">View</button>
+                  {canEdit && <button onClick={() => onEdit(v)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
+                  {canDelete && <button onClick={() => onToggleStatus(v)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#374151]">{v.status === "Active" ? "Deactivate" : "Restore"}</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-5 flex-wrap gap-2">
+              <p className="text-[11.5px] text-[#6B7280]">Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}</p>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>← Previous</button>
+                {pageNumbers.map(n => (
+                  <button key={n} onClick={() => setPage(n)} className="rounded-lg text-[12px] font-semibold transition-colors" style={{ minWidth: 36, minHeight: 40, background: n === page ? "#16A34A" : "transparent", color: n === page ? "#fff" : "#374151" }}>{n}</button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>Next →</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function WasteVillageForm({ editing, onSave, onCancel }) {
+  const blank = {
+    village_name: "", gram_panchayat: "", mandal: "", district: "", state: "Andhra Pradesh",
+    total_households: "", population: "", estimated_daily_waste_kg: "", assigned_shg: "", assigned_mrf: "",
+    field_coordinator: "", project_status: "Planned",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.village_name.trim()) e.village_name = "Required";
+    if (!form.district) e.district = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+  const submit = () => { if (validate()) onSave(form); };
+
+  return (
+    <div className="max-w-[620px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Village" : "New Village"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        {editing && <Field label="Village Code"><Input value={editing.village_code} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} /></Field>}
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Village Name" required error={errors.village_name}><Input value={form.village_name} onChange={set("village_name")} /></Field>
+          <Field label="Gram Panchayat"><Input value={form.gram_panchayat} onChange={set("gram_panchayat")} /></Field>
+          <Field label="District" required error={errors.district}><Select value={form.district} onChange={set("district")} options={DISTRICTS_AP} placeholder="Select district" /></Field>
+          <Field label="Mandal"><Input value={form.mandal} onChange={set("mandal")} /></Field>
+          <Field label="State"><Input value={form.state} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280]"} /></Field>
+          <Field label="Field Coordinator"><Input value={form.field_coordinator} onChange={set("field_coordinator")} /></Field>
+          <Field label="Total Households"><Input type="number" min="0" value={form.total_households} onChange={set("total_households")} /></Field>
+          <Field label="Population (Optional)"><Input type="number" min="0" value={form.population} onChange={set("population")} /></Field>
+          <Field label="Estimated Daily Waste (Kg)"><Input type="number" min="0" step="0.1" value={form.estimated_daily_waste_kg} onChange={set("estimated_daily_waste_kg")} /></Field>
+          <Field label="Assigned SHG (Optional)"><Input value={form.assigned_shg} onChange={set("assigned_shg")} /></Field>
+          <Field label="Assigned MRF (Optional)"><Input value={form.assigned_mrf} onChange={set("assigned_mrf")} /></Field>
+          <Field label="Project Status"><Select value={form.project_status} onChange={set("project_status")} options={VILLAGE_PROJECT_STATUSES} /></Field>
+        </div>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="rounded-lg px-6 py-2.5 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Save</button>
+          <button onClick={onCancel} className="rounded-lg border border-[#E5E7EB] px-6 py-2.5 text-[13px] font-medium text-[#111827]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VillageProfile({ village: v, currentUser, showToast, logAppAudit, canEdit, onEdit, onBack }) {
+  const [tab, setTab] = useState("basic"); // basic | meetings | awareness | shg | mrf | documents | timeline
+  const [activity, setActivity] = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(true);
+  const [counts, setCounts] = useState({ meetings: 0, awareness: 0, households: 0 });
+
+  useEffect(() => {
+    (async () => {
+      const [mt, aw] = await Promise.all([
+        supabase.from("waste_meetings").select("id", { count: "exact", head: true }).eq("village_id", v.id).eq("status", "Active"),
+        supabase.from("waste_awareness_campaigns").select("households_covered").eq("village_id", v.id).eq("status", "Active"),
+      ]);
+      setCounts({
+        meetings: mt.count || 0,
+        awareness: (aw.data || []).length,
+        households: (aw.data || []).reduce((s, a) => s + (a.households_covered || 0), 0),
+      });
+    })();
+  }, [v.id]);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingActivity(true);
+      const { data } = await supabase.from("audit_logs").select("*")
+        .eq("module", "Waste Villages").ilike("details", `%${v.village_code}%`)
+        .order("created_at", { ascending: false }).limit(10);
+      setActivity(data || []);
+      setLoadingActivity(false);
+    })();
+  }, [v.village_code]);
+
+  const TABS = [["basic", "Basic Information"], ["meetings", "Meetings"], ["awareness", "Awareness Activities"], ["shg", "Assigned SHG"], ["mrf", "Assigned MRF"], ["documents", "Documents"], ["timeline", "Timeline"]];
+
+  return (
+    <div className="max-w-[640px] mx-auto">
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>
+        <div className="flex-1">
+          <h2 className="text-[17px] font-bold text-[#111827]">{v.village_name}</h2>
+          <p className="text-[11.5px] text-[#6B7280] font-mono">{v.village_code}</p>
+        </div>
+        {canEdit && <button onClick={onEdit} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#1E3A8A]">Edit</button>}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {[["Meetings", counts.meetings, "#7C3AED"], ["Awareness", counts.awareness, "#F97316"], ["Households Covered", counts.households, "#16A34A"]].map(([l, val, c]) => (
+          <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center">
+            <p className="text-[15px] font-bold" style={{ color: c }}>{val}</p>
+            <p className="text-[9px] text-[#6B7280]">{l}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+        {TABS.map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold whitespace-nowrap transition-colors shrink-0"
+            style={tab === key ? { background: "#16A34A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "basic" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <SectionHeader title="Location" color="#16A34A" />
+          <div className="grid grid-cols-2 gap-y-3">
+            <InfoRow label="Gram Panchayat" value={v.gram_panchayat} />
+            <InfoRow label="Mandal" value={v.mandal} />
+            <InfoRow label="District" value={v.district} />
+            <InfoRow label="State" value={v.state} />
+          </div>
+          <SectionHeader title="Project Details" color="#16A34A" />
+          <div className="grid grid-cols-2 gap-y-3">
+            <InfoRow label="Total Households" value={v.total_households} />
+            <InfoRow label="Population" value={v.population} />
+            <InfoRow label="Estimated Daily Waste (Kg)" value={v.estimated_daily_waste_kg} />
+            <InfoRow label="Field Coordinator" value={v.field_coordinator} />
+            <InfoRow label="Project Status" value={v.project_status} />
+            <InfoRow label="Status" value={v.status} />
+          </div>
+        </div>
+      )}
+
+      {tab === "meetings" && <VillageMeetingsTab village={v} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} />}
+      {tab === "awareness" && <VillageAwarenessTab village={v} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} />}
+
+      {tab === "shg" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <SectionHeader title="Assigned SHG" color="#16A34A" />
+          <p className="text-[13px] text-[#111827]">{v.assigned_shg || "No SHG assigned yet."}</p>
+          <p className="text-[10.5px] text-[#9CA3AF] mt-2">SHG assignment management (linking to a full SHG master) is planned for a future phase — edit this from the village's Edit form for now.</p>
+        </div>
+      )}
+      {tab === "mrf" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <SectionHeader title="Assigned MRF" color="#16A34A" />
+          <p className="text-[13px] text-[#111827]">{v.assigned_mrf || "No MRF assigned yet."}</p>
+          <p className="text-[10.5px] text-[#9CA3AF] mt-2">MRF assignment management is planned for a future phase — edit this from the village's Edit form for now.</p>
+        </div>
+      )}
+
+      {tab === "documents" && <DocumentRepository entityType="waste_village" entityId={v.id} currentUser={currentUser} showToast={showToast} />}
+
+      {tab === "timeline" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          {loadingActivity ? <p className="text-[12px] text-[#9CA3AF] text-center py-4">Loading...</p> : activity.length === 0 ? (
+            <p className="text-[12px] text-[#9CA3AF] text-center py-4">No activity recorded yet.</p>
+          ) : (
+            <div className="space-y-0">
+              {activity.map((a, i) => (
+                <div key={a.id || i} className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: a.action === "CREATE" ? "#16A34A" : a.action === "DEACTIVATE" ? "#DC2626" : "#1E3A8A" }} />
+                    {i < activity.length - 1 && <div className="w-px flex-1 min-h-[20px] bg-[#E5E7EB]" />}
+                  </div>
+                  <div className="pb-3 flex-1 min-w-0">
+                    <p className="text-[11.5px] text-[#111827] leading-snug">{a.details || a.action}</p>
+                    <p className="text-[9.5px] text-[#9CA3AF] mt-0.5">{a.user_email || "—"} · {a.created_at ? new Date(a.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Meetings: shared form (used standalone AND inside Village Profile) ---- */
+function MeetingForm({ editing, villages, preselected, onSave, onCancel }) {
+  const blank = {
+    village_id: preselected?.id || "", meeting_date: new Date().toISOString().slice(0, 10), meeting_type: MEETING_TYPES[0],
+    organizer: "", participants_count: "", key_decisions: "", next_action: "", meeting_status: "Completed",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.village_id) e.village_id = "Select a village";
+    if (!form.meeting_date) e.meeting_date = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+  const submit = () => { if (validate()) onSave({ ...form, participants_count: parseInt(form.participants_count) || 0 }); };
+
+  return (
+    <div className="max-w-[560px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Meeting" : "Add Meeting"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        {!preselected && (
+          <Field label="Village" required error={errors.village_id}>
+            <Select value={form.village_id} onChange={set("village_id")} placeholder="Select village"
+              options={villages.map(v => ({ value: v.id, label: `${v.village_name} (${v.village_code})` }))} />
+          </Field>
+        )}
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Meeting Date" required error={errors.meeting_date}><Input type="date" value={form.meeting_date} onChange={set("meeting_date")} /></Field>
+          <Field label="Meeting Type"><Select value={form.meeting_type} onChange={set("meeting_type")} options={MEETING_TYPES} /></Field>
+          <Field label="Organizer"><Input value={form.organizer} onChange={set("organizer")} /></Field>
+          <Field label="Participants Count"><Input type="number" min="0" value={form.participants_count} onChange={set("participants_count")} /></Field>
+        </div>
+        <Field label="Key Decisions"><textarea value={form.key_decisions} onChange={set("key_decisions")} rows={2} className={inputCls} /></Field>
+        <Field label="Next Action"><textarea value={form.next_action} onChange={set("next_action")} rows={2} className={inputCls} /></Field>
+        <Field label="Status"><Select value={form.meeting_status} onChange={set("meeting_status")} options={["Completed", "Scheduled", "Cancelled"]} /></Field>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>Save</button>
+          <button onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 text-[13px] font-medium text-[#111827]" style={{ minHeight: 44 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VillageMeetingsTab({ village, currentUser, showToast, logAppAudit }) {
+  const [meetings, setMeetings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("waste_meetings").select("*").eq("village_id", village.id).eq("status", "Active").order("meeting_date", { ascending: false });
+    setMeetings(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [village.id]);
+
+  const save = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      await supabase.from("waste_meetings").update({ ...form, updated_by: who, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      await logAppAudit("UPDATE", "Waste Villages", `Meeting edited for ${village.village_name} on ${form.meeting_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      await supabase.from("waste_meetings").insert({ ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now });
+      await logAppAudit("CREATE", "Waste Villages", `Meeting added for ${village.village_name} on ${form.meeting_date}`);
+      showToast("Meeting Added Successfully");
+    }
+    setEditing(null); setShowForm(false); load();
+  };
+
+  const remove = async (m) => {
+    if (!window.confirm("Remove this meeting?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("waste_meetings").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", m.id);
+    await logAppAudit("DELETE", "Waste Villages", `Meeting removed for ${village.village_name} (${m.meeting_date})`);
+    showToast("Removed Successfully"); load();
+  };
+
+  if (showForm) return <MeetingForm editing={editing} villages={[village]} preselected={village} onSave={save} onCancel={() => { setEditing(null); setShowForm(false); }} />;
+
+  return (
+    <div>
+      <button onClick={() => { setEditing(null); setShowForm(true); }} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white mb-4 active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>+ Add Meeting</button>
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-6">Loading...</p> : meetings.length === 0 ? (
+        <div className="text-center py-8 text-[#9CA3AF]"><p className="text-[12.5px]">No meetings recorded yet.</p></div>
+      ) : (
+        <div className="space-y-2">
+          {meetings.map(m => (
+            <div key={m.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[12.5px] font-semibold text-[#111827]">{m.meeting_date} · {m.meeting_type}</p>
+                <Badge label={m.meeting_status} color="#7C3AED" tint="#F5F3FF" />
+              </div>
+              <p className="text-[10.5px] text-[#6B7280]">Organizer: {m.organizer || "—"} · {m.participants_count || 0} participants</p>
+              {m.key_decisions && <p className="text-[10.5px] text-[#374151] mt-1">Decisions: {m.key_decisions}</p>}
+              {m.next_action && <p className="text-[10.5px] text-[#9CA3AF]">Next: {m.next_action}</p>}
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => { setEditing(m); setShowForm(true); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => remove(m)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Awareness Campaigns: shared form ---- */
+function AwarenessForm({ editing, villages, preselected, onSave, onCancel }) {
+  const blank = {
+    village_id: preselected?.id || "", activity_date: new Date().toISOString().slice(0, 10), campaign_type: AWARENESS_TYPES[0],
+    team: "", volunteers_count: "", households_covered: "", participants_count: "", remarks: "",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.village_id) e.village_id = "Select a village";
+    if (!form.activity_date) e.activity_date = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+  const submit = () => {
+    if (!validate()) return;
+    onSave({ ...form, volunteers_count: parseInt(form.volunteers_count) || 0, households_covered: parseInt(form.households_covered) || 0, participants_count: parseInt(form.participants_count) || 0 });
+  };
+
+  return (
+    <div className="max-w-[560px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Awareness Activity" : "Add Awareness Activity"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        {!preselected && (
+          <Field label="Village" required error={errors.village_id}>
+            <Select value={form.village_id} onChange={set("village_id")} placeholder="Select village"
+              options={villages.map(v => ({ value: v.id, label: `${v.village_name} (${v.village_code})` }))} />
+          </Field>
+        )}
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Activity Date" required error={errors.activity_date}><Input type="date" value={form.activity_date} onChange={set("activity_date")} /></Field>
+          <Field label="Campaign Type"><Select value={form.campaign_type} onChange={set("campaign_type")} options={AWARENESS_TYPES} /></Field>
+          <Field label="Team"><Input value={form.team} onChange={set("team")} /></Field>
+          <Field label="Volunteers"><Input type="number" min="0" value={form.volunteers_count} onChange={set("volunteers_count")} /></Field>
+          <Field label="Households Covered"><Input type="number" min="0" value={form.households_covered} onChange={set("households_covered")} /></Field>
+          <Field label="Participants"><Input type="number" min="0" value={form.participants_count} onChange={set("participants_count")} /></Field>
+        </div>
+        <Field label="Remarks"><textarea value={form.remarks} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>Save</button>
+          <button onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 text-[13px] font-medium text-[#111827]" style={{ minHeight: 44 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VillageAwarenessTab({ village, currentUser, showToast, logAppAudit }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("waste_awareness_campaigns").select("*").eq("village_id", village.id).eq("status", "Active").order("activity_date", { ascending: false });
+    setItems(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [village.id]);
+
+  const save = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      await supabase.from("waste_awareness_campaigns").update({ ...form, updated_by: who, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      await logAppAudit("UPDATE", "Waste Villages", `Awareness activity edited for ${village.village_name} on ${form.activity_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      await supabase.from("waste_awareness_campaigns").insert({ ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now });
+      await logAppAudit("CREATE", "Waste Villages", `Awareness activity added for ${village.village_name} on ${form.activity_date}`);
+      showToast("Activity Added Successfully");
+    }
+    setEditing(null); setShowForm(false); load();
+  };
+
+  const remove = async (a) => {
+    if (!window.confirm("Remove this awareness activity?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("waste_awareness_campaigns").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", a.id);
+    await logAppAudit("DELETE", "Waste Villages", `Awareness activity removed for ${village.village_name} (${a.activity_date})`);
+    showToast("Removed Successfully"); load();
+  };
+
+  if (showForm) return <AwarenessForm editing={editing} villages={[village]} preselected={village} onSave={save} onCancel={() => { setEditing(null); setShowForm(false); }} />;
+
+  return (
+    <div>
+      <button onClick={() => { setEditing(null); setShowForm(true); }} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white mb-4 active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>+ Add Awareness Activity</button>
+      {loading ? <p className="text-[12px] text-[#9CA3AF] text-center py-6">Loading...</p> : items.length === 0 ? (
+        <div className="text-center py-8 text-[#9CA3AF]"><p className="text-[12.5px]">No awareness activities recorded yet.</p></div>
+      ) : (
+        <div className="space-y-2">
+          {items.map(a => (
+            <div key={a.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <p className="text-[12.5px] font-semibold text-[#111827]">{a.activity_date} · {a.campaign_type}</p>
+              <p className="text-[10.5px] text-[#6B7280]">Team: {a.team || "—"} · {a.volunteers_count || 0} volunteers · {a.households_covered || 0} households · {a.participants_count || 0} participants</p>
+              {a.remarks && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">{a.remarks}</p>}
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => { setEditing(a); setShowForm(true); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => remove(a)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Standalone Meetings module (sidebar entry) ---- */
+function MeetingsModule({ canEdit, canDelete, currentUser, showToast, logAppAudit }) {
+  const [meetings, setMeetings] = useState([]);
+  const [villages, setVillages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const [mt, vl] = await Promise.all([
+      supabase.from("waste_meetings").select("*, waste_villages(*)").eq("status", "Active").order("meeting_date", { ascending: false }),
+      supabase.from("waste_villages").select("*").eq("status", "Active"),
+    ]);
+    setMeetings(mt.data || []); setVillages(vl.data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      await supabase.from("waste_meetings").update({ ...form, updated_by: who, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      await logAppAudit("UPDATE", "Waste Villages", `Meeting edited on ${form.meeting_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      await supabase.from("waste_meetings").insert({ ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now });
+      await logAppAudit("CREATE", "Waste Villages", `Meeting added on ${form.meeting_date}`);
+      showToast("Meeting Added Successfully");
+    }
+    setEditing(null); setShowForm(false); load();
+  };
+
+  const remove = async (m) => {
+    if (!window.confirm("Remove this meeting?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("waste_meetings").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", m.id);
+    await logAppAudit("DELETE", "Waste Villages", `Meeting removed (${m.meeting_date})`);
+    showToast("Removed Successfully"); load();
+  };
+
+  if (showForm) return <MeetingForm editing={editing} villages={villages} onSave={save} onCancel={() => { setEditing(null); setShowForm(false); }} />;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">📅 Meetings</h2>
+          <p className="text-[12px] text-[#6B7280]">{meetings.length} meeting{meetings.length !== 1 ? "s" : ""}</p>
+        </div>
+        {canEdit && <button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[13px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}><Plus size={15} /> Add Meeting</button>}
+      </div>
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : meetings.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><ClipboardList size={28} className="mx-auto mb-3 opacity-40" /><p className="text-[13px]">No meetings recorded yet.</p></div>
+      ) : (
+        <div className="space-y-2.5">
+          {meetings.map(m => (
+            <div key={m.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[13px] font-semibold text-[#111827]">{m.waste_villages?.village_name || "—"} · {m.meeting_date}</p>
+                <Badge label={m.meeting_type} color="#7C3AED" tint="#F5F3FF" />
+              </div>
+              <p className="text-[11px] text-[#6B7280]">Organizer: {m.organizer || "—"} · {m.participants_count || 0} participants</p>
+              {canEdit && (
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => { setEditing(m); setShowForm(true); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                  {canDelete && <button onClick={() => remove(m)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Remove</button>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Standalone Awareness Campaigns module (sidebar entry) ---- */
+function AwarenessModule({ canEdit, canDelete, currentUser, showToast, logAppAudit }) {
+  const [items, setItems] = useState([]);
+  const [villages, setVillages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const [aw, vl] = await Promise.all([
+      supabase.from("waste_awareness_campaigns").select("*, waste_villages(*)").eq("status", "Active").order("activity_date", { ascending: false }),
+      supabase.from("waste_villages").select("*").eq("status", "Active"),
+    ]);
+    setItems(aw.data || []); setVillages(vl.data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      await supabase.from("waste_awareness_campaigns").update({ ...form, updated_by: who, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      await logAppAudit("UPDATE", "Waste Villages", `Awareness activity edited on ${form.activity_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      await supabase.from("waste_awareness_campaigns").insert({ ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now });
+      await logAppAudit("CREATE", "Waste Villages", `Awareness activity added on ${form.activity_date}`);
+      showToast("Activity Added Successfully");
+    }
+    setEditing(null); setShowForm(false); load();
+  };
+
+  const remove = async (a) => {
+    if (!window.confirm("Remove this activity?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("waste_awareness_campaigns").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", a.id);
+    await logAppAudit("DELETE", "Waste Villages", `Awareness activity removed (${a.activity_date})`);
+    showToast("Removed Successfully"); load();
+  };
+
+  if (showForm) return <AwarenessForm editing={editing} villages={villages} onSave={save} onCancel={() => { setEditing(null); setShowForm(false); }} />;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">📢 Awareness Campaigns</h2>
+          <p className="text-[12px] text-[#6B7280]">{items.length} activit{items.length !== 1 ? "ies" : "y"}</p>
+        </div>
+        {canEdit && <button onClick={() => { setEditing(null); setShowForm(true); }} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[13px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}><Plus size={15} /> Add Activity</button>}
+      </div>
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><ClipboardList size={28} className="mx-auto mb-3 opacity-40" /><p className="text-[13px]">No awareness activities yet.</p></div>
+      ) : (
+        <div className="space-y-2.5">
+          {items.map(a => (
+            <div key={a.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[13px] font-semibold text-[#111827]">{a.waste_villages?.village_name || "—"} · {a.activity_date}</p>
+                <Badge label={a.campaign_type} color="#F97316" tint="#FFF7ED" />
+              </div>
+              <p className="text-[11px] text-[#6B7280]">{a.households_covered || 0} households · {a.participants_count || 0} participants · {a.volunteers_count || 0} volunteers</p>
+              {canEdit && (
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => { setEditing(a); setShowForm(true); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                  {canDelete && <button onClick={() => remove(a)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Remove</button>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function WasteManagementModule({ isAdmin, isSuperAdmin, canEdit, canDelete, currentUser, showToast, logAppAudit }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -11135,6 +11913,9 @@ export default function App() {
         ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
         ...(rbac.canView("Waste Management") ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
         ...(isAdmin ? [{ key: "waste-collection", label: "Daily Collection", emoji: "♻", icon: Leaf, onClick: () => goTo("waste-collection"), active: view === "waste-collection" }] : []),
+        ...(rbac.canView("Waste Management") ? [{ key: "waste-villages", label: "Villages", emoji: "📍", icon: MapPin, onClick: () => goTo("waste-villages"), active: view === "waste-villages" }] : []),
+        ...(rbac.canView("Waste Management") ? [{ key: "waste-meetings", label: "Meetings", emoji: "📅", icon: ClipboardList, onClick: () => goTo("waste-meetings"), active: view === "waste-meetings" }] : []),
+        ...(rbac.canView("Waste Management") ? [{ key: "waste-awareness", label: "Awareness Campaigns", emoji: "📢", icon: AlertCircle, onClick: () => goTo("waste-awareness"), active: view === "waste-awareness" }] : []),
         ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
       ],
     },
@@ -11424,6 +12205,15 @@ export default function App() {
           )}
           {!subView && view === "waste-collection" && isAdmin && (
             <DailyWasteCollectionModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "waste-villages" && rbac.canView("Waste Management") && (
+            <VillageManagementModule canEdit={rbac.canCreate("Waste Management") || rbac.canEdit("Waste Management")} canDelete={rbac.canDelete("Waste Management")} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "waste-meetings" && rbac.canView("Waste Management") && (
+            <MeetingsModule canEdit={rbac.canCreate("Waste Management") || rbac.canEdit("Waste Management")} canDelete={rbac.canDelete("Waste Management")} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "waste-awareness" && rbac.canView("Waste Management") && (
+            <AwarenessModule canEdit={rbac.canCreate("Waste Management") || rbac.canEdit("Waste Management")} canDelete={rbac.canDelete("Waste Management")} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
