@@ -8703,7 +8703,7 @@ function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit })
   const saveRecord = async (form) => {
     const who = currentUser?.username || currentUser?.email || "unknown";
     if (editing) {
-      const rec = { ...form, updated_by: who, updated_at: new Date().toISOString() };
+      const rec = { ...form, household_id: editing.registration_number, updated_by: who, updated_at: new Date().toISOString() };
       const { error } = await supabase.from("waste_management").update(rec).eq("id", editing.id);
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setRecords(rs => rs.map(r => r.id === editing.id ? { ...r, ...rec } : r));
@@ -8711,7 +8711,8 @@ function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit })
       showToast("Updated Successfully");
     } else {
       const now = new Date().toISOString();
-      const rec = { ...form, registration_number: nextWasteRegNumber(records), status: form.status || "Active", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const regNo = nextWasteRegNumber(records);
+      const rec = { ...form, registration_number: regNo, household_id: regNo, status: form.status || "Active", created_by: who, created_at: now, updated_by: who, updated_at: now };
       const { data, error } = await supabase.from("waste_management").insert(rec).select().single();
       if (error) { showToast("Error: " + error.message, "error"); return; }
       setRecords(rs => [data, ...rs]);
@@ -8745,7 +8746,7 @@ function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit })
       onEdit={r => { setEditing(r); setSub("form"); }}
       onToggleStatus={toggleStatus}
       onExport={() => downloadCSV(records.map(r => ({
-        "Registration No": r.registration_number, "Household ID": r.household_id, "Family Head": r.family_head_name,
+        "Registration No / Household ID": r.registration_number, "Family Head": r.family_head_name,
         "Gender": r.gender, "Age": r.age, "Mobile": r.mobile_number, "Village": r.village, "Mandal": r.mandal,
         "District": r.district, "Status": r.status,
       })), `TAPASVI_WasteManagement_${new Date().toISOString().slice(0, 10)}.csv`)} />
@@ -8787,7 +8788,7 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
     if (statusFilter !== "all" && r.status !== statusFilter) return false;
     if (query.trim()) {
       const q = query.toLowerCase();
-      if (!(r.registration_number?.toLowerCase().includes(q) || r.household_id?.toLowerCase().includes(q) ||
+      if (!(r.registration_number?.toLowerCase().includes(q) ||
             r.family_head_name?.toLowerCase().includes(q) || r.mobile_number?.includes(q) || r.aadhaar_number?.includes(q) ||
             r.village?.toLowerCase().includes(q))) return false;
     }
@@ -8815,7 +8816,7 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
 
       <div className="relative mb-3">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Reg No, Household ID, Name, Mobile, Aadhaar, Village..." className={inputCls + " pl-9 text-[12.5px]"} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Registration No. (Household ID), Name, Mobile, Aadhaar, Village..." className={inputCls + " pl-9 text-[12.5px]"} />
       </div>
       <div className="flex gap-2 mb-3 flex-wrap">
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
@@ -8866,7 +8867,7 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
                     <p className="text-[13.5px] font-semibold text-[#111827]">{r.family_head_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{r.registration_number}</span></p>
-                    <p className="text-[11px] text-[#6B7280] mt-0.5">HH: {r.household_id || "—"} · {r.mobile_number || "—"} · {[r.village, r.mandal, r.district].filter(Boolean).join(", ")}</p>
+                    <p className="text-[11px] text-[#6B7280] mt-0.5">{r.mobile_number || "—"} · {[r.village, r.mandal, r.district].filter(Boolean).join(", ")}</p>
                   </div>
                   <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: r.status === "Active" ? "#DCFCE7" : "#F3F4F6", color: r.status === "Active" ? "#16A34A" : "#6B7280" }}>{r.status}</span>
                 </div>
@@ -8902,7 +8903,7 @@ function WasteManagementList({ records, isAdmin, loading, onAdd, onView, onEdit,
 
 function WasteManagementForm({ editing, records, onSave, onCancel }) {
   const blank = {
-    household_id: "", family_head_name: "", gender: "Male", age: "", mobile_number: "", aadhaar_number: "",
+    family_head_name: "", gender: "Male", age: "", mobile_number: "", aadhaar_number: "",
     education: "", occupation: "", family_members: "", state: "Andhra Pradesh", district: "", mandal: "",
     gram_panchayat: "", village: "", status: "Active", remarks: "",
   };
@@ -8937,7 +8938,9 @@ function WasteManagementForm({ editing, records, onSave, onCancel }) {
           <Field label="Registration Number"><Input value={editing.registration_number} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} /></Field>
         )}
         <div className="grid grid-cols-2 gap-x-4">
-          <Field label="Household ID"><Input value={form.household_id} onChange={set("household_id")} /></Field>
+          <Field label="Household ID (= Registration Number)">
+            <Input value={editing ? editing.registration_number : "Auto-generated on save"} readOnly className={inputCls + " bg-[#F3F4F6] text-[#6B7280] font-mono"} />
+          </Field>
           <Field label="Family Head Name" required error={errors.family_head_name}><Input value={form.family_head_name} onChange={set("family_head_name")} /></Field>
           <Field label="Gender"><Select value={form.gender} onChange={set("gender")} options={GENDER_OPTIONS} /></Field>
           <Field label="Age"><Input type="number" min="1" max="99" value={form.age} onChange={e => setForm(f => ({ ...f, age: e.target.value.replace(/\D/g, "").slice(0, 2) }))} /></Field>
@@ -9011,7 +9014,7 @@ function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
           <SectionHeader title="Basic Information" color="#16A34A" />
           <div className="grid grid-cols-2 gap-y-3">
-            <InfoRow label="Household ID" value={r.household_id} />
+            <InfoRow label="Household ID (= Reg. No.)" value={r.registration_number} />
             <InfoRow label="Gender" value={r.gender} />
             <InfoRow label="Age" value={r.age} />
             <InfoRow label="Mobile Number" value={r.mobile_number} />
