@@ -441,6 +441,297 @@ function useRBAC(currentUser) {
   };
 }
 
+/* ============================================================
+   SMART BENEFICIARY IMPORT (OCR)
+   Real client-side OCR via Tesseract.js, loaded from CDN at runtime
+   (no npm/package.json change, no API keys, no new backend).
+   Honest limitations: English-script text only, heuristic field
+   parsing (not a structured ID-card reader) — every record MUST be
+   reviewed/edited before import. Image upload + camera capture only
+   in this pass; PDF rasterization would need an additional library
+   (pdf.js) and is not included here.
+   ============================================================ */
+let _tesseractLoadPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (_tesseractLoadPromise) return _tesseractLoadPromise;
+  _tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => reject(new Error("Could not load the OCR engine. Check your internet connection."));
+    document.head.appendChild(script);
+  });
+  return _tesseractLoadPromise;
+}
+
+// Heuristic parser — OCR gives raw lines of text, not structured fields.
+// Looks for common Indian Voter ID (EPIC) card label patterns.
+function parseVoterIdText(raw) {
+  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+  const joined = raw.replace(/\n/g, " ");
+  const result = { name: "", voter_id: "", age: "", gender: "", house_no: "", father_husband_name: "", village: "" };
+
+  const epicMatch = joined.match(/\b([A-Z]{3}\d{7})\b/);
+  if (epicMatch) result.voter_id = epicMatch[1];
+
+  const ageMatch = joined.match(/Age\s*[:\-]?\s*(\d{1,3})/i);
+  if (ageMatch) result.age = ageMatch[1];
+
+  if (/\bFemale\b/i.test(joined)) result.gender = "Female";
+  else if (/\bMale\b/i.test(joined)) result.gender = "Male";
+
+  const nameLine = lines.find(l => /^Name\s*[:\-]/i.test(l));
+  if (nameLine) result.name = nameLine.replace(/^Name\s*[:\-]\s*/i, "").trim();
+
+  const relLine = lines.find(l => /(Father|Husband|Mother)('?s)?\s*Name\s*[:\-]/i.test(l));
+  if (relLine) result.father_husband_name = relLine.replace(/^.*?Name\s*[:\-]\s*/i, "").trim();
+
+  const houseLine = lines.find(l => /House\s*No/i.test(l));
+  if (houseLine) result.house_no = houseLine.replace(/^.*?House\s*No\.?\s*[:\-]?\s*/i, "").trim();
+
+  return result;
+}
+
+function checkOcrEligibility(rec) {
+  const age = Number(rec.age);
+  const eligible = [];
+  if (age >= 15 && age <= 35) eligible.push("RYDEAP");
+  if (rec.gender === "Female" && age >= 18 && age <= 45) eligible.push("Women's Empowerment");
+  eligible.push("Waste Management"); // everyone eligible
+  return eligible;
+}
+
+function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
+  const [stage, setStage] = useState("upload"); // upload | processing | preview | summary
+  const [files, setFiles] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+  const [records, setRecords] = useState([]); // { _selected, _photoUrl, _confidence, ...fields }
+  const [summary, setSummary] = useState(null);
+  const [ocrError, setOcrError] = useState("");
+
+  const handleFiles = (fileList) => {
+    const imgs = Array.from(fileList).filter(f => f.type.startsWith("image/"));
+    const skipped = fileList.length - imgs.length;
+    if (skipped > 0) showToast(`${skipped} file(s) skipped — PDF pages aren't OCR'd in this version, only images.`, "error");
+    setFiles(imgs);
+  };
+
+  const runOcr = async () => {
+    if (files.length === 0) { showToast("Choose at least one image first.", "error"); return; }
+    setOcrError("");
+    setStage("processing");
+    setProgress(0);
+    try {
+      const Tesseract = await loadTesseract();
+      const results = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
+        const { data } = await Tesseract.recognize(file, "eng", {
+          logger: m => {
+            if (m.status === "recognizing text") {
+              const overall = ((i + m.progress) / files.length) * 100;
+              setProgress(Math.round(overall));
+            }
+          },
+        });
+        const parsed = parseVoterIdText(data.text || "");
+        results.push({
+          _id: `ocr-${i}-${Date.now()}`,
+          _selected: true,
+          _photoUrl: URL.createObjectURL(file),
+          _confidence: Math.round(data.confidence || 0),
+          _isDuplicate: false,
+          name: parsed.name, voter_id: parsed.voter_id, age: parsed.age, gender: parsed.gender,
+          house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
+          program: "waste", status: "New",
+        });
+      }
+      // Duplicate check against live beneficiaries (Voter ID = identity_number match)
+      const marked = results.map(r => {
+        const dup = r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id);
+        return { ...r, _isDuplicate: dup, status: dup ? "Duplicate" : "New" };
+      });
+      setRecords(marked);
+      setStage("preview");
+    } catch (e) {
+      setOcrError(e.message || "OCR failed. Please try clearer photos.");
+      setStage("upload");
+    }
+  };
+
+  const updateRecord = (id, key, val) => setRecords(rs => rs.map(r => r._id === id ? { ...r, [key]: val } : r));
+  const toggleSelect = (id) => setRecords(rs => rs.map(r => r._id === id ? { ..._r(r), _selected: !r._selected } : r));
+  const _r = (r) => r;
+
+  const doImport = async (which) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    let toImport = records.filter(r => r._selected);
+    if (which === "skipDup") toImport = toImport.filter(r => !r._isDuplicate);
+    if (which === "all") toImport = records;
+
+    let imported = 0, duplicatesSkipped = 0, failed = 0;
+    const remaining = [...records];
+    for (const rec of toImport) {
+      if (rec._isDuplicate && which !== "all") { duplicatesSkipped++; continue; }
+      if (!rec.name?.trim()) { failed++; continue; }
+      try {
+        const prefix = PROGRAM_MAP[rec.program]?.idPrefix || "BEN";
+        let beneficiary_id, lastErr;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const { data: latest } = await supabase.from("beneficiaries_v2").select("beneficiary_id").like("beneficiary_id", `${prefix}-%`).order("beneficiary_id", { ascending: false }).limit(1);
+          const lastNum = latest?.[0]?.beneficiary_id?.match(/(\d+)$/);
+          const nextNum = (lastNum ? parseInt(lastNum[1], 10) : 0) + 1 + attempt;
+          beneficiary_id = `${prefix}-${String(nextNum).padStart(4, "0")}`;
+          const payload = {
+            beneficiary_id, name: rec.name, age: rec.age || null, gender: rec.gender || null,
+            identity_type: "voter", identity_number: rec.voter_id || null, house_no: rec.house_no || null,
+            village: rec.village || null, program: rec.program, status: "Registered",
+            registration_date: new Date().toISOString().slice(0, 10),
+            field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
+            notes: rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name} (imported via OCR)` : "Imported via OCR",
+            created_at: new Date().toISOString(),
+          };
+          const { error } = await supabase.from("beneficiaries_v2").insert(payload);
+          lastErr = error;
+          if (!error) break;
+          if (!(error.message || "").includes("duplicate key")) break;
+        }
+        if (lastErr) { failed++; continue; }
+        imported++;
+        await logAppAudit("CREATE", "Beneficiaries", `Imported via OCR: ${rec.name} (${beneficiary_id})`);
+      } catch (e) { failed++; }
+    }
+    setSummary({ total: records.length, imported, duplicates: duplicatesSkipped, failed });
+    setStage("summary");
+    if (imported > 0 && onImported) onImported();
+  };
+
+  if (stage === "upload") {
+    return (
+      <div className="max-w-[560px] mx-auto">
+        <h2 className="text-[17px] font-bold text-[#111827] mb-1">📇 Smart Beneficiary Import (OCR)</h2>
+        <p className="text-[12px] text-[#6B7280] mb-4">Upload Voter ID card photos to auto-fill registration details. Every record must be reviewed before saving.</p>
+        {ocrError && <div className="rounded-xl p-3 mb-3 text-[12px] text-[#DC2626]" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>⚠ {ocrError}</div>}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <label className="rounded-xl border-2 border-dashed border-[#16A34A] py-6 text-center cursor-pointer" style={{ minHeight: 44 }}>
+              <div className="text-[24px] mb-1">📷</div>
+              <span className="text-[12px] font-semibold text-[#16A34A]">Camera Capture</span>
+              <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+            </label>
+            <label className="rounded-xl border-2 border-dashed border-[#1E3A8A] py-6 text-center cursor-pointer" style={{ minHeight: 44 }}>
+              <div className="text-[24px] mb-1">🖼</div>
+              <span className="text-[12px] font-semibold text-[#1E3A8A]">Upload Image(s)</span>
+              <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+            </label>
+          </div>
+          <p className="text-[10.5px] text-[#9CA3AF] mb-3">Note: PDF upload isn't OCR'd in this version — please photograph or screenshot each ID card as an image instead.</p>
+          {files.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[11.5px] font-semibold text-[#374151] mb-2">{files.length} image(s) selected</p>
+              <div className="flex gap-2 flex-wrap">
+                {files.map((f, i) => <img key={i} src={URL.createObjectURL(f)} alt="" className="w-14 h-14 rounded-lg object-cover border border-[#E5E7EB]" />)}
+              </div>
+            </div>
+          )}
+          <button onClick={runOcr} disabled={files.length === 0} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A", minHeight: 44 }}>
+            Run OCR on {files.length || 0} Image{files.length !== 1 ? "s" : ""}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === "processing") {
+    return (
+      <div className="max-w-[480px] mx-auto text-center py-12">
+        <RefreshCw size={28} className="mx-auto mb-4 animate-spin text-[#16A34A]" />
+        <p className="text-[13.5px] font-semibold text-[#111827] mb-1">{progressLabel}</p>
+        <div className="w-full h-2.5 rounded-full bg-[#F3F4F6] overflow-hidden mt-4">
+          <div className="h-full rounded-full transition-all duration-300" style={{ width: `${progress}%`, background: "#16A34A" }} />
+        </div>
+        <p className="text-[11px] text-[#9CA3AF] mt-2">{progress}% · this runs entirely in your browser, no data leaves the app</p>
+      </div>
+    );
+  }
+
+  if (stage === "summary" && summary) {
+    return (
+      <div className="max-w-[480px] mx-auto text-center py-8">
+        <CheckCircle size={36} className="mx-auto mb-3 text-[#16A34A]" />
+        <p className="text-[15px] font-bold text-[#111827] mb-4">Import Complete</p>
+        <div className="grid grid-cols-4 gap-2 mb-6">
+          {[["Total", summary.total, "#1E3A8A"], ["Imported", summary.imported, "#16A34A"], ["Duplicates", summary.duplicates, "#F97316"], ["Failed", summary.failed, "#DC2626"]].map(([l, v, c]) => (
+            <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-3"><p className="text-[18px] font-bold" style={{ color: c }}>{v}</p><p className="text-[9.5px] text-[#6B7280]">{l}</p></div>
+          ))}
+        </div>
+        <button onClick={() => { setStage("upload"); setFiles([]); setRecords([]); setSummary(null); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Import More</button>
+      </div>
+    );
+  }
+
+  // preview
+  const selectedCount = records.filter(r => r._selected).length;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h2 className="text-[17px] font-bold text-[#111827]">Review Extracted Records</h2>
+          <p className="text-[12px] text-[#6B7280]">{records.length} scanned · {selectedCount} selected · Edit any field before importing</p>
+        </div>
+        <button onClick={() => setStage("upload")} className="text-[12px] font-semibold text-[#DC2626]">Cancel</button>
+      </div>
+
+      <div className="space-y-3 mb-4">
+        {records.map(rec => {
+          const eligiblePrograms = checkOcrEligibility(rec);
+          return (
+            <div key={rec._id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              <div className="flex items-start gap-3 mb-3">
+                <input type="checkbox" checked={rec._selected} onChange={() => toggleSelect(rec._id)} className="mt-1.5" style={{ width: 18, height: 18 }} />
+                <img src={rec._photoUrl} alt="" className="w-14 h-14 rounded-lg object-cover border border-[#E5E7EB] shrink-0" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge label={rec._isDuplicate ? "Duplicate" : "New"} color={rec._isDuplicate ? "#DC2626" : "#16A34A"} tint={rec._isDuplicate ? "#FEF2F2" : "#DCFCE7"} />
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rec._confidence >= 70 ? "#DCFCE7" : rec._confidence >= 40 ? "#FFF7ED" : "#FEF2F2", color: rec._confidence >= 70 ? "#16A34A" : rec._confidence >= 40 ? "#F97316" : "#DC2626" }}>
+                      OCR Confidence: {rec._confidence}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <Field label="Name"><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
+                <Field label="Voter ID"><Input value={rec.voter_id} onChange={e => updateRecord(rec._id, "voter_id", e.target.value.toUpperCase())} /></Field>
+                <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
+                <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
+                <Field label="House No"><Input value={rec.house_no} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
+                <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
+                <Field label="Father/Husband Name"><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
+                <Field label="Register Under Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} /></Field>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-[#F3F4F6]">
+                <span className="text-[10px] text-[#9CA3AF]">Eligible:</span>
+                {eligiblePrograms.map(p => <span key={p} className="text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">{p}</span>)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sticky bottom-0 bg-[#F8FAFC] pt-2 pb-1">
+        <button onClick={() => doImport("selected")} disabled={selectedCount === 0} className="rounded-xl py-3 text-[13px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A", minHeight: 44 }}>Import Selected ({selectedCount})</button>
+        <button onClick={() => doImport("all")} className="rounded-xl py-3 text-[13px] font-bold text-white" style={{ background: "#1E3A8A", minHeight: 44 }}>Import All</button>
+        <button onClick={() => doImport("skipDup")} className="rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]" style={{ minHeight: 44 }}>Skip Duplicates</button>
+        <button onClick={() => setStage("upload")} className="rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#DC2626]" style={{ minHeight: 44 }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+
 function nextId(records, prefix) {
   const nums = records.filter(r => r.beneficiary_id?.startsWith(prefix + "-")).map(r => {
     const m = r.beneficiary_id?.match(/(\d+)$/);
@@ -11892,6 +12183,7 @@ export default function App() {
       items: [
         { key: "dashboard", label: "Dashboard", emoji: "🏠", icon: LayoutDashboard, onClick: () => goTo("dashboard"), active: view === "dashboard" },
         { key: "beneficiaries", label: "Beneficiaries", emoji: "👥", icon: Users, onClick: () => goTo("beneficiaries"), active: view === "beneficiaries" },
+        { key: "ocr-import", label: "Smart Import (OCR)", emoji: "📇", icon: ClipboardList, onClick: () => goTo("ocr-import"), active: view === "ocr-import" },
         { key: "training", label: "Training", emoji: "🎓", icon: BookOpen, onClick: () => goTo("training"), active: view === "training" && !trainingSubView },
       ],
     },
@@ -12160,6 +12452,9 @@ export default function App() {
               currentUser={user}
               showToast={showToast}
               onClose={() => setProfileBeneficiary(null)} />
+          )}
+          {!subView && view === "ocr-import" && (
+            <SmartBeneficiaryImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
           )}
           {!subView && !trainingSubView && view === "training" && (
             <TrainingList
