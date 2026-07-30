@@ -528,10 +528,37 @@ async function extractElectoralRollRecords(file, onPageProgress) {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let fullText = "";
+  let rawItemCount = 0;
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
-    fullText += content.items.map(it => it.str).join(" ") + " \n ";
+    rawItemCount += content.items.length;
+    const items = content.items.map(it => ({ str: it.str, x: it.transform[4], y: it.transform[5] })).filter(it => it.str.trim());
+    if (items.length > 0) {
+      // These rolls are laid out as 3 side-by-side voter boxes per row. Reading the raw
+      // stream top-to-bottom/left-to-right interleaves neighboring boxes' fields, so instead
+      // bucket text into 3 vertical column bands by X position, then read each column fully
+      // top-to-bottom before moving to the next — this keeps every voter's own fields together.
+      const xs = items.map(it => it.x);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const colWidth = (maxX - minX + 1) / 3;
+      const columns = [[], [], []];
+      items.forEach(it => {
+        const col = Math.max(0, Math.min(2, Math.floor((it.x - minX) / colWidth)));
+        columns[col].push(it);
+      });
+      columns.forEach(colItems => {
+        colItems.sort((a, b) => (Math.abs(a.y - b.y) > 2 ? b.y - a.y : a.x - b.x));
+        let lastY = null;
+        colItems.forEach(it => {
+          if (lastY !== null && Math.abs(it.y - lastY) > 2) fullText += "\n";
+          else if (fullText && !/\s$/.test(fullText)) fullText += " ";
+          fullText += it.str;
+          lastY = it.y;
+        });
+        fullText += "\n";
+      });
+    }
     if (onPageProgress) onPageProgress(p, pdf.numPages);
   }
 
@@ -555,6 +582,14 @@ async function extractElectoralRollRecords(file, onPageProgress) {
       age: ageMatch ? ageMatch[1] : "",
       gender: genderMatch ? genderMatch[1] : "",
     });
+  }
+  if (records.length === 0) {
+    const debugSnippet = fullText.trim().slice(0, 300);
+    const err = new Error(rawItemCount === 0
+      ? "This PDF has no extractable text at all — it's likely a scanned image PDF."
+      : `Found text (${fullText.length} characters) but couldn't match the expected "Name : ... Age : ... Gender : ..." pattern. Sample: "${debugSnippet}"`);
+    err._noPatternMatch = true;
+    throw err;
   }
   return records;
 }
@@ -635,11 +670,6 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         setProgress(Math.round((page / total) * 100));
         setProgressLabel(`Reading page ${page} of ${total}...`);
       });
-      if (rows.length === 0) {
-        setOcrError("No voter records were found in this PDF. It may be a scanned (image-only) PDF rather than a text PDF — in that case, photograph individual ID cards and use the image upload option instead.");
-        setStage("upload");
-        return;
-      }
       const results = rows.map((r, i) => ({
         _id: `pdf-${i}-${Date.now()}`,
         _selected: true,
@@ -652,7 +682,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
       }));
       finishWithResults(results);
     } catch (e) {
-      setOcrError((e.message || "Could not read this PDF.") + " Please confirm it's a valid, non-password-protected PDF.");
+      setOcrError(e.message || "Could not read this PDF. Please confirm it's a valid, non-password-protected PDF.");
       setStage("upload");
     }
   };
