@@ -8258,6 +8258,432 @@ function nextWasteRegNumber(records) {
   return `WM-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
 }
 
+/* ============================================================
+   DAILY WASTE COLLECTION — Sprint 2.
+   Every record links to an existing waste_management master record
+   (via waste_management_id). No new household/registration table.
+   Reuses: DMS pattern for future docs, audit_logs Timeline pattern,
+   the same search/filter/pagination/export/soft-delete conventions
+   from Sprint 1.
+   ============================================================ */
+const WASTE_TYPE_FIELDS = [
+  ["wet_waste_kg", "Wet Waste (Kg)"], ["dry_waste_kg", "Dry Waste (Kg)"], ["plastic_kg", "Plastic (Kg)"],
+  ["paper_kg", "Paper (Kg)"], ["glass_kg", "Glass (Kg)"], ["metal_kg", "Metal (Kg)"], ["other_kg", "Other (Kg)"],
+];
+
+function DailyWasteCollectionModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+  const [collections, setCollections] = useState([]);
+  const [households, setHouseholds] = useState([]); // active waste_management records, for the picker
+  const [loading, setLoading] = useState(true);
+  const [sub, setSub] = useState("list"); // list | form
+  const [editing, setEditing] = useState(null);
+  const [preselected, setPreselected] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const [cl, hh] = await Promise.all([
+      supabase.from("daily_waste_collection").select("*, waste_management(*)").eq("status", "Active").order("collection_date", { ascending: false }),
+      supabase.from("waste_management").select("*").eq("status", "Active"),
+    ]);
+    setCollections(cl.data || []);
+    setHouseholds(hh.data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveCollection = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const hh = households.find(h => h.id === form.waste_management_id);
+    if (editing) {
+      const rec = { ...form, updated_by: who, updated_at: new Date().toISOString() };
+      const { error } = await supabase.from("daily_waste_collection").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      await logAppAudit("UPDATE", "Waste Collection", `Edited collection for ${hh?.family_head_name} (${hh?.registration_number}) on ${form.collection_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      const rec = { ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now };
+      const { error } = await supabase.from("daily_waste_collection").insert(rec);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      await logAppAudit("CREATE", "Waste Collection", `Collection added for ${hh?.family_head_name} (${hh?.registration_number}) on ${form.collection_date}`);
+      showToast("Collection Added Successfully");
+    }
+    setEditing(null); setPreselected(null); setSub("list"); load();
+  };
+
+  const softDelete = async (c) => {
+    if (!window.confirm("Remove this collection record?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    const { error } = await supabase.from("daily_waste_collection").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", c.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    await logAppAudit("DELETE", "Waste Collection", `Removed collection for ${c.waste_management?.family_head_name} on ${c.collection_date}`);
+    showToast("Removed Successfully");
+    load();
+  };
+
+  if (sub === "form") {
+    return (
+      <DailyWasteCollectionForm editing={editing} households={households} preselected={preselected}
+        onSave={saveCollection} onCancel={() => { setEditing(null); setPreselected(null); setSub("list"); }} />
+    );
+  }
+  return (
+    <DailyWasteCollectionList collections={collections} households={households} isAdmin={isAdmin} loading={loading}
+      onAdd={() => { setEditing(null); setPreselected(null); setSub("form"); }}
+      onEdit={c => { setEditing(c); setSub("form"); }}
+      onDelete={softDelete}
+      onExport={() => downloadCSV(collections.map(c => ({
+        "Reg No": c.waste_management?.registration_number, "Family Head": c.waste_management?.family_head_name,
+        "Village": c.waste_management?.village, "Date": c.collection_date, "Collector": c.collector,
+        "Wet(kg)": c.wet_waste_kg, "Dry(kg)": c.dry_waste_kg, "Plastic(kg)": c.plastic_kg, "Status": c.collection_status,
+      })), `TAPASVI_WasteCollection_${new Date().toISOString().slice(0, 10)}.csv`)} />
+  );
+}
+
+function DailyWasteCollectionList({ collections, households, isAdmin, loading, onAdd, onEdit, onDelete, onExport }) {
+  const [query, setQuery] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [mandalFilter, setMandalFilter] = useState("all");
+  const [villageFilter, setVillageFilter] = useState("all");
+  const [collectorFilter, setCollectorFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
+
+  const districtOptions = useMemo(() => [...new Set(households.map(h => h.district).filter(Boolean))].sort(), [households]);
+  const mandalOptions = useMemo(() => districtFilter === "all" ? [] : [...new Set(households.filter(h => h.district === districtFilter).map(h => h.mandal).filter(Boolean))].sort(), [households, districtFilter]);
+  const villageOptions = useMemo(() => {
+    let scope = households;
+    if (districtFilter !== "all") scope = scope.filter(h => h.district === districtFilter);
+    if (mandalFilter !== "all") scope = scope.filter(h => h.mandal === mandalFilter);
+    return [...new Set(scope.map(h => h.village).filter(Boolean))].sort();
+  }, [households, districtFilter, mandalFilter]);
+  const collectorOptions = useMemo(() => [...new Set(collections.map(c => c.collector).filter(Boolean))].sort(), [collections]);
+
+  const filtered = useMemo(() => collections.filter(c => {
+    const hh = c.waste_management;
+    if (districtFilter !== "all" && hh?.district !== districtFilter) return false;
+    if (mandalFilter !== "all" && hh?.mandal !== mandalFilter) return false;
+    if (villageFilter !== "all" && hh?.village !== villageFilter) return false;
+    if (collectorFilter !== "all" && c.collector !== collectorFilter) return false;
+    if (statusFilter !== "all" && c.collection_status !== statusFilter) return false;
+    if (dateFrom && c.collection_date < dateFrom) return false;
+    if (dateTo && c.collection_date > dateTo) return false;
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      if (!(hh?.registration_number?.toLowerCase().includes(q) || hh?.family_head_name?.toLowerCase().includes(q) ||
+            c.collector?.toLowerCase().includes(q) || hh?.village?.toLowerCase().includes(q) || hh?.mobile_number?.includes(q))) return false;
+    }
+    return true;
+  }), [collections, query, districtFilter, mandalFilter, villageFilter, collectorFilter, statusFilter, dateFrom, dateTo]);
+
+  useEffect(() => { setPage(1); }, [query, districtFilter, mandalFilter, villageFilter, collectorFilter, statusFilter, dateFrom, dateTo]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = useMemo(() => filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE), [filtered, page]);
+  const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 2), Math.max(0, page - 2) + 3), [totalPages, page]);
+
+  const statusColor = { Collected: "#16A34A", Missed: "#DC2626", Partial: "#F97316" };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">♻ Daily Collection</h2>
+          <p className="text-[12px] text-[#6B7280]">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onExport} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><FileSpreadsheet size={13} /> CSV</button>
+          <button onClick={() => printSimpleTable("Daily Waste Collection", [{ key: "date", label: "Date" }, { key: "head", label: "Family Head" }, { key: "village", label: "Village" }, { key: "status", label: "Status" }],
+            filtered.map(c => ({ date: c.collection_date, head: c.waste_management?.family_head_name, village: c.waste_management?.village, status: c.collection_status })))}
+            className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] text-[#111827]"><Printer size={13} /> Print</button>
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-[13px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}><Plus size={15} /> Add Collection</button>
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search Reg No, Family Head, Collector, Village, Mobile..." className={inputCls + " pl-9 text-[12.5px]"} style={{ minHeight: 44 }} />
+      </div>
+      <div className="flex gap-2 mb-3 flex-wrap">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+          <option value="all">All Status</option>
+          <option value="Collected">Collected</option>
+          <option value="Missed">Missed</option>
+          <option value="Partial">Partial</option>
+        </select>
+        <select value={collectorFilter} onChange={e => setCollectorFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"} style={{ minHeight: 44 }}>
+          <option value="all">All Collectors</option>
+          {collectorOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button onClick={() => setShowMoreFilters(s => !s)} className="flex items-center gap-1.5 rounded-lg border border-[#16A34A] px-3 py-2 text-[12px] font-semibold text-[#16A34A]" style={{ minHeight: 44 }}>
+          <Filter size={13} /> {showMoreFilters ? "Hide" : "More"} Filters
+        </button>
+      </div>
+      {showMoreFilters && (
+        <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#E5E7EB] p-3.5 mb-4">
+          <p className="text-[10.5px] font-bold uppercase tracking-wide text-[#6B7280] mb-2">Location & Date</p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <select value={districtFilter} onChange={e => { setDistrictFilter(e.target.value); setMandalFilter("all"); setVillageFilter("all"); }} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Districts</option>
+              {districtOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={mandalFilter} onChange={e => { setMandalFilter(e.target.value); setVillageFilter("all"); }} disabled={districtFilter === "all"} className={selectCls + " w-auto text-[12px] disabled:opacity-50"}>
+              <option value="all">All Mandals</option>
+              {mandalOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={villageFilter} onChange={e => setVillageFilter(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              <option value="all">All Villages</option>
+              {villageOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <label className="text-[11px] text-[#6B7280]">From</label>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls + " w-auto text-[12px]"} />
+            <label className="text-[11px] text-[#6B7280]">To</label>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls + " w-auto text-[12px]"} />
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="bg-white rounded-2xl border border-[#E5E7EB] p-4 animate-pulse"><div className="h-3 w-2/5 bg-[#F3F4F6] rounded mb-2" /><div className="h-2.5 w-3/5 bg-[#F3F4F6] rounded" /></div>)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-[#9CA3AF]"><Leaf size={28} className="mx-auto mb-3 opacity-40" /><p className="text-[13px]">No collection records found.</p></div>
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {paginated.map(c => {
+              const hh = c.waste_management;
+              const totalKg = WASTE_TYPE_FIELDS.reduce((s, [k]) => s + (Number(c[k]) || 0), 0);
+              return (
+                <div key={c.id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                      <p className="text-[13.5px] font-semibold text-[#111827]">{hh?.family_head_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{hh?.registration_number}</span></p>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">{c.collection_date} · {c.collector || "—"} · {hh?.village || "—"} · {totalKg.toFixed(1)} kg total</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold shrink-0" style={{ background: statusColor[c.collection_status] + "18", color: statusColor[c.collection_status] }}>{c.collection_status}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {isAdmin && <button onClick={() => onEdit(c)} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11.5px] font-medium text-[#1E3A8A]">Edit</button>}
+                    {isAdmin && <button onClick={() => onDelete(c)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11.5px] font-medium text-[#DC2626]">Remove</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-5 flex-wrap gap-2">
+              <p className="text-[11.5px] text-[#6B7280]">Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}</p>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>← Previous</button>
+                {pageNumbers.map(n => (
+                  <button key={n} onClick={() => setPage(n)} className="rounded-lg text-[12px] font-semibold transition-colors" style={{ minWidth: 36, minHeight: 40, background: n === page ? "#16A34A" : "transparent", color: n === page ? "#fff" : "#374151" }}>{n}</button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 rounded-lg border border-[#E5E7EB] text-[12px] font-medium disabled:opacity-40" style={{ minHeight: 40 }}>Next →</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function DailyWasteCollectionForm({ editing, households, preselected, onSave, onCancel }) {
+  const blank = {
+    waste_management_id: preselected?.id || "", collection_date: new Date().toISOString().slice(0, 10), collector: "",
+    wet_waste_kg: "", dry_waste_kg: "", plastic_kg: "", paper_kg: "", glass_kg: "", metal_kg: "", other_kg: "",
+    collection_status: "Collected", missed_reason: "", remarks: "",
+  };
+  const [form, setForm] = useState(editing ? { ...blank, ...editing } : blank);
+  const [hhQuery, setHhQuery] = useState("");
+  const [errors, setErrors] = useState({});
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  const selectedHousehold = households.find(h => h.id === form.waste_management_id) || editing?.waste_management || preselected;
+  const hhMatches = useMemo(() => {
+    if (!hhQuery.trim()) return [];
+    const q = hhQuery.toLowerCase();
+    return households.filter(h => h.family_head_name?.toLowerCase().includes(q) || h.registration_number?.toLowerCase().includes(q) || h.village?.toLowerCase().includes(q)).slice(0, 8);
+  }, [households, hhQuery]);
+
+  const validate = () => {
+    const e = {};
+    if (!form.waste_management_id) e.waste_management_id = "Select a household";
+    if (!form.collection_date) e.collection_date = "Required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = () => {
+    if (!validate()) return;
+    const payload = { ...form };
+    WASTE_TYPE_FIELDS.forEach(([k]) => { payload[k] = parseFloat(payload[k]) || 0; });
+    onSave(payload);
+  };
+
+  return (
+    <div className="max-w-[560px] mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[17px] font-bold text-[#111827]">{editing ? "Edit Collection" : "Add Collection"}</h2>
+        <button onClick={onCancel} className="p-2 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"><X size={18} /></button>
+      </div>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+        {!selectedHousehold ? (
+          <Field label="Waste Management Registration" required error={errors.waste_management_id}>
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+              <input value={hhQuery} onChange={e => setHhQuery(e.target.value)} placeholder="Search by name, Reg No, or village..." className={inputCls + " pl-9"} />
+            </div>
+            {hhMatches.length > 0 && (
+              <div className="mt-2 space-y-1 max-h-[220px] overflow-y-auto">
+                {hhMatches.map(h => (
+                  <button key={h.id} type="button" onClick={() => { setForm(f => ({ ...f, waste_management_id: h.id })); setHhQuery(""); }}
+                    className="w-full text-left rounded-lg border border-[#E5E7EB] px-3 py-2 hover:bg-[#F8FAFC]">
+                    <p className="text-[12.5px] font-semibold text-[#111827]">{h.family_head_name} <span className="text-[10.5px] font-mono text-[#9CA3AF]">{h.registration_number}</span></p>
+                    <p className="text-[10.5px] text-[#6B7280]">{h.village}, {h.mandal}, {h.district}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Field>
+        ) : (
+          <div className="rounded-xl p-3 mb-4" style={{ background: "#DCFCE7" }}>
+            <p className="text-[12.5px] font-bold text-[#16A34A]">{selectedHousehold.family_head_name} <span className="font-mono text-[10.5px]">{selectedHousehold.registration_number}</span></p>
+            <p className="text-[10.5px] text-[#166534]">Village: {selectedHousehold.village || "—"} (auto-filled)</p>
+            {!editing && <button type="button" onClick={() => setForm(f => ({ ...f, waste_management_id: "" }))} className="text-[10.5px] font-semibold text-[#DC2626] mt-1">Change household</button>}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-x-4">
+          <Field label="Collection Date" required error={errors.collection_date}><Input type="date" value={form.collection_date} onChange={set("collection_date")} /></Field>
+          <Field label="Collector"><Input value={form.collector} onChange={set("collector")} /></Field>
+        </div>
+
+        <SectionHeader title="Waste Quantities" color="#16A34A" />
+        <div className="grid grid-cols-2 gap-x-4">
+          {WASTE_TYPE_FIELDS.map(([key, label]) => (
+            <Field key={key} label={label}><Input type="number" min="0" step="0.1" value={form[key]} onChange={set(key)} /></Field>
+          ))}
+        </div>
+
+        <SectionHeader title="Status" color="#16A34A" />
+        <Field label="Collection Status"><Select value={form.collection_status} onChange={set("collection_status")} options={["Collected", "Missed", "Partial"]} /></Field>
+        {form.collection_status === "Missed" && (
+          <Field label="Missed Reason (Optional)"><Input value={form.missed_reason} onChange={set("missed_reason")} /></Field>
+        )}
+        <Field label="Remarks"><textarea value={form.remarks} onChange={set("remarks")} rows={2} className={inputCls} /></Field>
+
+        <div className="flex gap-3 mt-4 pt-4 border-t border-[#F3F4F6]">
+          <button onClick={submit} className="flex-1 rounded-xl py-3 text-[13.5px] font-bold text-white active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>Save</button>
+          <button onClick={onCancel} className="rounded-xl border border-[#E5E7EB] px-6 text-[13px] font-medium text-[#111827]" style={{ minHeight: 44 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Reusable block dropped into WasteManagementProfile's "Waste Collection" tab —
+// same DailyWasteCollectionForm is reused for add/edit, scoped to one household.
+function WasteCollectionProfileTab({ household, currentUser, showToast, logAppAudit }) {
+  const [collections, setCollections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("daily_waste_collection").select("*").eq("waste_management_id", household.id).eq("status", "Active").order("collection_date", { ascending: false });
+    setCollections(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [household.id]);
+
+  const saveCollection = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const { error } = await supabase.from("daily_waste_collection").update({ ...form, updated_by: who, updated_at: new Date().toISOString() }).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      await logAppAudit("UPDATE", "Waste Collection", `Edited collection for ${household.family_head_name} (${household.registration_number}) on ${form.collection_date}`);
+      showToast("Updated Successfully");
+    } else {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("daily_waste_collection").insert({ ...form, status: "Active", created_by: who, created_at: now, updated_by: who, updated_at: now });
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      await logAppAudit("CREATE", "Waste Collection", `Collection added for ${household.family_head_name} (${household.registration_number}) on ${form.collection_date}`);
+      showToast("Collection Added Successfully");
+    }
+    setEditing(null); setShowForm(false); load();
+  };
+
+  const softDelete = async (c) => {
+    if (!window.confirm("Remove this collection record?")) return;
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    await supabase.from("daily_waste_collection").update({ status: "Inactive", updated_by: who, updated_at: new Date().toISOString() }).eq("id", c.id);
+    await logAppAudit("DELETE", "Waste Collection", `Removed collection for ${household.family_head_name} on ${c.collection_date}`);
+    showToast("Removed Successfully");
+    load();
+  };
+
+  const summary = useMemo(() => {
+    const active = collections;
+    return {
+      total: active.length,
+      wet: active.reduce((s, c) => s + (Number(c.wet_waste_kg) || 0), 0),
+      dry: active.reduce((s, c) => s + (Number(c.dry_waste_kg) || 0), 0),
+      plastic: active.reduce((s, c) => s + (Number(c.plastic_kg) || 0), 0),
+      missed: active.filter(c => c.collection_status === "Missed").length,
+      last: active[0]?.collection_date || "—",
+    };
+  }, [collections]);
+
+  if (showForm) {
+    return <DailyWasteCollectionForm editing={editing} households={[household]} preselected={household}
+      onSave={saveCollection} onCancel={() => { setEditing(null); setShowForm(false); }} />;
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {[["Total Collections", summary.total, "#16A34A"], ["Wet Waste (kg)", summary.wet.toFixed(1), "#0EA5E9"], ["Dry Waste (kg)", summary.dry.toFixed(1), "#F97316"],
+          ["Plastic (kg)", summary.plastic.toFixed(1), "#7C3AED"], ["Missed Visits", summary.missed, "#DC2626"], ["Last Collection", summary.last, "#1E3A8A"]].map(([l, v, c]) => (
+          <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-2.5 text-center">
+            <p className="text-[13px] font-bold" style={{ color: c }}>{v}</p>
+            <p className="text-[9px] text-[#6B7280]">{l}</p>
+          </div>
+        ))}
+      </div>
+      <button onClick={() => { setEditing(null); setShowForm(true); }} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white mb-4 active:scale-95 transition" style={{ background: "#16A34A", minHeight: 44 }}>+ Add Collection</button>
+      {loading ? (
+        <p className="text-[12px] text-[#9CA3AF] text-center py-6">Loading...</p>
+      ) : collections.length === 0 ? (
+        <div className="text-center py-8 text-[#9CA3AF]"><p className="text-[12.5px]">No collection history yet.</p></div>
+      ) : (
+        <div className="space-y-2">
+          {collections.map(c => (
+            <div key={c.id} className="bg-white rounded-xl border border-[#E5E7EB] p-3.5">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <p className="text-[12.5px] font-semibold text-[#111827]">{c.collection_date} · {c.collector || "—"}</p>
+                <Badge label={c.collection_status} color={c.collection_status === "Collected" ? "#16A34A" : c.collection_status === "Missed" ? "#DC2626" : "#F97316"}
+                  tint={c.collection_status === "Collected" ? "#DCFCE7" : c.collection_status === "Missed" ? "#FEE2E2" : "#FFF7ED"} />
+              </div>
+              <p className="text-[10.5px] text-[#6B7280]">Wet {c.wet_waste_kg}kg · Dry {c.dry_waste_kg}kg · Plastic {c.plastic_kg}kg · Paper {c.paper_kg}kg · Glass {c.glass_kg}kg · Metal {c.metal_kg}kg · Other {c.other_kg}kg</p>
+              {c.remarks && <p className="text-[10.5px] text-[#9CA3AF] mt-0.5">{c.remarks}</p>}
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => { setEditing(c); setShowForm(true); }} className="flex-1 rounded-lg border border-[#E5E7EB] py-1.5 text-[11px] font-medium text-[#1E3A8A]">Edit</button>
+                <button onClick={() => softDelete(c)} className="flex-1 rounded-lg border border-[#FCA5A5] py-1.5 text-[11px] font-medium text-[#DC2626]">Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8309,7 +8735,7 @@ function WasteManagementModule({ isAdmin, currentUser, showToast, logAppAudit })
     return <WasteManagementForm editing={editing} records={records} onSave={saveRecord} onCancel={() => { setEditing(null); setSub(editing ? "profile" : "list"); }} />;
   }
   if (sub === "profile" && viewing) {
-    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast}
+    return <WasteManagementProfile record={viewing} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit}
       onEdit={() => { setEditing(viewing); setSub("form"); }} onBack={() => { setViewing(null); setSub("list"); }} />;
   }
   return (
@@ -8544,8 +8970,8 @@ function WasteManagementForm({ editing, records, onSave, onCancel }) {
   );
 }
 
-function WasteManagementProfile({ record: r, currentUser, showToast, onEdit, onBack }) {
-  const [tab, setTab] = useState("basic"); // basic | documents | timeline
+function WasteManagementProfile({ record: r, currentUser, showToast, logAppAudit, onEdit, onBack }) {
+  const [tab, setTab] = useState("basic"); // basic | collection | documents | timeline
   const [activity, setActivity] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
 
@@ -8572,7 +8998,7 @@ function WasteManagementProfile({ record: r, currentUser, showToast, onEdit, onB
       </div>
 
       <div className="flex gap-1 mb-4">
-        {[["basic", "Basic Information"], ["documents", "Documents"], ["timeline", "Timeline"]].map(([key, label]) => (
+        {[["basic", "Basic Information"], ["collection", "Waste Collection"], ["documents", "Documents"], ["timeline", "Timeline"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className="px-3.5 py-2 rounded-xl text-[12.5px] font-semibold transition-colors"
             style={tab === key ? { background: "#16A34A", color: "#fff" } : { background: "#F3F4F6", color: "#6B7280" }}>
@@ -8617,6 +9043,10 @@ function WasteManagementProfile({ record: r, currentUser, showToast, onEdit, onB
             <InfoRow label="Updated At" value={r.updated_at ? new Date(r.updated_at).toLocaleString() : "—"} />
           </div>
         </div>
+      )}
+
+      {tab === "collection" && (
+        <WasteCollectionProfileTab household={r} currentUser={currentUser} showToast={showToast} logAppAudit={logAppAudit} />
       )}
 
       {tab === "documents" && (
@@ -10689,6 +11119,7 @@ export default function App() {
         ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
         ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
         ...(isAdmin ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
+        ...(isAdmin ? [{ key: "waste-collection", label: "Daily Collection", emoji: "♻", icon: Leaf, onClick: () => goTo("waste-collection"), active: view === "waste-collection" }] : []),
         ...(isSuperAdmin ? [{ key: "settings", label: "Settings", emoji: "⚙️", icon: SettingsIcon, onClick: () => goTo("settings"), active: view === "settings" }] : []),
       ],
     },
@@ -10975,6 +11406,9 @@ export default function App() {
           )}
           {!subView && view === "waste-management" && isAdmin && (
             <WasteManagementModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "waste-collection" && isAdmin && (
+            <DailyWasteCollectionModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "users" && isAdmin && (
             <UserManagement currentUser={user} showToast={showToast} />
