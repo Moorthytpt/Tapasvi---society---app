@@ -604,7 +604,7 @@ const OCR_PROVIDERS = {
 };
 
 // Change this one constant to switch the whole app's OCR engine.
-const OCR_ACTIVE_PROVIDER = "tesseract";
+const OCR_ACTIVE_PROVIDER = "cloudVision";
 function getOcrProvider(key = OCR_ACTIVE_PROVIDER) {
   return OCR_PROVIDERS[key] || OCR_PROVIDERS.tesseract;
 }
