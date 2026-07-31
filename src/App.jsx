@@ -479,6 +479,51 @@ function loadTesseract() {
    may return lines: [] and current callers (which only use
    `text`/`confidence`) keep working unchanged.
    ============================================================ */
+/* ============================================================
+   IMAGE ENHANCEMENT (Phase 2, Step 1)
+   Draws the uploaded photo onto a canvas — downscaled if it's
+   larger than a sane OCR working size — instead of handing the
+   raw File to the OCR engine directly. Two real benefits:
+   1) Tesseract.js has a known "File could not be read! Code=0"
+      failure on some Android browsers when fed very large camera
+      photos directly; a canvas sidesteps it.
+   2) Smaller pixels = faster OCR, which matters a lot on slow
+      mobile connections.
+   Brightness/contrast are nudged up slightly since field photos
+   of registers are often under-lit. This is a real, working step
+   — not a placeholder — but it is NOT deskew/auto-rotate/crop yet;
+   those need real edge/contour detection and are still pending.
+   ============================================================ */
+async function enhanceImageForOcr(file, maxDim = 1800) {
+  const bitmap = await createImageBitmap(file).catch(async () => {
+    // Safari/older WebView fallback that doesn't support createImageBitmap on all inputs
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    return img;
+  });
+  const srcW = bitmap.width || bitmap.naturalWidth;
+  const srcH = bitmap.height || bitmap.naturalHeight;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(srcW * scale);
+  canvas.height = Math.round(srcH * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+  // Mild brightness/contrast lift — cheap and genuinely helps OCR on dim photos.
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  const contrast = 1.15, brightness = 12;
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = Math.max(0, Math.min(255, (d[i] - 128) * contrast + 128 + brightness));
+    d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - 128) * contrast + 128 + brightness));
+    d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - 128) * contrast + 128 + brightness));
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
 const OCR_PROVIDERS = {
   tesseract: {
     key: "tesseract",
@@ -495,6 +540,20 @@ const OCR_PROVIDERS = {
       }));
       return { text: data.text || "", confidence: Math.round(data.confidence || 0), lines };
     },
+    // Used by the layout-first cell-by-cell pipeline: a single persistent
+    // worker recognizes dozens of small cell crops without paying
+    // Tesseract's worker-init cost on every single cell.
+    async createBatchWorker(lang = "eng") {
+      const Tesseract = await loadTesseract();
+      const worker = await Tesseract.createWorker(lang);
+      return {
+        async recognize(cellCanvas) {
+          const { data } = await worker.recognize(cellCanvas);
+          return { text: (data.text || "").trim(), confidence: Math.round(data.confidence || 0) };
+        },
+        terminate: () => worker.terminate(),
+      };
+    },
   },
 
   // Not wired up yet — groundwork only. To activate: stand up a backend
@@ -508,6 +567,9 @@ const OCR_PROVIDERS = {
     label: "Cloud Vision (not configured)",
     async recognize(_imageOrCanvas, _opts = {}) {
       throw new Error('Cloud OCR provider isn\'t configured — no backend endpoint is set yet. Set OCR_ACTIVE_PROVIDER back to "tesseract", or wire up a backend first.');
+    },
+    async createBatchWorker(_lang) {
+      throw new Error('Cloud OCR provider isn\'t configured — no backend endpoint is set yet.');
     },
   },
 };
@@ -554,6 +616,309 @@ function parseVoterIdText(raw) {
   if (houseLine) result.house_no = houseLine.replace(/^.*?House\s*No\.?\s*[:\-]?\s*/i, "").trim();
 
   return result;
+}
+
+/* ============================================================
+   PHASE 3 — AI ROW & COLUMN DETECTION (register/table pages)
+   Uses the position data Tesseract already gives us (line.y,
+   word.x, word.confidence — see OCR_PROVIDERS above) instead of
+   any fixed pixel layout, so it works on any register photo, not
+   just this one. Approach:
+     1) Find the header row — the OCR line with the most words
+        matching known Telugu/English column-header vocabulary.
+     2) Record each matched header word's x-position as a column
+        anchor. That IS the column map — nothing hardcoded.
+     3) For every line below the header, assign each word to its
+        nearest column anchor by x-distance, join per column ->
+        one candidate record per row.
+   Every field also gets that row's word-level OCR confidence, so
+   the review screen can flag low-confidence values individually.
+   If no header row is confidently found (<2 matches), the caller
+   falls back to the old single-record-per-image behaviour — nothing
+   breaks for a plain Voter ID / Aadhaar card photo.
+   ============================================================ */
+const HEADER_KEYWORDS = [
+  { field: "name", words: ["పేరు", "name"] },
+  { field: "age", words: ["వయస్సు", "వయసు", "age"] },
+  { field: "gender", words: ["లింగ", "gender"] },
+  { field: "house_no", words: ["ఇంటి", "గృహ", "house"] },
+  { field: "father_husband_name", words: ["తండ్రి", "భర్త", "father", "husband"] },
+  { field: "aadhaar_number", words: ["ఆధార్", "aadhaar", "aadhar"] },
+  { field: "voter_id", words: ["ఓటరు", "epic", "voter"] },
+  { field: "phone", words: ["మొబైల్", "ఫోన్", "సెల్", "phone", "mobile"] },
+  { field: "village", words: ["గ్రామ", "ఊరు", "village"] },
+  { field: "mandal", words: ["మండల", "mandal"] },
+  { field: "extra_notes", words: ["వృత్తి", "కులం", "రేషన్", "కుటుంబ", "occupation", "caste", "ration"] },
+];
+
+function matchHeaderField(wordText) {
+  const t = (wordText || "").toLowerCase();
+  for (const h of HEADER_KEYWORDS) {
+    if (h.words.some(kw => t.includes(kw.toLowerCase()))) return h.field;
+  }
+  return null;
+}
+
+// Returns { headerY, columns: [{ field, x }] } or null if no confident header row found.
+function detectColumnsFromHeaderRow(lines) {
+  let best = null;
+  for (const line of lines || []) {
+    const matches = [];
+    for (const w of line.words || []) {
+      const field = matchHeaderField(w.text);
+      if (field && !matches.some(m => m.field === field)) matches.push({ field, x: w.x });
+    }
+    if (matches.length >= 2 && (!best || matches.length > best.matches.length)) {
+      best = { y: line.y, matches };
+    }
+  }
+  if (!best) return null;
+  return { headerY: best.y, columns: best.matches.sort((a, b) => a.x - b.x) };
+}
+
+// Splits every line below the header row into one candidate record per row,
+// assigning each word to its nearest column by x-distance.
+function extractRowsFromLines(lines, columnMap, pageConfidence) {
+  const dataLines = (lines || []).filter(l => l.y > columnMap.headerY + 5);
+  const rows = [];
+  for (const line of dataLines) {
+    if (!line.words || line.words.length === 0) continue;
+    const buckets = {}; // field -> { texts: [], confs: [] }
+    for (const w of line.words) {
+      let nearest = columnMap.columns[0];
+      let bestDist = Infinity;
+      for (const c of columnMap.columns) {
+        const dist = Math.abs(w.x - c.x);
+        if (dist < bestDist) { bestDist = dist; nearest = c; }
+      }
+      if (!buckets[nearest.field]) buckets[nearest.field] = { texts: [], confs: [] };
+      buckets[nearest.field].texts.push(w.text);
+      buckets[nearest.field].confs.push(w.confidence ?? pageConfidence);
+    }
+    const fieldConfidence = {};
+    const record = {};
+    let anyText = false;
+    for (const field of Object.keys(buckets)) {
+      const { texts, confs } = buckets[field];
+      const joined = texts.join(" ").trim();
+      if (joined) anyText = true;
+      record[field] = joined;
+      fieldConfidence[field] = Math.round(confs.reduce((a, b) => a + b, 0) / (confs.length || 1));
+    }
+    if (!anyText) continue; // skip blank/noise rows
+    const rowText = line.words.map(w => w.text).join(" ");
+    // Regex-based enrichment on top of the column guess — catches Aadhaar/
+    // Voter ID/phone patterns even when a row's columns didn't line up.
+    const enrichment = parseVoterIdText(rowText);
+    for (const key of ["voter_id", "aadhaar_number", "phone"]) {
+      if (!record[key] && enrichment[key]) { record[key] = enrichment[key]; fieldConfidence[key] = pageConfidence; }
+    }
+    rows.push({ ...record, _rowRawText: rowText, _fieldConfidence: fieldConfidence });
+  }
+  return rows;
+}
+
+/* ============================================================
+   PHASE 3B — LAYOUT-FIRST PIPELINE (table/row/column detection
+   BEFORE OCR, not just OCR-position guessing after the fact).
+   Modules, each independently reusable for a different document
+   template later:
+     TableDetector   — detectTableGrid()
+     HeaderDetector  — detectHeaderRow()
+     RowDetector     — the row loop inside runLayoutAwarePipeline()
+     ColumnDetector  — the column/headerMap loop, same function
+     CellCropper     — cropCell()
+     OCRProcessor    — thin wrapper around the batch worker's recognize()
+     FieldValidator  — validateField()
+   Honest limits: this finds RULED table lines (printed or hand-
+   drawn grid boxes) via ink-density projection profiles, and
+   corrects only small rotation (a coarse angle search, not a full
+   Hough transform). A register with no visible grid lines won't
+   have a detectable table — callers must fall back to the Phase 3A
+   OCR-position method, which itself falls back further to Phase 1.
+   ============================================================ */
+
+// --- shared low-level helpers -------------------------------------------
+function binarizeCanvas(canvas, threshold = 150) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  const { data } = ctx.getImageData(0, 0, width, height);
+  const bin = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    bin[p] = lum < threshold ? 1 : 0;
+  }
+  return { bin, width, height };
+}
+
+function rotateCanvas(canvas, deg) {
+  const rad = (deg * Math.PI) / 180;
+  const w = canvas.width, h = canvas.height;
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const ctx = out.getContext("2d");
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(canvas, -w / 2, -h / 2);
+  return out;
+}
+
+function findPeaks(arr, minCount, minGap) {
+  const peaks = [];
+  for (let i = 1; i < arr.length - 1; i++) {
+    if (arr[i] >= minCount && arr[i] >= arr[i - 1] && arr[i] >= arr[i + 1]) {
+      if (peaks.length === 0 || i - peaks[peaks.length - 1] >= minGap) peaks.push(i);
+      else if (arr[i] > arr[peaks[peaks.length - 1]]) peaks[peaks.length - 1] = i;
+    }
+  }
+  return peaks;
+}
+
+// Coarse deskew: the angle whose horizontal ink-projection profile has the
+// highest variance wins — a level table's ruled lines make tall, narrow
+// spikes; a tilted one smears them out.
+function estimateSkewAngle(canvas) {
+  let bestAngle = 0, bestScore = -Infinity;
+  for (let deg = -6; deg <= 6; deg += 1.5) {
+    const rotated = deg === 0 ? canvas : rotateCanvas(canvas, deg);
+    const { bin, width, height } = binarizeCanvas(rotated);
+    const rowSums = new Float64Array(height);
+    for (let y = 0; y < height; y++) { let s = 0; for (let x = 0; x < width; x++) s += bin[y * width + x]; rowSums[y] = s; }
+    const mean = rowSums.reduce((a, b) => a + b, 0) / height;
+    const variance = rowSums.reduce((a, b) => a + (b - mean) ** 2, 0) / height;
+    if (variance > bestScore) { bestScore = variance; bestAngle = deg; }
+  }
+  return bestAngle;
+}
+
+// --- TableDetector --------------------------------------------------------
+// Deskews, then finds ruled horizontal/vertical line positions via
+// ink-density projection profiles. Returns null if the page doesn't look
+// like a ruled table (caller must fall back to Phase 3A).
+function detectTableGrid(canvas) {
+  const angle = estimateSkewAngle(canvas);
+  const working = Math.abs(angle) > 0.4 ? rotateCanvas(canvas, angle) : canvas;
+  const { bin, width, height } = binarizeCanvas(working);
+
+  const rowSums = new Float64Array(height);
+  for (let y = 0; y < height; y++) { let s = 0; for (let x = 0; x < width; x++) s += bin[y * width + x]; rowSums[y] = s; }
+  const colSums = new Float64Array(width);
+  for (let x = 0; x < width; x++) { let s = 0; for (let y = 0; y < height; y++) s += bin[y * width + x]; colSums[x] = s; }
+
+  const rowPeaks = findPeaks(rowSums, width * 0.35, Math.max(12, height * 0.02));
+  const colPeaks = findPeaks(colSums, height * 0.25, Math.max(12, width * 0.02));
+  if (rowPeaks.length < 3 || colPeaks.length < 3) return null; // not enough ruled structure
+
+  const rows = [0, ...rowPeaks, height].filter((v, i, a) => i === 0 || v - a[i - 1] > 8);
+  const cols = [0, ...colPeaks, width].filter((v, i, a) => i === 0 || v - a[i - 1] > 8);
+  if (rows.length < 3 || cols.length < 3) return null;
+  return { canvas: working, rows, cols, angle };
+}
+
+// --- CellCropper ------------------------------------------------------------
+function cropCell(canvas, x0, y0, x1, y1, pad = 4) {
+  const w = Math.max(1, x1 - x0 - pad * 2);
+  const h = Math.max(1, y1 - y0 - pad * 2);
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  out.getContext("2d").drawImage(canvas, x0 + pad, y0 + pad, w, h, 0, 0, w, h);
+  return out;
+}
+
+// --- HeaderDetector ---------------------------------------------------------
+// OCRs just the header band (row 0..1) one cell at a time and matches each
+// against the same keyword dictionary Phase 3A uses — column anchors come
+// from THIS image's own header cells, never a fixed pixel layout.
+async function detectHeaderRow(grid, worker) {
+  const { canvas, rows, cols } = grid;
+  const map = [];
+  for (let c = 0; c < cols.length - 1; c++) {
+    const cell = cropCell(canvas, cols[c], rows[0], cols[c + 1], rows[1]);
+    let text = "";
+    try { ({ text } = await worker.recognize(cell)); } catch { /* skip an unreadable header cell */ }
+    const field = matchHeaderField(text);
+    if (field && !map.some(m => m.field === field)) map.push({ colIndex: c, field, headerText: text.trim() });
+  }
+  return map.length >= 2 ? map : null;
+}
+
+// --- FieldValidator -----------------------------------------------------
+// Format-checks + normalizes a cell's OCR text for its mapped field. When a
+// value fails validation it is still returned (nothing is silently dropped)
+// but its confidence is capped low so the review screen flags it for a
+// human to check rather than quietly saving something wrong.
+function validateField(field, rawText) {
+  const text = (rawText || "").trim();
+  if (field === "aadhaar_number") {
+    const digits = text.replace(/\D/g, "");
+    return digits.length === 12 ? { value: digits, valid: true } : { value: digits || text, valid: false, confidenceCap: 35 };
+  }
+  if (field === "voter_id") {
+    const m = text.toUpperCase().match(/[A-Z]{3}\d{7}/);
+    return m ? { value: m[0], valid: true } : { value: text, valid: false, confidenceCap: 35 };
+  }
+  if (field === "phone") {
+    const digits = text.replace(/\D/g, "").slice(-10);
+    return /^[6-9]\d{9}$/.test(digits) ? { value: digits, valid: true } : { value: digits || text, valid: false, confidenceCap: 35 };
+  }
+  if (field === "age") {
+    const num = text.replace(/\D/g, "");
+    const n = parseInt(num, 10);
+    return (num && n > 0 && n < 120) ? { value: num, valid: true } : { value: num || text, valid: false, confidenceCap: 35 };
+  }
+  if (field === "gender") {
+    if (/^(f|female|స్త్రీ|ఆడ)/i.test(text)) return { value: "Female", valid: true };
+    if (/^(m|male|పురుష|మగ)/i.test(text)) return { value: "Male", valid: true };
+    return { value: text, valid: false, confidenceCap: 35 };
+  }
+  // Free-text fields (name/village/mandal/father-husband/house no/etc.) —
+  // no strict format, just flag empty/1-character noise as low confidence.
+  return { value: text, valid: text.length >= 2, confidenceCap: text.length >= 2 ? undefined : 35 };
+}
+
+// --- Orchestrator: RowDetector + ColumnDetector + OCRProcessor combined ----
+// Runs TableDetector -> HeaderDetector -> crops + OCRs every data cell ->
+// FieldValidator on each cell. Returns an array of row records (one per
+// detected register row) or null if the layout wasn't confidently
+// detectable, so the caller can fall back to Phase 3A.
+async function runLayoutAwarePipeline(canvas, lang, onRowProgress) {
+  const provider = getOcrProvider();
+  if (!provider.createBatchWorker) return null; // active provider can't do cell-level OCR
+
+  const grid = detectTableGrid(canvas);
+  if (!grid) return null;
+
+  const worker = await provider.createBatchWorker(lang);
+  try {
+    const headerMap = await detectHeaderRow(grid, worker);
+    if (!headerMap) return null;
+
+    const totalRows = Math.max(0, grid.rows.length - 2);
+    const records = [];
+    for (let r = 1; r < grid.rows.length - 1; r++) {
+      const rec = { _fieldConfidence: {}, _cellBoxes: {}, extra_notes: "" };
+      let any = false;
+      for (let c = 0; c < grid.cols.length - 1; c++) {
+        const colInfo = headerMap.find(h => h.colIndex === c);
+        const field = colInfo ? colInfo.field : null;
+        const box = { x0: grid.cols[c], y0: grid.rows[r], x1: grid.cols[c + 1], y1: grid.rows[r + 1] };
+        const cell = cropCell(grid.canvas, box.x0, box.y0, box.x1, box.y1);
+        let text = "", confidence = 0;
+        try { ({ text, confidence } = await worker.recognize(cell)); } catch { /* leave this cell blank, still reviewable */ }
+        const validated = validateField(field || "extra_notes", text);
+        if (validated.value) any = true;
+        const targetField = field || "extra_notes";
+        rec[targetField] = [rec[targetField], validated.value].filter(Boolean).join(" ").trim();
+        rec._fieldConfidence[targetField] = Math.min(confidence || 0, validated.confidenceCap ?? 100);
+        rec._cellBoxes[targetField] = box;
+      }
+      if (any) records.push(rec);
+      onRowProgress?.(r, totalRows);
+    }
+    return records.length > 0 ? records : null;
+  } finally {
+    worker.terminate();
+  }
 }
 
 function checkOcrEligibility(rec) {
@@ -857,31 +1222,82 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     try {
       const provider = getOcrProvider();
       const langCode = (OCR_LANGUAGES.find(l => l.key === language) || OCR_LANGUAGES[0]).tesseract;
+
+      // Real enhancement pass — downscale + brightness/contrast, all files first.
+      const enhanced = [];
+      for (let i = 0; i < files.length; i++) {
+        setProgressLabel(`Enhancing image ${i + 1} of ${files.length}...`);
+        setProgress(Math.round(((i + 1) / files.length) * 100));
+        try {
+          enhanced.push(await enhanceImageForOcr(files[i]));
+        } catch {
+          enhanced.push(files[i]); // if enhancement itself fails, fall back to the raw file
+        }
+      }
+
       setFlowIndex(2); // OCR
+      setProgress(0);
       const results = [];
       let skipped = 0;
       let lastFileError = "";
+      let usedLayoutPipelineCount = 0;
       for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+        const file = files[i]; // original, kept for the preview thumbnail
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
         try {
-          const { text, confidence, lines } = await provider.recognize(file, {
-            lang: langCode,
-            onProgress: (p) => setProgress(Math.round(((i + p) / files.length) * 100)),
-          });
-          const parsed = parseVoterIdText(text || "");
-          results.push({
-            _id: `ocr-${i}-${Date.now()}`,
-            _selected: true,
-            _photoUrl: URL.createObjectURL(file),
-            _confidence: confidence,
-            _isDuplicate: false,
-            _rawText: text || "",       // kept for Phase 3 row/column work and for storage
-            _ocrLines: lines || [],     // position data — unused by the UI yet, not lost either
-            name: parsed.name, voter_id: parsed.voter_id, aadhaar_number: parsed.aadhaar_number, phone: parsed.phone, age: parsed.age, gender: parsed.gender,
-            house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
-            mandal: "", district: "Tirupati", state: "Andhra Pradesh",
-            program: "waste", status: "New",
+          const photoUrl = URL.createObjectURL(file);
+
+          // 1) Layout-first: detect the table grid, header, and OCR cell-by-cell.
+          let rowsForThisImage = null;
+          try {
+            rowsForThisImage = await runLayoutAwarePipeline(enhanced[i], langCode, (done, total) => {
+              setProgressLabel(`Reading table — row ${done} of ${Math.max(total, 1)} (image ${i + 1} of ${files.length})...`);
+              setProgress(Math.round(((i + done / Math.max(total, 1)) / files.length) * 100));
+            });
+          } catch { rowsForThisImage = null; }
+
+          let pageConfidence = 0, pageRawText = "", pageLines = [];
+          if (rowsForThisImage) {
+            usedLayoutPipelineCount++;
+          } else {
+            // 2) Fall back to full-page OCR + OCR-position row/column detection.
+            const { text, confidence, lines } = await provider.recognize(enhanced[i], {
+              lang: langCode,
+              onProgress: (p) => setProgress(Math.round(((i + p) / files.length) * 100)),
+            });
+            pageConfidence = confidence; pageRawText = text || ""; pageLines = lines || [];
+            const columnMap = detectColumnsFromHeaderRow(lines);
+            if (columnMap) rowsForThisImage = extractRowsFromLines(lines, columnMap, confidence);
+            if (!rowsForThisImage || rowsForThisImage.length === 0) {
+              // 3) Fall back further to single-record parsing of the whole page.
+              const parsed = parseVoterIdText(pageRawText);
+              rowsForThisImage = [{ ...parsed, _fieldConfidence: {}, _rowRawText: pageRawText }];
+            }
+          }
+
+          rowsForThisImage.forEach((row, j) => {
+            const fieldConfVals = Object.values(row._fieldConfidence || {});
+            const rowConfidence = fieldConfVals.length
+              ? Math.round(fieldConfVals.reduce((a, b) => a + b, 0) / fieldConfVals.length)
+              : pageConfidence;
+            results.push({
+              _id: `ocr-${i}-${j}-${Date.now()}`,
+              _selected: true,
+              _photoUrl: photoUrl,
+              _confidence: rowConfidence,
+              _isDuplicate: false,
+              _rawText: pageRawText,           // full-page raw text, kept for reference/storage
+              _rowRawText: row._rowRawText || "", // just this row's words, if it came from Phase 3A
+              _fieldConfidence: row._fieldConfidence || {}, // per-field confidence, Step 6 requirement
+              _ocrLines: pageLines,
+              name: row.name || "", voter_id: row.voter_id || "", aadhaar_number: row.aadhaar_number || "",
+              phone: row.phone || "", age: row.age || "", gender: row.gender || "",
+              house_no: row.house_no || "", father_husband_name: row.father_husband_name || "",
+              village: row.village || "", mandal: row.mandal || "",
+              extra_notes: row.extra_notes || "", // occupation/caste/ration/unmapped cells — no dedicated field, shown + saved in notes
+              district: "Tirupati", state: "Andhra Pradesh",
+              program: "waste", status: "New",
+            });
           });
         } catch (fileErr) {
           skipped++; // one bad/corrupt image shouldn't abort the whole batch
@@ -899,6 +1315,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         return;
       }
       if (skipped > 0) showToast(`${skipped} image(s) couldn't be read and were skipped.`, "error");
+      if (usedLayoutPipelineCount > 0) showToast(`Table layout detected on ${usedLayoutPipelineCount} of ${files.length} page(s) — cell-by-cell OCR used there.`, "success");
       finishWithResults(results);
     } catch (e) {
       setOcrError((e.message || "OCR failed.") + " If you have the original PDF, try \"Upload PDF\" instead — it's far more reliable.");
@@ -952,6 +1369,14 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   const updateRecord = (id, key, val) => setRecords(rs => rs.map(r => r._id === id ? { ...r, [key]: val } : r));
   const toggleSelect = (id) => setRecords(rs => rs.map(r => r._id === id ? { ..._r(r), _selected: !r._selected } : r));
   const _r = (r) => r;
+  // Field label + its per-field OCR confidence (Phase 3, Step 6) — falls back
+  // to a plain label when a record has no column-level confidence (e.g. it
+  // came from the single-record voter-ID-card path, not a detected row).
+  const fieldLabel = (rec, key, text) => {
+    const c = rec._fieldConfidence?.[key];
+    if (c === undefined) return text;
+    return <>{text} <span style={{ color: c >= 95 ? "#16A34A" : c >= 70 ? "#F97316" : "#DC2626", fontWeight: 700 }}>{c}%</span></>;
+  };
 
   const doImport = async (which) => {
     if (which !== "all" && records.filter(r => r._selected).length === 0) {
@@ -992,7 +1417,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             program: rec.program, status: "Registered",
             registration_date: new Date().toISOString().slice(0, 10),
             field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
-            notes: [rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "", altIdNote].filter(Boolean).join(" · "),
+            notes: [rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "", rec.extra_notes ? `Register notes: ${rec.extra_notes}` : "", altIdNote].filter(Boolean).join(" · "),
             created_at: new Date().toISOString(),
           };
           const { error } = await supabase.from("beneficiaries_v2").insert(payload);
@@ -1131,7 +1556,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge label={rec._isDuplicate ? "Duplicate" : "New"} color={rec._isDuplicate ? "#DC2626" : "#16A34A"} tint={rec._isDuplicate ? "#FEF2F2" : "#DCFCE7"} />
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rec._confidence >= 70 ? "#DCFCE7" : rec._confidence >= 40 ? "#FFF7ED" : "#FEF2F2", color: rec._confidence >= 70 ? "#16A34A" : rec._confidence >= 40 ? "#F97316" : "#DC2626" }}>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rec._confidence >= 95 ? "#DCFCE7" : rec._confidence >= 70 ? "#FFF7ED" : "#FEF2F2", color: rec._confidence >= 95 ? "#16A34A" : rec._confidence >= 70 ? "#F97316" : "#DC2626" }}>
                       OCR Confidence: {rec._confidence}%
                     </span>
                     {rec._rawText && (
@@ -1148,20 +1573,24 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                <Field label="Name"><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
-                <Field label="Voter ID"><Input value={rec.voter_id} onChange={e => updateRecord(rec._id, "voter_id", e.target.value.toUpperCase())} /></Field>
-                <Field label="Aadhaar Number"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
-                <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
-                <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
-                <Field label="House No"><Input value={rec.house_no} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
-                <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
-                <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} placeholder="Mandal name" /></Field>
+                <Field label={fieldLabel(rec, "name", "Name")}><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "voter_id", "Voter ID")}><Input value={rec.voter_id} onChange={e => updateRecord(rec._id, "voter_id", e.target.value.toUpperCase())} /></Field>
+                <Field label={fieldLabel(rec, "aadhaar_number", "Aadhaar Number")}><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
+                <Field label={fieldLabel(rec, "age", "Age")}><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "gender", "Gender")}><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
+                <Field label={fieldLabel(rec, "house_no", "House No")}><Input value={rec.house_no} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "village", "Village")}><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "mandal", "Mandal")}><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} placeholder="Mandal name" /></Field>
                 <Field label="District"><Select value={rec.district} onChange={e => updateRecord(rec._id, "district", e.target.value)} options={DISTRICTS_AP} /></Field>
                 <Field label="State"><Input value={rec.state} disabled /></Field>
-                <Field label="Phone"><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
-                <Field label="Father/Husband Name"><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "phone", "Phone")}><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
+                <Field label={fieldLabel(rec, "father_husband_name", "Father/Husband Name")}><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "extra_notes", "Occupation / Caste / Ration No (from register)")}><Input value={rec.extra_notes || ""} onChange={e => updateRecord(rec._id, "extra_notes", e.target.value)} /></Field>
                 <Field label="Register Under Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} /></Field>
               </div>
+              {rec._rowRawText && (
+                <p className="text-[10px] text-[#9CA3AF] mt-2 pt-2 border-t border-[#F3F4F6]">Row text: {rec._rowRawText}</p>
+              )}
               <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-[#F3F4F6]">
                 <span className="text-[10px] text-[#9CA3AF]">Eligible:</span>
                 {eligiblePrograms.map(p => <span key={p} className="text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">{p}</span>)}
