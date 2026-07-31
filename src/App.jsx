@@ -640,20 +640,148 @@ async function extractElectoralRollRecords(file, onPageProgress) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Smart Document Import (AI OCR) — small reusable pieces for the upload stage
+// ---------------------------------------------------------------------------
+const OCR_DOC_TYPES = [
+  { key: "beneficiary_register", label: "Beneficiary Register", supported: true },
+  { key: "household_survey", label: "Household Survey", supported: false },
+  { key: "training_register", label: "Training Register", supported: false },
+  { key: "attendance_register", label: "Attendance Register", supported: false },
+  { key: "application_form", label: "Application Form", supported: false },
+  { key: "aadhaar", label: "Aadhaar", supported: false },
+  { key: "ration_card", label: "Ration Card", supported: false },
+  { key: "voter_id", label: "Voter ID", supported: true },
+  { key: "other", label: "Other", supported: false },
+];
+const OCR_LANGUAGES = [
+  { key: "te", label: "Telugu (Default)", tesseract: "tel" },
+  { key: "en", label: "English", tesseract: "eng" },
+  { key: "auto", label: "Auto Detect", tesseract: "eng+tel" },
+];
+const OCR_FLOW_STEPS = ["Upload", "Image Enhancement", "OCR", "AI Detection", "Verification", "Save"];
+
+function OcrUploadCard({ icon, title, desc, borderColor, textColor, onFiles, accept, capture }) {
+  const inputId = "ocr-upload-" + title.replace(/\s+/g, "-").toLowerCase();
+  return (
+    <label htmlFor={inputId} className="rounded-2xl border-2 border-dashed p-4 flex flex-col items-start gap-1.5 cursor-pointer bg-white" style={{ borderColor, minHeight: 116 }}>
+      <div className="text-[22px]">{icon}</div>
+      <p className="text-[12.5px] font-bold" style={{ color: textColor }}>{title}</p>
+      <p className="text-[10.5px] leading-snug text-[#6B7280]">{desc}</p>
+      <input id={inputId} type="file" accept={accept} capture={capture} multiple className="hidden"
+        onChange={e => { if (e.target.files?.length) onFiles(e.target.files); e.target.value = ""; }} />
+    </label>
+  );
+}
+
+function OcrFlowTracker({ activeIndex }) {
+  return (
+    <div className="flex items-center justify-between overflow-x-auto py-2" style={{ gap: 4 }}>
+      {OCR_FLOW_STEPS.map((step, i) => {
+        const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
+        const color = state === "pending" ? "#9CA3AF" : "#16A34A";
+        return (
+          <div key={step} className="flex items-center shrink-0" style={{ gap: 4 }}>
+            <div className="flex flex-col items-center" style={{ minWidth: 62 }}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold"
+                style={{
+                  background: state === "pending" ? "#F3F4F6" : state === "active" ? "#16A34A" : "#DCFCE7",
+                  color: state === "active" ? "#fff" : color,
+                  border: state === "active" ? "none" : `1.5px solid ${state === "done" ? "#16A34A" : "#E5E7EB"}`,
+                }}>
+                {state === "done" ? "✓" : i + 1}
+              </div>
+              <p className="text-[9px] text-center mt-1" style={{ color, fontWeight: state === "active" ? 700 : 500 }}>{step}</p>
+            </div>
+            {i < OCR_FLOW_STEPS.length - 1 && <div style={{ width: 14, height: 2, background: i < activeIndex ? "#16A34A" : "#E5E7EB", marginBottom: 14 }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OcrPreviewGrid({ pages, onZoom, onRotate, onDelete, onAddMore }) {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {pages.map(p => (
+        <div key={p._id} className="relative rounded-xl overflow-hidden border border-[#E5E7EB]" style={{ aspectRatio: "3/4" }}>
+          {p._previewUrl ? (
+            <img src={p._previewUrl} alt="" className="w-full h-full object-cover" style={{ transform: `rotate(${p._rotation || 0}deg)` }} onClick={() => onZoom(p)} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-[10px] text-center px-1 bg-[#EFF6FF] text-[#1E3A8A]">📄 {p.file?.name}</div>
+          )}
+          <div className="absolute top-1 right-1 flex gap-1">
+            <button onClick={() => onRotate(p._id)} className="w-6 h-6 rounded-full flex items-center justify-center text-[11px]" style={{ background: "rgba(255,255,255,0.9)" }}>⟳</button>
+            <button onClick={() => onDelete(p._id)} className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] text-[#DC2626]" style={{ background: "rgba(255,255,255,0.9)" }}>✕</button>
+          </div>
+        </div>
+      ))}
+      <label className="rounded-xl border-2 border-dashed border-[#16A34A] flex flex-col items-center justify-center cursor-pointer" style={{ aspectRatio: "3/4" }}>
+        <span className="text-[20px] text-[#16A34A]">＋</span>
+        <span className="text-[9.5px] font-semibold text-[#16A34A]">Add More</span>
+        <input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={e => { if (e.target.files?.length) onAddMore(e.target.files); e.target.value = ""; }} />
+      </label>
+    </div>
+  );
+}
+
 function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
   const [stage, setStage] = useState("upload"); // upload | processing | preview | summary
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState([]); // images queued for runOcr() — unchanged from before
+  const [pdfFile, setPdfFile] = useState(null); // single PDF queued for runPdfImport() — unchanged from before
+  const [pages, setPages] = useState([]); // unified preview grid: { _id, file, kind, _previewUrl, _rotation }
+  const [language, setLanguage] = useState("te"); // Telugu is the default per requirements
+  const [docType, setDocType] = useState("beneficiary_register");
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
+  const [flowIndex, setFlowIndex] = useState(0);
+  const [zoomPage, setZoomPage] = useState(null);
   const [records, setRecords] = useState([]); // { _selected, _photoUrl, _confidence, ...fields }
   const [summary, setSummary] = useState(null);
   const [ocrError, setOcrError] = useState("");
 
-  const handleFiles = (fileList) => {
-    const imgs = Array.from(fileList).filter(f => f.type.startsWith("image/"));
-    const skipped = fileList.length - imgs.length;
-    if (skipped > 0) showToast(`${skipped} file(s) skipped — PDF pages aren't OCR'd in this version, only images.`, "error");
-    setFiles(imgs);
+  const selectedDocType = OCR_DOC_TYPES.find(d => d.key === docType);
+
+  // Adds files to the unified preview grid, and also feeds the existing
+  // files/pdfFile state that runOcr()/runPdfImport() already expect —
+  // those two functions are otherwise untouched.
+  const addPages = (fileList) => {
+    const arr = Array.from(fileList).map((f, i) => ({
+      _id: `pg-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      file: f,
+      kind: f.type === "application/pdf" ? "pdf" : "image",
+      _previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
+      _rotation: 0,
+    }));
+    const skippedOther = arr.filter(p => p.kind !== "pdf" && !p.file.type.startsWith("image/"));
+    if (skippedOther.length) showToast(`${skippedOther.length} file(s) skipped — only images and PDFs are supported.`, "error");
+    const valid = arr.filter(p => p.kind === "pdf" || p.file.type.startsWith("image/"));
+    setPages(prev => [...prev, ...valid]);
+    const newImgs = valid.filter(p => p.kind === "image").map(p => p.file);
+    const newPdf = valid.find(p => p.kind === "pdf");
+    if (newImgs.length) setFiles(prev => [...prev, ...newImgs]);
+    if (newPdf) setPdfFile(newPdf.file); // only the most recent PDF is used, matching the single-PDF flow below
+  };
+  const rotatePage = (id) => setPages(prev => prev.map(p => p._id === id ? { ...p, _rotation: ((p._rotation || 0) + 90) % 360 } : p));
+  const deletePage = (id) => {
+    setPages(prev => {
+      const removed = prev.find(p => p._id === id);
+      if (removed?.kind === "image") setFiles(fs => fs.filter(f => f !== removed.file));
+      if (removed?.kind === "pdf") setPdfFile(null);
+      return prev.filter(p => p._id !== id);
+    });
+  };
+
+  const startAiOcr = () => {
+    if (pages.length === 0) { showToast("Upload at least one document first.", "error"); return; }
+    if (!selectedDocType.supported) {
+      showToast(`AI extraction for "${selectedDocType.label}" isn't wired up yet (Phase 2) — please use Beneficiary Register or Voter ID for now.`, "error");
+      return;
+    }
+    setFlowIndex(0);
+    if (pdfFile) runPdfImport(pdfFile);
+    else runOcr();
   };
 
   const runOcr = async () => {
@@ -661,15 +789,18 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     setOcrError("");
     setStage("processing");
     setProgress(0);
+    setFlowIndex(1); // Image Enhancement
     try {
       const Tesseract = await loadTesseract();
+      const langCode = (OCR_LANGUAGES.find(l => l.key === language) || OCR_LANGUAGES[0]).tesseract;
+      setFlowIndex(2); // OCR
       const results = [];
       let skipped = 0;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
         try {
-          const { data } = await Tesseract.recognize(file, "eng", {
+          const { data } = await Tesseract.recognize(file, langCode, {
             logger: m => {
               if (m.status === "recognizing text") {
                 const overall = ((i + m.progress) / files.length) * 100;
@@ -692,6 +823,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           skipped++; // one bad/corrupt image shouldn't abort the whole batch
         }
       }
+      setFlowIndex(3); // AI Detection
       if (results.length === 0) {
         setOcrError(`Couldn't read ${skipped} of ${files.length} image(s). Try a clearer photo, or use "Upload PDF" instead if you have the source PDF.`);
         setStage("upload");
@@ -710,11 +842,14 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     setStage("processing");
     setProgress(0);
     setProgressLabel(`Reading ${file.name}...`);
+    setFlowIndex(1); // Image Enhancement
     try {
+      setFlowIndex(2); // OCR
       const rows = await extractElectoralRollRecords(file, (page, total, isOcr) => {
         setProgress(Math.round((page / total) * 100));
         setProgressLabel(isOcr ? `Scanned PDF detected — running OCR on page ${Math.ceil(page)} of ${total}...` : `Reading page ${page} of ${total}...`);
       });
+      setFlowIndex(3); // AI Detection
       const results = rows.map((r, i) => ({
         _id: `pdf-${i}-${Date.now()}`,
         _selected: true,
@@ -734,6 +869,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
 
   const finishWithResults = (results) => {
     // Duplicate check against live beneficiaries (Voter ID = identity_number match)
+    setFlowIndex(4); // Verification
     const marked = results.map(r => {
       const dup = r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id);
       return { ...r, _isDuplicate: dup, status: dup ? "Duplicate" : "New" };
@@ -795,58 +931,72 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
 
   if (stage === "upload") {
     return (
-      <div className="max-w-[560px] mx-auto">
-        <h2 className="text-[17px] font-bold text-[#111827] mb-1">📇 Smart Beneficiary Import (OCR)</h2>
-        <p className="text-[12px] text-[#6B7280] mb-4">Upload Voter ID card photos to auto-fill registration details. Every record must be reviewed before saving.</p>
+      <div className="max-w-[560px] mx-auto pb-24">
+        <h2 className="text-[17px] font-bold text-[#111827] mb-1">📇 Smart Document Import (AI OCR)</h2>
+        <p className="text-[12px] text-[#6B7280] mb-4">Upload Beneficiary Registers, Household Surveys, Government Documents, PDFs or Images. AI extracts data and saves it after verification.</p>
         {ocrError && <div className="rounded-xl p-3 mb-3 text-[12px] text-[#DC2626]" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>⚠ {ocrError}</div>}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
-          <p className="text-[12px] font-bold text-[#111827] mb-1">📄 Have the actual Electoral Roll PDF?</p>
-          <p className="text-[10.5px] text-[#6B7280] mb-3">This reads the PDF's real text directly — far more accurate than photo scanning, and works for many voters at once.</p>
-          <label className="block rounded-xl border-2 border-dashed border-[#16A34A] py-4 text-center cursor-pointer" style={{ minHeight: 44 }}>
-            <span className="text-[12.5px] font-semibold text-[#16A34A]">Upload PDF</span>
-            <input type="file" accept="application/pdf" className="hidden" onChange={e => e.target.files[0] && runPdfImport(e.target.files[0])} />
-          </label>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <OcrUploadCard icon="📄" title="Upload PDF" desc="Electoral rolls & scanned registers — reads real text directly" borderColor="#16A34A" textColor="#16A34A" accept="application/pdf" onFiles={addPages} />
+          <OcrUploadCard icon="📷" title="Camera Capture" desc="Photograph a document now" borderColor="#16A34A" textColor="#16A34A" accept="image/*" capture="environment" onFiles={addPages} />
+          <OcrUploadCard icon="🖼" title="Upload Images" desc="Choose photos from gallery" borderColor="#1E3A8A" textColor="#1E3A8A" accept="image/*" onFiles={addPages} />
+          <OcrUploadCard icon="📚" title="Multi-page Register" desc="Add register pages one by one" borderColor="#F97316" textColor="#F97316" accept="image/*,application/pdf" onFiles={addPages} />
         </div>
 
-        <p className="text-[11px] font-semibold text-[#9CA3AF] mb-2 text-center">— OR scan individual ID card photos —</p>
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <label className="rounded-xl border-2 border-dashed border-[#16A34A] py-6 text-center cursor-pointer" style={{ minHeight: 44 }}>
-              <div className="text-[24px] mb-1">📷</div>
-              <span className="text-[12px] font-semibold text-[#16A34A]">Camera Capture</span>
-              <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-            </label>
-            <label className="rounded-xl border-2 border-dashed border-[#1E3A8A] py-6 text-center cursor-pointer" style={{ minHeight: 44 }}>
-              <div className="text-[24px] mb-1">🖼</div>
-              <span className="text-[12px] font-semibold text-[#1E3A8A]">Upload Image(s)</span>
-              <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
-            </label>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+          <p className="text-[12.5px] font-bold text-[#111827] mb-3">OCR Options</p>
+          <p className="text-[11px] font-semibold text-[#6B7280] mb-1.5">Language</p>
+          <div className="flex gap-2 mb-3 flex-wrap">
+            {OCR_LANGUAGES.map(l => (
+              <button key={l.key} onClick={() => setLanguage(l.key)} className="rounded-full px-3 py-1.5 text-[11px] font-semibold border"
+                style={{ borderColor: language === l.key ? "#16A34A" : "#E5E7EB", background: language === l.key ? "#DCFCE7" : "#fff", color: language === l.key ? "#16A34A" : "#6B7280" }}>
+                {l.label}
+              </button>
+            ))}
           </div>
-          <p className="text-[10.5px] text-[#9CA3AF] mb-3">Photo scanning uses OCR guessing and is less reliable — prefer the PDF option above when you have it.</p>
-          {files.length > 0 && (
-            <div className="mb-4">
-              <p className="text-[11.5px] font-semibold text-[#374151] mb-2">{files.length} image(s) selected</p>
-              <div className="flex gap-2 flex-wrap">
-                {files.map((f, i) => <img key={i} src={URL.createObjectURL(f)} alt="" className="w-14 h-14 rounded-lg object-cover border border-[#E5E7EB]" />)}
-              </div>
-            </div>
-          )}
-          <button onClick={runOcr} disabled={files.length === 0} className="w-full rounded-xl py-3 text-[13.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A", minHeight: 44 }}>
-            Run OCR on {files.length || 0} Image{files.length !== 1 ? "s" : ""}
+          <p className="text-[11px] font-semibold text-[#6B7280] mb-1.5">Document Type</p>
+          <div className="flex gap-2 flex-wrap">
+            {OCR_DOC_TYPES.map(d => (
+              <button key={d.key} onClick={() => setDocType(d.key)} className="rounded-full px-3 py-1.5 text-[11px] font-semibold border flex items-center gap-1"
+                style={{ borderColor: docType === d.key ? "#1E3A8A" : "#E5E7EB", background: docType === d.key ? "#EFF6FF" : "#fff", color: docType === d.key ? "#1E3A8A" : "#6B7280" }}>
+                {d.label}{!d.supported && <span style={{ color: "#F97316", fontSize: 9 }}>●</span>}
+              </button>
+            ))}
+          </div>
+          {!selectedDocType.supported && <p className="text-[10px] mt-2 text-[#F97316]">● AI extraction for this type is coming in Phase 2 — pages upload and preview normally.</p>}
+        </div>
+
+        {pages.length > 0 && (
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+            <p className="text-[12.5px] font-bold text-[#111827] mb-3">{pages.length} page{pages.length > 1 ? "s" : ""} uploaded</p>
+            <OcrPreviewGrid pages={pages} onZoom={setZoomPage} onRotate={rotatePage} onDelete={deletePage} onAddMore={addPages} />
+          </div>
+        )}
+
+        <div className="fixed bottom-0 left-0 right-0 p-3" style={{ background: "linear-gradient(to top, #fff 70%, transparent)" }}>
+          <button onClick={startAiOcr} disabled={pages.length === 0} className="w-full max-w-[560px] mx-auto block rounded-xl py-3.5 text-[14px] font-bold text-white disabled:opacity-40" style={{ background: "#16A34A", minHeight: 48 }}>
+            Start AI OCR
           </button>
         </div>
+
+        {zoomPage && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setZoomPage(null)}>
+            {zoomPage._previewUrl && <img src={zoomPage._previewUrl} alt="" className="max-w-full max-h-full rounded-lg" style={{ transform: `rotate(${zoomPage._rotation || 0}deg)` }} />}
+          </div>
+        )}
       </div>
     );
   }
 
   if (stage === "processing") {
     return (
-      <div className="max-w-[480px] mx-auto text-center py-12">
+      <div className="max-w-[480px] mx-auto text-center py-8">
         <RefreshCw size={28} className="mx-auto mb-4 animate-spin text-[#16A34A]" />
-        <p className="text-[13.5px] font-semibold text-[#111827] mb-1">{progressLabel}</p>
-        <div className="w-full h-2.5 rounded-full bg-[#F3F4F6] overflow-hidden mt-4">
+        <p className="text-[13.5px] font-semibold text-[#111827] mb-1">{progressLabel || OCR_FLOW_STEPS[flowIndex]}</p>
+        <div className="w-full h-2.5 rounded-full bg-[#F3F4F6] overflow-hidden mt-3 mb-4">
           <div className="h-full rounded-full transition-all duration-300" style={{ width: `${progress}%`, background: "#16A34A" }} />
         </div>
+        <OcrFlowTracker activeIndex={flowIndex} />
         <p className="text-[11px] text-[#9CA3AF] mt-2">{progress}% · this runs entirely in your browser, no data leaves the app</p>
       </div>
     );
@@ -868,12 +1018,12 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             {summary.errorSamples.map((msg, i) => <p key={i} className="text-[10.5px] text-[#991B1B] mb-1">• {msg}</p>)}
           </div>
         )}
-        <button onClick={() => { setStage("upload"); setFiles([]); setRecords([]); setSummary(null); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Import More</button>
+        <button onClick={() => { setStage("upload"); setFiles([]); setPdfFile(null); setPages([]); setRecords([]); setSummary(null); setFlowIndex(0); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Import More</button>
       </div>
     );
   }
 
-  // preview
+  // preview — unchanged review/verify/save table
   const selectedCount = records.filter(r => r._selected).length;
   return (
     <div>
