@@ -523,10 +523,20 @@ function getOcrProvider(key = OCR_ACTIVE_PROVIDER) {
 function parseVoterIdText(raw) {
   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
   const joined = raw.replace(/\n/g, " ");
-  const result = { name: "", voter_id: "", age: "", gender: "", house_no: "", father_husband_name: "", village: "" };
+  const result = { name: "", voter_id: "", aadhaar_number: "", phone: "", age: "", gender: "", house_no: "", father_husband_name: "", village: "" };
 
   const epicMatch = joined.match(/\b([A-Z]{3}\d{7})\b/);
   if (epicMatch) result.voter_id = epicMatch[1];
+
+  // Aadhaar: 12 digits, usually printed/written as 3 groups of 4 (spaces or
+  // hyphens optional). Require a digit-boundary on both sides so this
+  // doesn't grab a stray 12-digit chunk out of a longer number.
+  const aadhaarMatch = joined.match(/(?<!\d)(\d{4}[\s-]?\d{4}[\s-]?\d{4})(?!\d)/);
+  if (aadhaarMatch) result.aadhaar_number = aadhaarMatch[1].replace(/[\s-]/g, "");
+
+  // Indian mobile: 10 digits starting 6-9, optionally with +91 / 0 prefix.
+  const phoneMatch = joined.match(/(?:\+?91[\s-]?|0)?\b([6-9]\d{9})\b/);
+  if (phoneMatch) result.phone = phoneMatch[1];
 
   const ageMatch = joined.match(/Age\s*[:\-]?\s*(\d{1,3})/i);
   if (ageMatch) result.age = ageMatch[1];
@@ -792,6 +802,8 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   const [records, setRecords] = useState([]); // { _selected, _photoUrl, _confidence, ...fields }
   const [summary, setSummary] = useState(null);
   const [ocrError, setOcrError] = useState("");
+  const [expandedRawText, setExpandedRawText] = useState({}); // { [recId]: true } — debug view of what OCR actually read
+  const toggleRawText = (id) => setExpandedRawText(prev => ({ ...prev, [id]: !prev[id] }));
 
   const selectedDocType = OCR_DOC_TYPES.find(d => d.key === docType);
 
@@ -866,8 +878,9 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             _isDuplicate: false,
             _rawText: text || "",       // kept for Phase 3 row/column work and for storage
             _ocrLines: lines || [],     // position data — unused by the UI yet, not lost either
-            name: parsed.name, voter_id: parsed.voter_id, age: parsed.age, gender: parsed.gender,
+            name: parsed.name, voter_id: parsed.voter_id, aadhaar_number: parsed.aadhaar_number, phone: parsed.phone, age: parsed.age, gender: parsed.gender,
             house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
+            mandal: "", district: "Tirupati", state: "Andhra Pradesh",
             program: "waste", status: "New",
           });
         } catch (fileErr) {
@@ -912,8 +925,9 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         _photoUrl: null, // no photo available from a text PDF
         _confidence: r._fromOcr ? 60 : 100, // OCR-derived text is a guess, not direct extraction
         _isDuplicate: false,
-        name: r.name, voter_id: r.voter_id, age: r.age, gender: r.gender,
+        name: r.name, voter_id: r.voter_id, aadhaar_number: r.aadhaar_number || "", phone: r.phone || "", age: r.age, gender: r.gender,
         house_no: r.house_no, father_husband_name: r.father_husband_name, village: "",
+        mandal: "", district: "Tirupati", state: "Andhra Pradesh",
         program: "waste", status: "New",
       }));
       finishWithResults(results);
@@ -927,7 +941,8 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     // Duplicate check against live beneficiaries (Voter ID = identity_number match)
     setFlowIndex(4); // Verification
     const marked = results.map(r => {
-      const dup = r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id);
+      const dup = (r.aadhaar_number && beneficiaries.some(b => b.identity_number === r.aadhaar_number)) ||
+                  (r.voter_id && beneficiaries.some(b => b.identity_number === r.voter_id));
       return { ...r, _isDuplicate: dup, status: dup ? "Duplicate" : "New" };
     });
     setRecords(marked);
@@ -955,6 +970,14 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
       if (!rec.name?.trim()) { failed++; errorSamples.push(`(no name) — skipped, name is required`); continue; }
       try {
         const prefix = PROGRAM_MAP[rec.program]?.idPrefix || "BEN";
+        const hasAadhaar = !!rec.aadhaar_number;
+        const hasVoter = !!rec.voter_id;
+        const identityType = hasAadhaar ? "aadhaar" : hasVoter ? "voter" : null;
+        const identityNumber = hasAadhaar ? rec.aadhaar_number : (hasVoter ? rec.voter_id : null);
+        // schema only has one identity_type/identity_number pair — if a record has
+        // BOTH Aadhaar and Voter ID, Aadhaar wins as the primary identity and the
+        // Voter ID is kept in notes rather than silently dropped.
+        const altIdNote = hasAadhaar && hasVoter ? `Voter ID: ${rec.voter_id}` : "";
         let beneficiary_id, lastErr;
         for (let attempt = 0; attempt < 4; attempt++) {
           const { data: latest } = await supabase.from("beneficiaries_v2").select("beneficiary_id").like("beneficiary_id", `${prefix}-%`).order("beneficiary_id", { ascending: false }).limit(1);
@@ -963,11 +986,13 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           beneficiary_id = `${prefix}-${String(nextNum).padStart(4, "0")}`;
           const payload = {
             beneficiary_id, name: rec.name, age: rec.age || null, gender: rec.gender || null,
-            identity_type: "voter", identity_number: rec.voter_id || null, house_no: rec.house_no || null,
-            village: rec.village || null, program: rec.program, status: "Registered",
+            identity_type: identityType, identity_number: identityNumber, house_no: rec.house_no || null,
+            phone: rec.phone || null, village: rec.village || null, mandal: rec.mandal || null,
+            district: rec.district || "Tirupati", state: rec.state || "Andhra Pradesh",
+            program: rec.program, status: "Registered",
             registration_date: new Date().toISOString().slice(0, 10),
             field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
-            notes: rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "",
+            notes: [rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "", altIdNote].filter(Boolean).join(" · "),
             created_at: new Date().toISOString(),
           };
           const { error } = await supabase.from("beneficiaries_v2").insert(payload);
@@ -1109,16 +1134,31 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rec._confidence >= 70 ? "#DCFCE7" : rec._confidence >= 40 ? "#FFF7ED" : "#FEF2F2", color: rec._confidence >= 70 ? "#16A34A" : rec._confidence >= 40 ? "#F97316" : "#DC2626" }}>
                       OCR Confidence: {rec._confidence}%
                     </span>
+                    {rec._rawText && (
+                      <button onClick={() => toggleRawText(rec._id)} className="text-[10px] font-semibold text-[#1E3A8A] underline">
+                        {expandedRawText[rec._id] ? "Hide raw OCR text" : "View raw OCR text"}
+                      </button>
+                    )}
                   </div>
+                  {expandedRawText[rec._id] && (
+                    <pre className="text-[10.5px] whitespace-pre-wrap mt-2 p-2 rounded-lg" style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", color: "#374151", maxHeight: 180, overflowY: "auto" }}>
+                      {rec._rawText || "(empty — OCR returned no text)"}
+                    </pre>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <Field label="Name"><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
                 <Field label="Voter ID"><Input value={rec.voter_id} onChange={e => updateRecord(rec._id, "voter_id", e.target.value.toUpperCase())} /></Field>
+                <Field label="Aadhaar Number"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
                 <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
                 <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
                 <Field label="House No"><Input value={rec.house_no} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
                 <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
+                <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} placeholder="Mandal name" /></Field>
+                <Field label="District"><Select value={rec.district} onChange={e => updateRecord(rec._id, "district", e.target.value)} options={DISTRICTS_AP} /></Field>
+                <Field label="State"><Input value={rec.state} disabled /></Field>
+                <Field label="Phone"><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
                 <Field label="Father/Husband Name"><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
                 <Field label="Register Under Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} /></Field>
               </div>
