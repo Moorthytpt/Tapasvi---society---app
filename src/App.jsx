@@ -775,7 +775,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             village: rec.village || null, program: rec.program, status: "Registered",
             registration_date: new Date().toISOString().slice(0, 10),
             field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
-            notes: rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name} (imported via OCR)` : "Imported via OCR",
+            notes: rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "",
             created_at: new Date().toISOString(),
           };
           const { error } = await supabase.from("beneficiaries_v2").insert(payload);
