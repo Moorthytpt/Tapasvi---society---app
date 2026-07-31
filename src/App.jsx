@@ -465,6 +465,59 @@ function loadTesseract() {
   return _tesseractLoadPromise;
 }
 
+/* ============================================================
+   OCR PROVIDER ABSTRACTION
+   One normalized interface so the OCR engine can be swapped by
+   configuration — no UI or business logic depends on Tesseract
+   directly anywhere in the app; everything calls getOcrProvider().
+   Every provider's recognize() resolves to the same shape:
+     { text: string, confidence: number,
+       lines: [{ text, y, words: [{ text, x, confidence }] }] }
+   `lines`/`words` carry position data for future row/column
+   detection work — Tesseract already exposes this via
+   data.lines/data.words. A provider that can't supply positions
+   may return lines: [] and current callers (which only use
+   `text`/`confidence`) keep working unchanged.
+   ============================================================ */
+const OCR_PROVIDERS = {
+  tesseract: {
+    key: "tesseract",
+    label: "Tesseract.js (on-device, free)",
+    async recognize(imageOrCanvas, { lang = "eng", onProgress } = {}) {
+      const Tesseract = await loadTesseract();
+      const { data } = await Tesseract.recognize(imageOrCanvas, lang, {
+        logger: m => { if (m.status === "recognizing text" && onProgress) onProgress(m.progress); },
+      });
+      const lines = (data.lines || []).map(l => ({
+        text: l.text || "",
+        y: l.bbox?.y0 ?? 0,
+        words: (l.words || []).map(w => ({ text: w.text || "", x: w.bbox?.x0 ?? 0, confidence: Math.round(w.confidence || 0) })),
+      }));
+      return { text: data.text || "", confidence: Math.round(data.confidence || 0), lines };
+    },
+  },
+
+  // Not wired up yet — groundwork only. To activate: stand up a backend
+  // endpoint (e.g. POST /api/ocr/cloud-vision) that holds the Google Cloud
+  // Vision / Azure Document Intelligence key server-side (never in this
+  // client bundle), takes the image, and returns the same
+  // { text, confidence, lines } shape below — then flip
+  // OCR_ACTIVE_PROVIDER to "cloudVision".
+  cloudVision: {
+    key: "cloudVision",
+    label: "Cloud Vision (not configured)",
+    async recognize(_imageOrCanvas, _opts = {}) {
+      throw new Error('Cloud OCR provider isn\'t configured — no backend endpoint is set yet. Set OCR_ACTIVE_PROVIDER back to "tesseract", or wire up a backend first.');
+    },
+  },
+};
+
+// Change this one constant to switch the whole app's OCR engine.
+const OCR_ACTIVE_PROVIDER = "tesseract";
+function getOcrProvider(key = OCR_ACTIVE_PROVIDER) {
+  return OCR_PROVIDERS[key] || OCR_PROVIDERS.tesseract;
+}
+
 // Heuristic parser — OCR gives raw lines of text, not structured fields.
 // Looks for common Indian Voter ID (EPIC) card label patterns.
 function parseVoterIdText(raw) {
@@ -554,7 +607,6 @@ function parseElectoralRollFullText(fullText) {
 // strip separately so one voter's fields don't get mixed with the neighboring box.
 async function ocrScannedRollPdf(file, onPageProgress) {
   const pdfjsLib = await loadPdfJs();
-  const Tesseract = await loadTesseract();
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let fullText = "";
@@ -570,8 +622,8 @@ async function ocrScannedRollPdf(file, onPageProgress) {
       const colCanvas = document.createElement("canvas");
       colCanvas.width = colWidth; colCanvas.height = canvas.height;
       colCanvas.getContext("2d").drawImage(canvas, c * colWidth, 0, colWidth, canvas.height, 0, 0, colWidth, canvas.height);
-      const { data } = await Tesseract.recognize(colCanvas, "eng");
-      fullText += data.text + "\n";
+      const { text } = await getOcrProvider().recognize(colCanvas, { lang: "eng" });
+      fullText += text + "\n";
       if (onPageProgress) onPageProgress(p, pdf.numPages, c + 1, 3);
     }
   }
@@ -791,7 +843,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     setProgress(0);
     setFlowIndex(1); // Image Enhancement
     try {
-      const Tesseract = await loadTesseract();
+      const provider = getOcrProvider();
       const langCode = (OCR_LANGUAGES.find(l => l.key === language) || OCR_LANGUAGES[0]).tesseract;
       setFlowIndex(2); // OCR
       const results = [];
@@ -800,21 +852,19 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         const file = files[i];
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
         try {
-          const { data } = await Tesseract.recognize(file, langCode, {
-            logger: m => {
-              if (m.status === "recognizing text") {
-                const overall = ((i + m.progress) / files.length) * 100;
-                setProgress(Math.round(overall));
-              }
-            },
+          const { text, confidence, lines } = await provider.recognize(file, {
+            lang: langCode,
+            onProgress: (p) => setProgress(Math.round(((i + p) / files.length) * 100)),
           });
-          const parsed = parseVoterIdText(data.text || "");
+          const parsed = parseVoterIdText(text || "");
           results.push({
             _id: `ocr-${i}-${Date.now()}`,
             _selected: true,
             _photoUrl: URL.createObjectURL(file),
-            _confidence: Math.round(data.confidence || 0),
+            _confidence: confidence,
             _isDuplicate: false,
+            _rawText: text || "",       // kept for Phase 3 row/column work and for storage
+            _ocrLines: lines || [],     // position data — unused by the UI yet, not lost either
             name: parsed.name, voter_id: parsed.voter_id, age: parsed.age, gender: parsed.gender,
             house_no: parsed.house_no, father_husband_name: parsed.father_husband_name, village: "",
             program: "waste", status: "New",
