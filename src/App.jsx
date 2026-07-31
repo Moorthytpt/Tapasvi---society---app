@@ -523,6 +523,61 @@ function loadPdfJs() {
 // recognition involved — far more reliable than scanning photos). Segments the page text by
 // EPIC (Voter ID) number, then pulls Name / Father's-Husband's Name / House Number / Age /
 // Gender out of each segment using the label pattern seen on standard ECI rolls.
+// Shared parser: given raw "column text" (already in reading order), pull out voter records.
+function parseElectoralRollFullText(fullText) {
+  const epicPattern = /([A-Z]{2,4}\d{6,7})/g;
+  const parts = fullText.split(epicPattern);
+  const records = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const voterId = parts[i];
+    const block = parts[i + 1] || "";
+    const nameMatch = block.match(/Name\s*:?\s*(.+?)\s*(?:Fathers?\s*Name|Husbands?\s*Name|Mothers?\s*Name|House\s*Number|$)/i);
+    const relMatch = block.match(/(?:Fathers?|Husbands?|Mothers?)\s*Name\s*:?\s*(.+?)\s*(?:House\s*Number|$)/i);
+    const houseMatch = block.match(/House\s*Number\s*:?\s*(.+?)\s*(?:Age\s*:?|$)/i);
+    const ageMatch = block.match(/Age\s*:?\s*(\d{1,3})/i);
+    const genderMatch = block.match(/Gender\s*:?\s*(Male|Female|Other)/i);
+    if (!nameMatch && !ageMatch) continue; // segment didn't look like a real record — skip
+    records.push({
+      voter_id: voterId,
+      name: nameMatch ? nameMatch[1].trim() : "",
+      father_husband_name: relMatch ? relMatch[1].trim() : "",
+      house_no: houseMatch ? houseMatch[1].trim() : "",
+      age: ageMatch ? ageMatch[1] : "",
+      gender: genderMatch ? genderMatch[1] : "",
+    });
+  }
+  return records;
+}
+
+// OCR fallback for scanned/image-only PDFs (no text layer at all). Renders each page to a
+// canvas, splits it into 3 vertical strips matching the roll's column layout, and OCRs each
+// strip separately so one voter's fields don't get mixed with the neighboring box.
+async function ocrScannedRollPdf(file, onPageProgress) {
+  const pdfjsLib = await loadPdfJs();
+  const Tesseract = await loadTesseract();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let fullText = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+    const colWidth = Math.floor(canvas.width / 3);
+    for (let c = 0; c < 3; c++) {
+      const colCanvas = document.createElement("canvas");
+      colCanvas.width = colWidth; colCanvas.height = canvas.height;
+      colCanvas.getContext("2d").drawImage(canvas, c * colWidth, 0, colWidth, canvas.height, 0, 0, colWidth, canvas.height);
+      const { data } = await Tesseract.recognize(colCanvas, "eng");
+      fullText += data.text + "\n";
+      if (onPageProgress) onPageProgress(p, pdf.numPages, c + 1, 3);
+    }
+  }
+  return fullText;
+}
+
 async function extractElectoralRollRecords(file, onPageProgress) {
   const pdfjsLib = await loadPdfJs();
   const buf = await file.arrayBuffer();
@@ -562,34 +617,24 @@ async function extractElectoralRollRecords(file, onPageProgress) {
     if (onPageProgress) onPageProgress(p, pdf.numPages);
   }
 
-  const epicPattern = /([A-Z]{2,4}\d{6,7})/g;
-  const parts = fullText.split(epicPattern);
-  const records = [];
-  for (let i = 1; i < parts.length; i += 2) {
-    const voterId = parts[i];
-    const block = parts[i + 1] || "";
-    const nameMatch = block.match(/Name\s*:\s*(.+?)\s*(?:Fathers?\s*Name|Husbands?\s*Name|Mothers?\s*Name|House\s*Number|$)/i);
-    const relMatch = block.match(/(?:Fathers?|Husbands?|Mothers?)\s*Name\s*:\s*(.+?)\s*(?:House\s*Number|$)/i);
-    const houseMatch = block.match(/House\s*Number\s*:\s*(.+?)\s*(?:Age\s*:|$)/i);
-    const ageMatch = block.match(/Age\s*:\s*(\d{1,3})/i);
-    const genderMatch = block.match(/Gender\s*:\s*(Male|Female|Other)/i);
-    if (!nameMatch && !ageMatch) continue; // segment didn't look like a real record — skip
-    records.push({
-      voter_id: voterId,
-      name: nameMatch ? nameMatch[1].trim() : "",
-      father_husband_name: relMatch ? relMatch[1].trim() : "",
-      house_no: houseMatch ? houseMatch[1].trim() : "",
-      age: ageMatch ? ageMatch[1] : "",
-      gender: genderMatch ? genderMatch[1] : "",
+  let records = parseElectoralRollFullText(fullText);
+
+  if (records.length === 0 && rawItemCount === 0) {
+    // No text layer at all — fall back to rendering + OCR-ing each page.
+    const ocrText = await ocrScannedRollPdf(file, (page, total, col, totalCols) => {
+      if (onPageProgress) onPageProgress(page - 1 + col / totalCols, total, true);
     });
+    records = parseElectoralRollFullText(ocrText);
+    if (records.length === 0) {
+      throw new Error(`This is a scanned PDF — OCR ran but couldn't match the expected "Name / Age / Gender" pattern. Sample of what was read: "${ocrText.trim().slice(0, 300)}"`);
+    }
+    records.forEach(r => { r._fromOcr = true; }); // lower trust — surfaced as reduced confidence in the preview
+    return records;
   }
+
   if (records.length === 0) {
     const debugSnippet = fullText.trim().slice(0, 300);
-    const err = new Error(rawItemCount === 0
-      ? "This PDF has no extractable text at all — it's likely a scanned image PDF."
-      : `Found text (${fullText.length} characters) but couldn't match the expected "Name : ... Age : ... Gender : ..." pattern. Sample: "${debugSnippet}"`);
-    err._noPatternMatch = true;
-    throw err;
+    throw new Error(`Found text (${fullText.length} characters) but couldn't match the expected "Name : ... Age : ... Gender : ..." pattern. Sample: "${debugSnippet}"`);
   }
   return records;
 }
@@ -666,15 +711,15 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
     setProgress(0);
     setProgressLabel(`Reading ${file.name}...`);
     try {
-      const rows = await extractElectoralRollRecords(file, (page, total) => {
+      const rows = await extractElectoralRollRecords(file, (page, total, isOcr) => {
         setProgress(Math.round((page / total) * 100));
-        setProgressLabel(`Reading page ${page} of ${total}...`);
+        setProgressLabel(isOcr ? `Scanned PDF detected — running OCR on page ${Math.ceil(page)} of ${total}...` : `Reading page ${page} of ${total}...`);
       });
       const results = rows.map((r, i) => ({
         _id: `pdf-${i}-${Date.now()}`,
         _selected: true,
         _photoUrl: null, // no photo available from a text PDF
-        _confidence: 100, // direct text extraction, not a visual guess
+        _confidence: r._fromOcr ? 60 : 100, // OCR-derived text is a guess, not direct extraction
         _isDuplicate: false,
         name: r.name, voter_id: r.voter_id, age: r.age, gender: r.gender,
         house_no: r.house_no, father_husband_name: r.father_husband_name, village: "",
