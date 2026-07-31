@@ -747,16 +747,20 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   const _r = (r) => r;
 
   const doImport = async (which) => {
+    if (which !== "all" && records.filter(r => r._selected).length === 0) {
+      showToast("Select at least one record first, or use Import All.", "error");
+      return;
+    }
     const who = currentUser?.username || currentUser?.email || "unknown";
     let toImport = records.filter(r => r._selected);
     if (which === "skipDup") toImport = toImport.filter(r => !r._isDuplicate);
     if (which === "all") toImport = records;
 
     let imported = 0, duplicatesSkipped = 0, failed = 0;
-    const remaining = [...records];
+    const errorSamples = [];
     for (const rec of toImport) {
       if (rec._isDuplicate && which !== "all") { duplicatesSkipped++; continue; }
-      if (!rec.name?.trim()) { failed++; continue; }
+      if (!rec.name?.trim()) { failed++; errorSamples.push(`(no name) — skipped, name is required`); continue; }
       try {
         const prefix = PROGRAM_MAP[rec.program]?.idPrefix || "BEN";
         let beneficiary_id, lastErr;
@@ -779,12 +783,12 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           if (!error) break;
           if (!(error.message || "").includes("duplicate key")) break;
         }
-        if (lastErr) { failed++; continue; }
+        if (lastErr) { failed++; errorSamples.push(`${rec.name}: ${lastErr.message}`); continue; }
         imported++;
         await logAppAudit("CREATE", "Beneficiaries", `Imported via OCR: ${rec.name} (${beneficiary_id})`);
-      } catch (e) { failed++; }
+      } catch (e) { failed++; errorSamples.push(`${rec.name}: ${e.message || "unknown error"}`); }
     }
-    setSummary({ total: records.length, imported, duplicates: duplicatesSkipped, failed });
+    setSummary({ total: records.length, imported, duplicates: duplicatesSkipped, failed, errorSamples: errorSamples.slice(0, 5) });
     setStage("summary");
     if (imported > 0 && onImported) onImported();
   };
@@ -858,6 +862,12 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-3"><p className="text-[18px] font-bold" style={{ color: c }}>{v}</p><p className="text-[9.5px] text-[#6B7280]">{l}</p></div>
           ))}
         </div>
+        {summary.failed > 0 && summary.errorSamples?.length > 0 && (
+          <div className="text-left rounded-xl p-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+            <p className="text-[11.5px] font-bold text-[#DC2626] mb-1.5">Why some failed:</p>
+            {summary.errorSamples.map((msg, i) => <p key={i} className="text-[10.5px] text-[#991B1B] mb-1">• {msg}</p>)}
+          </div>
+        )}
         <button onClick={() => { setStage("upload"); setFiles([]); setRecords([]); setSummary(null); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Import More</button>
       </div>
     );
