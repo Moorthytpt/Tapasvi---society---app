@@ -524,20 +524,6 @@ async function enhanceImageForOcr(file, maxDim = 1800) {
   return canvas;
 }
 
-// Converts a File/Blob or an existing canvas into base64 (no data: prefix) —
-// used by the Cloud Vision provider, which sends JSON over HTTP rather than
-// a File object like Tesseract.js accepts directly.
-async function imageOrCanvasToBase64(imageOrCanvas) {
-  let canvas = imageOrCanvas;
-  if (!(imageOrCanvas instanceof HTMLCanvasElement)) {
-    const bitmap = await createImageBitmap(imageOrCanvas);
-    canvas = document.createElement("canvas");
-    canvas.width = bitmap.width; canvas.height = bitmap.height;
-    canvas.getContext("2d").drawImage(bitmap, 0, 0);
-  }
-  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-}
-
 const OCR_PROVIDERS = {
   tesseract: {
     key: "tesseract",
@@ -570,41 +556,17 @@ const OCR_PROVIDERS = {
     },
   },
 
-  // Calls a Vercel serverless function (api/ocr-cloud-vision.js) that holds
-  // the Google Cloud Vision API key server-side — never in this client
-  // bundle. See that file for the backend half of this.
-  cloudVision: {
-    key: "cloudVision",
-    label: "Google Cloud Vision (server-side)",
-    async recognize(imageOrCanvas, { lang = "eng" } = {}) {
-      const base64 = await imageOrCanvasToBase64(imageOrCanvas);
-      const languageHints = lang === "tel" ? ["te"] : lang === "eng" ? ["en"] : ["te", "en"];
-      const res = await fetch("/api/ocr-cloud-vision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64, languageHints }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Cloud OCR request failed (HTTP ${res.status})`);
-      }
-      const data = await res.json();
-      return { text: data.text || "", confidence: data.confidence || 0, lines: data.lines || [] };
-    },
-    // Deliberately NOT implemented: Cloud Vision is billed per call, and the
-    // layout-first pipeline makes dozens of calls per page (one per cell).
-    // Leaving this throwing makes runOcr() fall back to a single full-page
-    // recognize() call + the OCR-position row/column detector instead —
-    // one billed call per page, and Cloud Vision's word positions are
-    // accurate enough for that to work well on their own.
-    async createBatchWorker(_lang) {
-      throw new Error('Cloud Vision cell-by-cell OCR is intentionally disabled — one full-page call per image is used instead (see comment above this line).');
-    },
-  },
+  // TODO(PaddleOCR): add a "paddleocr" entry here — same shape as
+  // "tesseract" above: { key, label, async recognize(imageOrCanvas, {lang,
+  // onProgress}) => {text, confidence, lines}, async createBatchWorker(lang)
+  // => {recognize(cellCanvas), terminate()} }. Nothing else in the app
+  // needs to change — runOcr(), the layout pipeline, and the review UI all
+  // go through getOcrProvider() and don't know which engine is behind it.
+  // Then flip OCR_ACTIVE_PROVIDER below to "paddleocr".
 };
 
 // Change this one constant to switch the whole app's OCR engine.
-const OCR_ACTIVE_PROVIDER = "cloudVision";
+const OCR_ACTIVE_PROVIDER = "tesseract";
 function getOcrProvider(key = OCR_ACTIVE_PROVIDER) {
   return OCR_PROVIDERS[key] || OCR_PROVIDERS.tesseract;
 }
