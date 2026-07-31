@@ -678,7 +678,7 @@ const HEADER_KEYWORDS = [
   { field: "village", words: ["గ్రామ", "ఊరు", "village"] },
   { field: "mandal", words: ["మండల", "mandal"] },
   { field: "category", words: ["వర్గం", "కేటగిరి", "category"] },
-  { field: "extra_notes", words: ["వృత్తి", "కులం", "రేషన్", "కుటుంబ", "occupation", "caste", "ration"] },
+  { field: "extra_notes", words: ["వృత్తి", "కులం", "రేషన్", "కుటుంబ", "కుటుంబ సంఖ్య", "చదువు", "విద్య", "బ్యాంక్", "ఖాతా", "వ్యాఖ్య", "పుట్టిన తేదీ", "occupation", "caste", "ration", "family number", "education", "bank", "account", "remarks", "dob"] },
 ];
 
 function matchHeaderField(wordText) {
@@ -845,6 +845,51 @@ function detectTableGrid(canvas) {
   return { canvas: working, rows, cols, angle };
 }
 
+// --- RegisterTemplateManager -----------------------------------------------
+// TAPASVI's registers mostly share one layout, so instead of re-detecting a
+// table from scratch on every single page, remember the column layout (as
+// FRACTIONS of page width — resolution-independent) and header field-mapping
+// from the first page whose table was confidently detected, then reuse it to
+// guide detection on the rest of the batch. Session-only: this lives in a
+// React ref inside the OCR module, not the database, so it never touches
+// the schema and resets between imports.
+function buildTemplateFromGrid(grid, headerMap) {
+  const w = grid.canvas.width, h = grid.canvas.height;
+  return {
+    colFractions: grid.cols.map(x => x / w),
+    headerMap, // [{ colIndex, field, headerText }] — reused as-is, column order doesn't change page to page
+  };
+}
+
+// Snaps each template column fraction to the nearest real ink line found
+// near that expected position on THIS image (a small local search window),
+// rather than trusting the fraction blindly — this is the "adjust for small
+// shifts" requirement without needing a full perspective/homography solve,
+// which needs a real CV library to do reliably and isn't attempted here.
+function applyTemplateToImage(canvas, template) {
+  const { bin, width, height } = binarizeCanvas(canvas);
+  const colSums = new Float64Array(width);
+  for (let x = 0; x < width; x++) { let s = 0; for (let y = 0; y < height; y++) s += bin[y * width + x]; colSums[x] = s; }
+
+  const searchWindow = Math.max(6, Math.round(width * 0.02)); // +/- ~2% of page width
+  const cols = template.colFractions.map(f => {
+    const expected = Math.round(f * width);
+    let best = expected, bestScore = -1;
+    for (let x = Math.max(0, expected - searchWindow); x <= Math.min(width - 1, expected + searchWindow); x++) {
+      if (colSums[x] > bestScore) { bestScore = colSums[x]; best = x; }
+    }
+    return best;
+  });
+
+  const rowSums = new Float64Array(height);
+  for (let y = 0; y < height; y++) { let s = 0; for (let x = 0; x < width; x++) s += bin[y * width + x]; rowSums[y] = s; }
+  const rowPeaks = findPeaks(rowSums, width * 0.3, Math.max(10, height * 0.015));
+  const rows = [0, ...rowPeaks, height].filter((v, i, a) => i === 0 || v - a[i - 1] > 8);
+  if (rows.length < 3) return null; // still no usable rows even with the template's help
+
+  return { canvas, rows, cols };
+}
+
 // --- CellCropper ------------------------------------------------------------
 function cropCell(canvas, x0, y0, x1, y1, pad = 4) {
   const w = Math.max(1, x1 - x0 - pad * 2);
@@ -915,17 +960,25 @@ function validateField(field, rawText) {
 // FieldValidator on each cell. Returns an array of row records (one per
 // detected register row) or null if the layout wasn't confidently
 // detectable, so the caller can fall back to Phase 3A.
-async function runLayoutAwarePipeline(canvas, lang, onRowProgress) {
+async function runLayoutAwarePipeline(canvas, lang, onRowProgress, template, onTemplateReady) {
   const provider = getOcrProvider();
   if (!provider.createBatchWorker) return null; // active provider can't do cell-level OCR
 
-  const grid = detectTableGrid(canvas);
-  if (!grid) return null;
-
+  let grid = detectTableGrid(canvas);
   const worker = await provider.createBatchWorker(lang);
   try {
-    const headerMap = await detectHeaderRow(grid, worker);
-    if (!headerMap) return null;
+    let headerMap = grid ? await detectHeaderRow(grid, worker) : null;
+
+    if ((!grid || !headerMap) && template) {
+      // Fresh detection failed on this page — fall back to the layout
+      // learned from an earlier page in this batch, adjusted for this
+      // image's own ink lines (RegisterTemplateManager).
+      const templated = applyTemplateToImage(canvas, template);
+      if (templated) { grid = templated; headerMap = template.headerMap; }
+    }
+    if (!grid || !headerMap) return null;
+
+    if (onTemplateReady && !template) onTemplateReady(buildTemplateFromGrid(grid, headerMap));
 
     const totalRows = Math.max(0, grid.rows.length - 2);
     const records = [];
@@ -1275,6 +1328,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
       let skipped = 0;
       let lastFileError = "";
       let usedLayoutPipelineCount = 0;
+      let registerTemplate = null; // RegisterTemplateManager — learned from the first confidently-detected page in this batch
       for (let i = 0; i < files.length; i++) {
         const file = files[i]; // original, kept for the preview thumbnail
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
@@ -1282,12 +1336,19 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           const photoUrl = URL.createObjectURL(file);
 
           // 1) Layout-first: detect the table grid, header, and OCR cell-by-cell.
+          //    Falls back to the learned register template if fresh detection
+          //    fails on this page but a template already exists.
           let rowsForThisImage = null;
           try {
-            rowsForThisImage = await runLayoutAwarePipeline(enhanced[i], langCode, (done, total) => {
-              setProgressLabel(`Reading table — row ${done} of ${Math.max(total, 1)} (image ${i + 1} of ${files.length})...`);
-              setProgress(Math.round(((i + done / Math.max(total, 1)) / files.length) * 100));
-            });
+            rowsForThisImage = await runLayoutAwarePipeline(
+              enhanced[i], langCode,
+              (done, total) => {
+                setProgressLabel(`Reading table — row ${done} of ${Math.max(total, 1)} (image ${i + 1} of ${files.length})...`);
+                setProgress(Math.round(((i + done / Math.max(total, 1)) / files.length) * 100));
+              },
+              registerTemplate,
+              (learnedTemplate) => { registerTemplate = learnedTemplate; }
+            );
           } catch { rowsForThisImage = null; }
 
           let pageConfidence = 0, pageRawText = "", pageLines = [];
@@ -1410,7 +1471,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   const fieldLabel = (rec, key, text) => {
     const c = rec._fieldConfidence?.[key];
     if (c === undefined) return text;
-    return <>{text} <span style={{ color: c >= 95 ? "#16A34A" : c >= 70 ? "#F97316" : "#DC2626", fontWeight: 700 }}>{c}%</span></>;
+    return <>{text} <span style={{ color: c >= 95 ? "#16A34A" : c >= 70 ? "#F97316" : "#DC2626", fontWeight: 700 }}>{c >= 95 ? "🟢" : c >= 70 ? "🟡" : "🔴"} {c}%</span></>;
   };
 
   const doImport = async (which) => {
@@ -1592,7 +1653,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge label={rec._isDuplicate ? "Duplicate" : "New"} color={rec._isDuplicate ? "#DC2626" : "#16A34A"} tint={rec._isDuplicate ? "#FEF2F2" : "#DCFCE7"} />
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rec._confidence >= 95 ? "#DCFCE7" : rec._confidence >= 70 ? "#FFF7ED" : "#FEF2F2", color: rec._confidence >= 95 ? "#16A34A" : rec._confidence >= 70 ? "#F97316" : "#DC2626" }}>
-                      OCR Confidence: {rec._confidence}%
+                      {rec._confidence >= 95 ? "🟢 High confidence" : rec._confidence >= 70 ? "🟡 Needs review" : "🔴 Manual entry required"} · {rec._confidence}%
                     </span>
                     {rec._rawText && (
                       <button onClick={() => toggleRawText(rec._id)} className="text-[10px] font-semibold text-[#1E3A8A] underline">
