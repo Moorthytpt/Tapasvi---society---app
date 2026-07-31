@@ -524,6 +524,20 @@ async function enhanceImageForOcr(file, maxDim = 1800) {
   return canvas;
 }
 
+// Converts a File/Blob or an existing canvas into base64 (no data: prefix) —
+// used by the Cloud Vision provider, which sends JSON over HTTP rather than
+// a File object like Tesseract.js accepts directly.
+async function imageOrCanvasToBase64(imageOrCanvas) {
+  let canvas = imageOrCanvas;
+  if (!(imageOrCanvas instanceof HTMLCanvasElement)) {
+    const bitmap = await createImageBitmap(imageOrCanvas);
+    canvas = document.createElement("canvas");
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+  }
+  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+}
+
 const OCR_PROVIDERS = {
   tesseract: {
     key: "tesseract",
@@ -556,20 +570,35 @@ const OCR_PROVIDERS = {
     },
   },
 
-  // Not wired up yet — groundwork only. To activate: stand up a backend
-  // endpoint (e.g. POST /api/ocr/cloud-vision) that holds the Google Cloud
-  // Vision / Azure Document Intelligence key server-side (never in this
-  // client bundle), takes the image, and returns the same
-  // { text, confidence, lines } shape below — then flip
-  // OCR_ACTIVE_PROVIDER to "cloudVision".
+  // Calls a Vercel serverless function (api/ocr-cloud-vision.js) that holds
+  // the Google Cloud Vision API key server-side — never in this client
+  // bundle. See that file for the backend half of this.
   cloudVision: {
     key: "cloudVision",
-    label: "Cloud Vision (not configured)",
-    async recognize(_imageOrCanvas, _opts = {}) {
-      throw new Error('Cloud OCR provider isn\'t configured — no backend endpoint is set yet. Set OCR_ACTIVE_PROVIDER back to "tesseract", or wire up a backend first.');
+    label: "Google Cloud Vision (server-side)",
+    async recognize(imageOrCanvas, { lang = "eng" } = {}) {
+      const base64 = await imageOrCanvasToBase64(imageOrCanvas);
+      const languageHints = lang === "tel" ? ["te"] : lang === "eng" ? ["en"] : ["te", "en"];
+      const res = await fetch("/api/ocr-cloud-vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, languageHints }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Cloud OCR request failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      return { text: data.text || "", confidence: data.confidence || 0, lines: data.lines || [] };
     },
+    // Deliberately NOT implemented: Cloud Vision is billed per call, and the
+    // layout-first pipeline makes dozens of calls per page (one per cell).
+    // Leaving this throwing makes runOcr() fall back to a single full-page
+    // recognize() call + the OCR-position row/column detector instead —
+    // one billed call per page, and Cloud Vision's word positions are
+    // accurate enough for that to work well on their own.
     async createBatchWorker(_lang) {
-      throw new Error('Cloud OCR provider isn\'t configured — no backend endpoint is set yet.');
+      throw new Error('Cloud Vision cell-by-cell OCR is intentionally disabled — one full-page call per image is used instead (see comment above this line).');
     },
   },
 };
