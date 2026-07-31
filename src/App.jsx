@@ -648,6 +648,7 @@ const HEADER_KEYWORDS = [
   { field: "phone", words: ["మొబైల్", "ఫోన్", "సెల్", "phone", "mobile"] },
   { field: "village", words: ["గ్రామ", "ఊరు", "village"] },
   { field: "mandal", words: ["మండల", "mandal"] },
+  { field: "category", words: ["వర్గం", "కేటగిరి", "category"] },
   { field: "extra_notes", words: ["వృత్తి", "కులం", "రేషన్", "కుటుంబ", "occupation", "caste", "ration"] },
 ];
 
@@ -865,6 +866,10 @@ function validateField(field, rawText) {
     const num = text.replace(/\D/g, "");
     const n = parseInt(num, 10);
     return (num && n > 0 && n < 120) ? { value: num, valid: true } : { value: num || text, valid: false, confidenceCap: 35 };
+  }
+  if (field === "category") {
+    const norm = text.toUpperCase().replace(/[^A-Z]/g, "");
+    return CATEGORY_OPTIONS.includes(norm) ? { value: norm, valid: true } : { value: text, valid: false, confidenceCap: 35 };
   }
   if (field === "gender") {
     if (/^(f|female|స్త్రీ|ఆడ)/i.test(text)) return { value: "Female", valid: true };
@@ -1294,7 +1299,8 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
               phone: row.phone || "", age: row.age || "", gender: row.gender || "",
               house_no: row.house_no || "", father_husband_name: row.father_husband_name || "",
               village: row.village || "", mandal: row.mandal || "",
-              extra_notes: row.extra_notes || "", // occupation/caste/ration/unmapped cells — no dedicated field, shown + saved in notes
+              extra_notes: row.extra_notes || "", // occupation/caste name/ration — no dedicated field, shown + saved in notes
+              category: row.category || "", // BC/SC/ST/OC — only auto-filled when OCR read an exact known code
               district: "Tirupati", state: "Andhra Pradesh",
               program: "waste", status: "New",
             });
@@ -1344,7 +1350,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         _isDuplicate: false,
         name: r.name, voter_id: r.voter_id, aadhaar_number: r.aadhaar_number || "", phone: r.phone || "", age: r.age, gender: r.gender,
         house_no: r.house_no, father_husband_name: r.father_husband_name, village: "",
-        mandal: "", district: "Tirupati", state: "Andhra Pradesh",
+        mandal: "", district: "Tirupati", state: "Andhra Pradesh", category: "", extra_notes: "",
         program: "waste", status: "New",
       }));
       finishWithResults(results);
@@ -1413,7 +1419,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
             beneficiary_id, name: rec.name, age: rec.age || null, gender: rec.gender || null,
             identity_type: identityType, identity_number: identityNumber, house_no: rec.house_no || null,
             phone: rec.phone || null, village: rec.village || null, mandal: rec.mandal || null,
-            district: rec.district || "Tirupati", state: rec.state || "Andhra Pradesh",
+            district: rec.district || "Tirupati", state: rec.state || "Andhra Pradesh", category: rec.category || null,
             program: rec.program, status: "Registered",
             registration_date: new Date().toISOString().slice(0, 10),
             field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
@@ -1585,7 +1591,8 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
                 <Field label="State"><Input value={rec.state} disabled /></Field>
                 <Field label={fieldLabel(rec, "phone", "Phone")}><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
                 <Field label={fieldLabel(rec, "father_husband_name", "Father/Husband Name")}><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
-                <Field label={fieldLabel(rec, "extra_notes", "Occupation / Caste / Ration No (from register)")}><Input value={rec.extra_notes || ""} onChange={e => updateRecord(rec._id, "extra_notes", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "extra_notes", "Occupation / Caste name / Ration No (from register)")}><Input value={rec.extra_notes || ""} onChange={e => updateRecord(rec._id, "extra_notes", e.target.value)} /></Field>
+                <Field label={fieldLabel(rec, "category", "Category")} hint="Pick BC/SC/ST/OC using the caste name above — OCR only auto-fills this when it read an exact code."><Select value={rec.category || ""} onChange={e => updateRecord(rec._id, "category", e.target.value)} options={CATEGORY_OPTIONS} placeholder="Select" /></Field>
                 <Field label="Register Under Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} /></Field>
               </div>
               {rec._rowRawText && (
