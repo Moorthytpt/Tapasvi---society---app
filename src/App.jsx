@@ -848,6 +848,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
       setFlowIndex(2); // OCR
       const results = [];
       let skipped = 0;
+      let lastFileError = "";
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         setProgressLabel(`Reading ${i + 1} of ${files.length}: ${file.name}`);
@@ -871,11 +872,16 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           });
         } catch (fileErr) {
           skipped++; // one bad/corrupt image shouldn't abort the whole batch
+          lastFileError = fileErr?.message || String(fileErr);
         }
       }
       setFlowIndex(3); // AI Detection
       if (results.length === 0) {
-        setOcrError(`Couldn't read ${skipped} of ${files.length} image(s). Try a clearer photo, or use "Upload PDF" instead if you have the source PDF.`);
+        setOcrError(
+          `Couldn't read ${skipped} of ${files.length} image(s). ` +
+          (lastFileError ? `Reason: ${lastFileError}. ` : "") +
+          `Try a clearer photo, a faster connection, English/Auto Detect language, or use "Upload PDF" instead if you have the source PDF.`
+        );
         setStage("upload");
         return;
       }
