@@ -5,6 +5,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { scanDocument, checkOcrEligibility, tesseractOcr, enhanceImageForOcr, cropTableRows } from "./services/ocr";
+import { parseAIText, validateBatch } from "./services/bulkImport";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
@@ -1127,6 +1128,280 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
         <button onClick={() => doImport("skipDup")} className="rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#374151]" style={{ minHeight: 44 }}>Skip Duplicates</button>
         <button onClick={() => setStage("upload")} className="rounded-xl border border-[#E5E7EB] py-3 text-[13px] font-semibold text-[#DC2626]" style={{ minHeight: 44 }}>Cancel</button>
       </div>
+    </div>
+  );
+}
+
+
+/* ============================================================
+   BULK AI IMPORT — a separate module from Smart Import (OCR) above.
+   Two input paths feed the SAME preview/import workflow, matching the
+   "any future source -> same Preview page" architecture:
+     1) Paste AI-transcribed text (a field worker photographs a register,
+        asks ChatGPT/Gemini/Claude/etc. to transcribe it, pastes the
+        result here) -> parseAIText() -> canonical records.
+     2) Image upload -> currently reference-only (no automatic analysis
+        wired up here; see note in the empty-textarea toast below). A
+        future source (e.g. CSV/Excel, or a direct AI-provider API call)
+        would plug in the same way: parse -> canonical records -> same
+        preview state below.
+   Writes to beneficiaries_v2 directly, independent of BeneficiaryForm
+   and SmartBeneficiaryImportModule — neither of those is touched.
+   ============================================================ */
+function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
+  const [images, setImages] = useState([]); // { id, file, previewUrl } — reference only for now, see note above
+  const [pastedText, setPastedText] = useState("");
+  const [stage, setStage] = useState("input"); // input | preview | summary
+  const [records, setRecords] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [summary, setSummary] = useState(null);
+
+  const addImages = (fileList) => {
+    const arr = Array.from(fileList).filter(f => f.type.startsWith("image/")).map((f, i) => ({
+      id: `bulkimg-${Date.now()}-${i}`, file: f, previewUrl: URL.createObjectURL(f),
+    }));
+    setImages(prev => [...prev, ...arr]);
+  };
+  const removeImage = (id) => setImages(prev => prev.filter(p => p.id !== id));
+
+  const normalizeProgram = (raw) => {
+    const t = (raw || "").trim().toLowerCase();
+    const match = PROGRAMS.find(p => p.key === t || p.label.toLowerCase() === t || p.short?.toLowerCase() === t);
+    return match ? match.key : "";
+  };
+
+  const revalidate = (recs) => {
+    const warningsMap = validateBatch(recs, beneficiaries);
+    return recs.map((r, i) => ({ ...r, _warnings: warningsMap[i] || [] }));
+  };
+
+  const analyze = () => {
+    if (!pastedText.trim()) {
+      if (images.length > 0) {
+        showToast('Automatic image analysis isn\'t connected yet. Photograph the register, ask your AI app (ChatGPT/Gemini/Claude/etc.) to transcribe it using the format shown below, then paste the result into the text box.', "error");
+      } else {
+        showToast("Paste AI-transcribed text first, or upload reference images.", "error");
+      }
+      return;
+    }
+    const parsed = parseAIText(pastedText);
+    if (parsed.length === 0) {
+      showToast("Couldn't find any \"Name: ...\" records in the pasted text — check the format matches the example.", "error");
+      return;
+    }
+    const withMeta = parsed.map((r, i) => ({
+      ...r,
+      program: normalizeProgram(r.program),
+      _id: `bulk-${Date.now()}-${i}`,
+      _selected: true,
+    }));
+    setRecords(revalidate(withMeta));
+    setStage("preview");
+  };
+
+  const updateRecord = (id, key, val) => setRecords(rs => revalidate(rs.map(r => r._id === id ? { ...r, [key]: val } : r)));
+  const deleteRecord = (id) => setRecords(rs => revalidate(rs.filter(r => r._id !== id))); // deleting one never touches the others
+  const toggleSelect = (id) => setRecords(rs => rs.map(r => r._id === id ? { ...r, _selected: !r._selected } : r));
+  const toggleSelectAll = () => setRecords(rs => { const allSelected = rs.every(r => r._selected); return rs.map(r => ({ ...r, _selected: !allSelected })); });
+
+  const doImport = async () => {
+    const toImport = records.filter(r => r._selected);
+    if (toImport.length === 0) { showToast("Select at least one record first.", "error"); return; }
+    let imported = 0, failed = 0;
+    const errorSamples = [];
+    for (const rec of toImport) {
+      if (!rec.name?.trim()) { failed++; errorSamples.push("(no name) — skipped, name is required"); continue; }
+      try {
+        const prefix = PROGRAM_MAP[rec.program]?.idPrefix || "BEN";
+        let beneficiary_id, lastErr;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const { data: latest } = await supabase.from("beneficiaries_v2").select("beneficiary_id").like("beneficiary_id", `${prefix}-%`).order("beneficiary_id", { ascending: false }).limit(1);
+          const lastNum = latest?.[0]?.beneficiary_id?.match(/(\d+)$/);
+          const nextNum = (lastNum ? parseInt(lastNum[1], 10) : 0) + 1 + attempt;
+          beneficiary_id = `${prefix}-${String(nextNum).padStart(4, "0")}`;
+          const payload = {
+            beneficiary_id, name: rec.name, age: rec.age || null, gender: rec.gender || null,
+            identity_type: rec.aadhaar_number ? "aadhaar" : (rec.voter_id ? "voter" : null),
+            identity_number: rec.aadhaar_number || rec.voter_id || null,
+            house_no: rec.house_no || null, phone: rec.phone || null,
+            village: rec.village || null, mandal: rec.mandal || null,
+            district: rec.district || "Tirupati", state: rec.state || "Andhra Pradesh",
+            category: rec.category || null, program: rec.program || null, status: "Registered",
+            registration_date: new Date().toISOString().slice(0, 10),
+            field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
+            notes: [rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "", rec._dobRaw ? `DOB: ${rec._dobRaw}` : "", rec.extra_notes ? `Notes: ${rec.extra_notes}` : ""].filter(Boolean).join(" · "),
+            created_at: new Date().toISOString(),
+          };
+          const { error } = await supabase.from("beneficiaries_v2").insert(payload);
+          lastErr = error;
+          if (!error) break;
+          if (!(error.message || "").includes("duplicate key")) break;
+        }
+        if (lastErr) { failed++; errorSamples.push(`${rec.name}: ${lastErr.message}`); continue; }
+        imported++;
+        await logAppAudit("CREATE", "Beneficiaries", `Imported via Bulk AI Import: ${rec.name} (${beneficiary_id})`);
+      } catch (e) { failed++; errorSamples.push(`${rec.name}: ${e.message || "unknown error"}`); }
+    }
+    setSummary({ total: toImport.length, imported, failed, errorSamples: errorSamples.slice(0, 5) });
+    setStage("summary");
+    if (imported > 0 && onImported) onImported();
+  };
+
+  const resetAll = () => { setStage("input"); setImages([]); setPastedText(""); setRecords([]); setSummary(null); setEditingId(null); };
+
+  if (stage === "summary" && summary) {
+    return (
+      <div className="max-w-[480px] mx-auto text-center py-8">
+        {summary.imported > 0 ? <CheckCircle size={36} className="mx-auto mb-3 text-[#16A34A]" /> : <XCircle size={36} className="mx-auto mb-3 text-[#DC2626]" />}
+        <p className="text-[15px] font-bold text-[#111827] mb-4">{summary.imported > 0 ? "Import Complete" : "Nothing Was Imported"}</p>
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          {[["Selected", summary.total, "#1E3A8A"], ["Imported", summary.imported, "#16A34A"], ["Failed", summary.failed, "#DC2626"]].map(([l, v, c]) => (
+            <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-3"><p className="text-[18px] font-bold" style={{ color: c }}>{v}</p><p className="text-[9.5px] text-[#6B7280]">{l}</p></div>
+          ))}
+        </div>
+        {summary.errorSamples?.length > 0 && (
+          <div className="text-left rounded-xl p-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
+            <p className="text-[11.5px] font-bold text-[#DC2626] mb-1.5">Why some failed:</p>
+            {summary.errorSamples.map((msg, i) => <p key={i} className="text-[10.5px] text-[#991B1B] mb-1">• {msg}</p>)}
+          </div>
+        )}
+        <button onClick={resetAll} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#7C3AED" }}>Import More</button>
+      </div>
+    );
+  }
+
+  if (stage === "preview") {
+    const selectedCount = records.filter(r => r._selected).length;
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="text-[17px] font-bold text-[#111827]">{records.length} Beneficiaries Found</h2>
+            <p className="text-[12px] text-[#6B7280]">{selectedCount} selected · edit or delete any record before importing</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={toggleSelectAll} className="text-[12px] font-semibold text-[#7C3AED]">{records.every(r => r._selected) ? "Deselect All" : "Select All"}</button>
+            <button onClick={() => setStage("input")} className="text-[12px] font-semibold text-[#DC2626]">Cancel</button>
+          </div>
+        </div>
+
+        <div className="space-y-3 mb-4">
+          {records.map(rec => {
+            const isEditing = editingId === rec._id;
+            return (
+              <div key={rec._id} className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+                <div className="flex items-start gap-3 mb-3">
+                  <input type="checkbox" checked={rec._selected} onChange={() => toggleSelect(rec._id)} className="mt-1.5" style={{ width: 18, height: 18 }} />
+                  <div className="w-14 h-14 rounded-lg border border-[#E5E7EB] shrink-0 flex items-center justify-center bg-[#F3F4F6]"><User size={20} className="text-[#9CA3AF]" /></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-bold text-[#111827] truncate">{rec.name || <span className="text-[#DC2626]">(no name)</span>}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      <Badge label="Text Import" color="#7C3AED" tint="#F5F3FF" />
+                      {rec._warnings.length === 0
+                        ? <Badge label="Looks good" color="#16A34A" tint="#DCFCE7" />
+                        : rec._warnings.map((w, i) => <span key={i} className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FEF2F2", color: "#DC2626" }}>⚠ {w}</span>)}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button onClick={() => setEditingId(isEditing ? null : rec._id)} className="text-[11px] font-semibold text-[#1E3A8A]">{isEditing ? "Done" : "Edit"}</button>
+                    <button onClick={() => deleteRecord(rec._id)} className="text-[11px] font-semibold text-[#DC2626]">Delete</button>
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2 pt-2 border-t border-[#F3F4F6]">
+                    <Field label="Name"><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
+                    <Field label="Father/Husband"><Input value={rec.father_husband_name} onChange={e => updateRecord(rec._id, "father_husband_name", e.target.value)} /></Field>
+                    <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
+                    <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
+                    <Field label="Mobile"><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
+                    <Field label="Aadhaar"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
+                    <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
+                    <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} /></Field>
+                    <Field label="District"><Select value={rec.district} onChange={e => updateRecord(rec._id, "district", e.target.value)} options={DISTRICTS_AP} /></Field>
+                    <Field label="Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} placeholder="Select" /></Field>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-2 border-t border-[#F3F4F6] text-[11.5px]">
+                    <InfoRow label="Father/Husband" value={rec.father_husband_name || "—"} />
+                    <InfoRow label="Gender" value={rec.gender || "—"} />
+                    <InfoRow label="Age" value={rec.age || "—"} />
+                    <InfoRow label="Mobile" value={rec.phone || "—"} />
+                    <InfoRow label="Aadhaar" value={rec.aadhaar_number || "—"} />
+                    <InfoRow label="Village" value={rec.village || "—"} />
+                    <InfoRow label="Mandal" value={rec.mandal || "—"} />
+                    <InfoRow label="District" value={rec.district || "—"} />
+                    <InfoRow label="Program" value={PROGRAM_MAP[rec.program]?.label || rec.program || "—"} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="sticky bottom-0 bg-[#F8FAFC] pt-2 pb-1">
+          <button onClick={doImport} disabled={selectedCount === 0} className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white disabled:opacity-40" style={{ background: "#7C3AED", minHeight: 48 }}>
+            Import Selected ({selectedCount})
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // stage === "input"
+  return (
+    <div className="max-w-[560px] mx-auto pb-6">
+      <h2 className="text-[17px] font-bold text-[#111827] mb-1">🤖 Bulk AI Import</h2>
+      <p className="text-[12px] text-[#6B7280] mb-4">Photograph a beneficiary register, ask an AI app (ChatGPT, Gemini, Claude, etc.) to transcribe it, then paste the result below. This is independent from Smart Import (OCR) — nothing here touches that module.</p>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+        <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 1 — Image Upload (reference only)</p>
+        <p className="text-[10.5px] text-[#6B7280] mb-3">Keep the register photo handy while you paste the AI's text below. Automatic image analysis isn't wired up in this module yet — that's what Section 2 is for.</p>
+        <label className="rounded-xl border-2 border-dashed border-[#7C3AED] px-4 py-3 inline-flex items-center gap-2 cursor-pointer">
+          <span className="text-[12.5px] font-bold text-[#7C3AED]">＋ Upload Images</span>
+          <input type="file" accept="image/*" multiple className="hidden" onChange={e => { if (e.target.files?.length) addImages(e.target.files); e.target.value = ""; }} />
+        </label>
+        {images.length > 0 && (
+          <div className="grid grid-cols-4 gap-2 mt-3">
+            {images.map(img => (
+              <div key={img.id} className="relative rounded-lg overflow-hidden border border-[#E5E7EB]" style={{ aspectRatio: "3/4" }}>
+                <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
+                <button onClick={() => removeImage(img.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-[#DC2626]" style={{ background: "rgba(255,255,255,0.9)" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="text-center text-[11px] font-bold text-[#9CA3AF] my-2">— OR —</div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+        <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 2 — Paste AI Output</p>
+        <p className="text-[10.5px] text-[#6B7280] mb-2">Example format (multiple beneficiaries can be pasted together):</p>
+        <pre className="text-[10px] text-[#374151] p-2 rounded-lg mb-3 whitespace-pre-wrap" style={{ background: "#F8FAFC", border: "1px solid #E5E7EB" }}>
+{`Name: Venkatesh
+Father/Husband: Kumar
+Gender: Male
+DOB: 11/07/1996
+Aadhaar: 123456789012
+Mobile: 9876543210
+Village: Example
+Mandal: Example
+District: Example
+Program: RYDEAP`}
+        </pre>
+        <textarea
+          value={pastedText}
+          onChange={e => setPastedText(e.target.value)}
+          placeholder="Paste the AI's transcribed text here..."
+          rows={10}
+          className="w-full rounded-xl border border-[#E5E7EB] p-3 text-[12.5px]"
+        />
+      </div>
+
+      <button onClick={analyze} className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white" style={{ background: "#7C3AED", minHeight: 48 }}>
+        Analyze AI Data
+      </button>
     </div>
   );
 }
@@ -12584,6 +12859,7 @@ export default function App() {
         { key: "dashboard", label: "Dashboard", emoji: "🏠", icon: LayoutDashboard, onClick: () => goTo("dashboard"), active: view === "dashboard" },
         { key: "beneficiaries", label: "Beneficiaries", emoji: "👥", icon: Users, onClick: () => goTo("beneficiaries"), active: view === "beneficiaries" },
         { key: "ocr-import", label: "Smart Import (OCR)", emoji: "📇", icon: ClipboardList, onClick: () => goTo("ocr-import"), active: view === "ocr-import" },
+        { key: "bulk-ai-import", label: "Bulk AI Import", emoji: "🤖", icon: FileSpreadsheet, onClick: () => goTo("bulk-ai-import"), active: view === "bulk-ai-import" },
         { key: "training", label: "Training", emoji: "🎓", icon: BookOpen, onClick: () => goTo("training"), active: view === "training" && !trainingSubView },
       ],
     },
@@ -12855,6 +13131,9 @@ export default function App() {
           )}
           {!subView && view === "ocr-import" && (
             <SmartBeneficiaryImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
+          )}
+          {!subView && view === "bulk-ai-import" && (
+            <BulkAIImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
           )}
           {!subView && !trainingSubView && view === "training" && (
             <TrainingList
