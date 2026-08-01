@@ -968,10 +968,15 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   }
 
   if (stage === "summary" && summary) {
+    const nothingImported = summary.imported === 0 && summary.total > 0;
     return (
       <div className="max-w-[480px] mx-auto text-center py-8">
-        <CheckCircle size={36} className="mx-auto mb-3 text-[#16A34A]" />
-        <p className="text-[15px] font-bold text-[#111827] mb-4">Import Complete</p>
+        {nothingImported ? (
+          <XCircle size={36} className="mx-auto mb-3 text-[#DC2626]" />
+        ) : (
+          <CheckCircle size={36} className="mx-auto mb-3 text-[#16A34A]" />
+        )}
+        <p className="text-[15px] font-bold text-[#111827] mb-4">{nothingImported ? "Nothing Was Imported" : "Import Complete"}</p>
         <div className="grid grid-cols-4 gap-2 mb-6">
           {[["Total", summary.total, "#1E3A8A"], ["Imported", summary.imported, "#16A34A"], ["Duplicates", summary.duplicates, "#F97316"], ["Failed", summary.failed, "#DC2626"]].map(([l, v, c]) => (
             <div key={l} className="bg-white rounded-xl border border-[#E5E7EB] p-3"><p className="text-[18px] font-bold" style={{ color: c }}>{v}</p><p className="text-[9.5px] text-[#6B7280]">{l}</p></div>
@@ -981,9 +986,12 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           <div className="text-left rounded-xl p-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
             <p className="text-[11.5px] font-bold text-[#DC2626] mb-1.5">Why some failed:</p>
             {summary.errorSamples.map((msg, i) => <p key={i} className="text-[10.5px] text-[#991B1B] mb-1">• {msg}</p>)}
+            {nothingImported && <p className="text-[10.5px] text-[#991B1B] mt-2">Go back and fill in the Name field for each record before importing — it's required and can't be left blank.</p>}
           </div>
         )}
-        <button onClick={() => { setStage("upload"); setFiles([]); setPdfFile(null); setPages([]); setRecords([]); setSummary(null); setFlowIndex(0); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#16A34A" }}>Import More</button>
+        <button onClick={() => { if (nothingImported) { setStage("preview"); setSummary(null); return; } setStage("upload"); setFiles([]); setPdfFile(null); setPages([]); setRecords([]); setSummary(null); setFlowIndex(0); }} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: nothingImported ? "#1E3A8A" : "#16A34A" }}>
+          {nothingImported ? "Go Back & Fix Names" : "Import More"}
+        </button>
       </div>
     );
   }
