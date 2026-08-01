@@ -1,4 +1,3 @@
-
 /**
  * src/services/imageOptimizer/index.js
  * -----------------------------------------------------------------------
@@ -32,13 +31,31 @@ import { analyzeImageQuality } from './qualityChecker';
  */
 function readExifOrientation(file) {
   return new Promise((resolve) => {
+    let settled = false;
+    const safeResolve = (v) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    // Absolute safety net: never let orientation detection block the
+    // pipeline for more than a second, no matter what goes wrong.
+    setTimeout(() => safeResolve(1), 1000);
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const view = new DataView(e.target.result);
       if (view.getUint16(0, false) !== 0xffd8) return resolve(1); // not a JPEG
       const length = view.byteLength;
       let offset = 2;
+      let iterations = 0;
       while (offset < length - 1) {
+        // Fail-safe: this loop should always terminate quickly (JPEG
+        // headers have only a handful of segments), but if the byte
+        // layout is ever unexpected, bail out instead of risking an
+        // infinite loop that would freeze the whole page.
+        iterations += 1;
+        if (iterations > 500) return resolve(1);
+
         const marker = view.getUint16(offset, false);
         offset += 2;
         if (marker === 0xffe1) {
@@ -48,8 +65,9 @@ function readExifOrientation(file) {
           const tiffOffset = offset + 6;
           const firstIfdOffset = view.getUint32(tiffOffset + 4, little);
           const dirStart = tiffOffset + firstIfdOffset;
+          if (dirStart < 0 || dirStart + 2 > length) return resolve(1);
           const entries = view.getUint16(dirStart, little);
-          for (let i = 0; i < entries; i++) {
+          for (let i = 0; i < entries && dirStart + 2 + i * 12 + 10 <= length; i++) {
             const entryOffset = dirStart + 2 + i * 12;
             if (view.getUint16(entryOffset, little) === 0x0112) {
               return resolve(view.getUint16(entryOffset + 8, little));
@@ -59,7 +77,11 @@ function readExifOrientation(file) {
         } else if ((marker & 0xff00) !== 0xff00) {
           break;
         } else {
-          offset += view.getUint16(offset, false);
+          const segmentLength = view.getUint16(offset, false);
+          // A zero (or too-small) length would leave offset unchanged
+          // forever — treat that as "can't parse this" and stop.
+          if (segmentLength < 2) return resolve(1);
+          offset += segmentLength;
         }
       }
       resolve(1);
