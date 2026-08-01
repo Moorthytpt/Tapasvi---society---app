@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { providerManager, AI_ERROR_TYPES } from '../../services/ai/providerManager';
+import ProviderConfig from './ProviderConfig';
 
 /**
  * AIReview
@@ -8,13 +10,14 @@ import React, { useState, useMemo } from 'react';
  *
  * Navigation: Camera -> Optimizer -> AI Review -> Preview Records (future)
  *
- * This screen ONLY prepares the architecture for AI analysis — it does
- * NOT call ChatGPT, Claude, Gemini, or any other AI provider. Both
- * "Analyze with AI" (per card) and "Analyze Selected Images" (bottom
- * action) just show a placeholder message. Wiring in a real provider is
- * a future phase and should only require changing what those two
- * handlers do — nothing about this screen's layout should need to
- * change when that happens.
+ * This screen's layout (summary, cards, Back) is unchanged from the
+ * previous phase. What changed: "Analyze with AI" / "Analyze Selected
+ * Images" now go through providerManager instead of a static message.
+ * Since every provider is currently unconfigured, every analysis
+ * attempt resolves to a standardized "No AI provider connected." error
+ * — never fake/mock records, and Preview Records is never opened
+ * automatically (it will only ever open once a real provider call
+ * actually succeeds, in a future phase).
  *
  * Standalone component: does not touch Paste AI Text, OCR, Beneficiary
  * Management, or the database. Parent (BulkAIImportModule) only needs
@@ -27,6 +30,14 @@ import React, { useState, useMemo } from 'react';
  * ImageCaptureOptimizer's onContinue: { id, canvas, dataUrl, quality }
  * -----------------------------------------------------------------------
  */
+
+const ERROR_MESSAGES = {
+  [AI_ERROR_TYPES.PROVIDER_UNAVAILABLE]: 'No AI provider connected.',
+  [AI_ERROR_TYPES.CONNECTION_FAILED]: 'Could not connect to the AI provider.',
+  [AI_ERROR_TYPES.TIMEOUT]: 'The AI provider took too long to respond.',
+  [AI_ERROR_TYPES.INVALID_RESPONSE]: 'The AI provider returned an unexpected response.',
+  [AI_ERROR_TYPES.CANCELLED]: 'Analysis was cancelled.',
+};
 
 function StarRating({ stars }) {
   return (
@@ -46,7 +57,7 @@ function SummaryStat({ label, value }) {
   );
 }
 
-function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze }) {
+function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze, analyzing }) {
   const stars = item.quality?.stars || 0;
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-3">
@@ -84,8 +95,9 @@ function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze 
       <div className="mt-2.5 flex gap-2">
         <button
           type="button"
+          disabled={analyzing}
           onClick={() => onAnalyze(item.id)}
-          className="flex-1 rounded-lg py-2 text-[11.5px] font-bold text-white"
+          className="flex-1 rounded-lg py-2 text-[11.5px] font-bold text-white disabled:opacity-40"
           style={{ background: '#7C3AED', minHeight: 40 }}
         >
           Analyze with AI
@@ -106,7 +118,9 @@ function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze 
 export default function AIReview({ images: initialImages, onBack }) {
   const [images, setImages] = useState(initialImages || []);
   const [selectedIds, setSelectedIds] = useState(() => new Set((initialImages || []).map((it) => it.id)));
-  const [notice, setNotice] = useState('');
+  const [localScreen, setLocalScreen] = useState('review'); // 'review' | 'config'
+  // analysis: { status: 'idle'|'loading'|'error', stageLabel, message }
+  const [analysis, setAnalysis] = useState({ status: 'idle', stageLabel: '', message: '' });
 
   const stats = useMemo(() => {
     const ready = images.length; // every image reaching this screen already passed the optimizer
@@ -138,10 +152,35 @@ export default function AIReview({ images: initialImages, onBack }) {
     });
   };
 
-  const showPlaceholder = () => {
-    setNotice('AI Provider will be connected in the next phase.');
-    window.setTimeout(() => setNotice(''), 3500);
+  const runAnalysis = async (imageIds) => {
+    const targets = images.filter((it) => imageIds.includes(it.id));
+    if (targets.length === 0) return;
+
+    setAnalysis({ status: 'loading', stageLabel: 'Preparing images...', message: '' });
+
+    const response = await providerManager.analyzeBatch(targets, {
+      onStageChange: (_key, label) => setAnalysis((prev) => ({ ...prev, status: 'loading', stageLabel: label })),
+    });
+
+    if (response.success) {
+      // Only a real, successful provider response reaches here — and
+      // only then would Preview Records ever open. No provider can
+      // succeed yet, so this branch is architecture-only for now.
+      setAnalysis({ status: 'idle', stageLabel: '', message: '' });
+      return;
+    }
+
+    const message = response.error?.message || ERROR_MESSAGES[response.error?.type] || 'Analysis failed.';
+    setAnalysis({ status: 'error', stageLabel: '', message, errorType: response.error?.type });
   };
+
+  const isConfigured = providerManager.isAnyProviderConfigured();
+
+  const isConfigured = providerManager.isAnyProviderConfigured();
+
+  if (localScreen === 'config') {
+    return <ProviderConfig onBack={() => setLocalScreen('review')} />;
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
@@ -159,12 +198,39 @@ export default function AIReview({ images: initialImages, onBack }) {
         <SummaryStat label="Est. Beneficiaries" value={stats.estimatedBeneficiaries} />
       </div>
 
-      {notice && (
+      {/* Provider Status */}
+      {!isConfigured && (
+        <div
+          className="flex items-center justify-between rounded-xl px-3 py-2.5 mb-3"
+          style={{ background: '#FEF2F2' }}
+        >
+          <span className="text-[11px] font-semibold text-[#B91C1C]">No AI provider connected.</span>
+          <button
+            type="button"
+            onClick={() => setLocalScreen('config')}
+            className="text-[10.5px] font-bold px-3 py-1.5 rounded-lg text-white"
+            style={{ background: '#7C3AED' }}
+          >
+            Connect Provider
+          </button>
+        </div>
+      )}
+
+      {analysis.status === 'loading' && (
         <div
           className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3"
           style={{ background: '#EDE9FE', color: '#6D28D9' }}
         >
-          {notice}
+          {analysis.stageLabel}
+        </div>
+      )}
+
+      {analysis.status === 'error' && (
+        <div
+          className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3"
+          style={{ background: '#FEF2F2', color: '#B91C1C' }}
+        >
+          {analysis.message}
         </div>
       )}
 
@@ -181,7 +247,8 @@ export default function AIReview({ images: initialImages, onBack }) {
             selected={selectedIds.has(item.id)}
             onToggleSelect={toggleSelect}
             onRemove={removeImage}
-            onAnalyze={showPlaceholder}
+            onAnalyze={(id) => runAnalysis([id])}
+            analyzing={analysis.status === 'loading'}
           />
         ))
       )}
@@ -198,8 +265,8 @@ export default function AIReview({ images: initialImages, onBack }) {
         </button>
         <button
           type="button"
-          disabled={stats.selected === 0}
-          onClick={showPlaceholder}
+          disabled={stats.selected === 0 || analysis.status === 'loading'}
+          onClick={() => runAnalysis(Array.from(selectedIds))}
           className="flex-1 rounded-xl py-3 text-[12.5px] font-bold text-white disabled:opacity-40"
           style={{ background: '#7C3AED', minHeight: 44 }}
         >
