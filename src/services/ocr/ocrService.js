@@ -99,7 +99,10 @@ export async function scanDocument(files, options = {}) {
             registerTemplate,
             (learnedTemplate) => { registerTemplate = learnedTemplate; }
           );
-        } catch { rowsForThisImage = null; }
+        } catch (layoutErr) {
+          rowsForThisImage = null;
+          lastFileError = `[layout-pipeline] ${layoutErr?.message || String(layoutErr)}`;
+        }
       }
 
       let pageConfidence = 0, pageRawText = "", pageLines = [];
@@ -107,10 +110,15 @@ export async function scanDocument(files, options = {}) {
         usedLayoutPipelineCount++;
       } else {
         // 2) Fall back to full-page OCR + OCR-position row/column detection.
-        const { text, confidence, lines } = await engine.recognize(enhanced[i], {
-          lang,
-          onProgress: (p) => onProgress?.({ percent: Math.round(((i + p) / files.length) * 100) }),
-        });
+        let text, confidence, lines;
+        try {
+          ({ text, confidence, lines } = await engine.recognize(enhanced[i], {
+            lang,
+            onProgress: (p) => onProgress?.({ percent: Math.round(((i + p) / files.length) * 100) }),
+          }));
+        } catch (recognizeErr) {
+          throw new Error(`[full-page-recognize] ${recognizeErr?.message || String(recognizeErr)}`);
+        }
         pageConfidence = confidence; pageRawText = text || ""; pageLines = lines || [];
         const columnMap = detectColumnsFromHeaderRow(lines);
         if (columnMap) rowsForThisImage = extractRowsFromLines(lines, columnMap, confidence);
