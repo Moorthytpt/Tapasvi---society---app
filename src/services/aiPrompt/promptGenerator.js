@@ -1,10 +1,17 @@
-/**
+ /**
  * src/services/aiPrompt/promptGenerator.js
  * -----------------------------------------------------------------------
  * Builds the fixed, professional prompt text that a field worker copies
  * and pastes into an external AI app (ChatGPT, Gemini, Claude, ...)
  * alongside their photographed register image. Pure string generation —
  * no network calls, no AI SDK, nothing here talks to any provider.
+ *
+ * v2: the prompt now asks the AI to return machine-readable JSON
+ * (instead of the earlier "Beneficiary 1 / Name: ..." plain-text
+ * format), so a future parser can consume it directly. This file is
+ * the only thing that changed — the rest of the Bulk AI Import
+ * workflow (Section 2 paste box, parser, preview, import) is untouched
+ * and still accepts whatever text is pasted there.
  * -----------------------------------------------------------------------
  */
 
@@ -18,51 +25,93 @@ export function generatePrompt(options = {}) {
 
   return `You are an AI data extraction assistant for TAPASVI DMS.
 
-Read the attached beneficiary register image.
+Read the attached beneficiary register image carefully.
 
-Rules
-- Read every row. Never skip a beneficiary.
+GENERAL RULES
+- Read every beneficiary row.
+- Never skip any beneficiary.
 - Never invent data.
-- If handwriting is unclear, return UNCLEAR for that field. Do not guess.
+- Never merge two beneficiaries into one.
+- Never create a beneficiary that does not exist.
+- Preserve the exact row order.
+- If a field cannot be read confidently, return "UNCLEAR".
+- If a field is empty, return "N/A".
 
-Language Rules
-- If text is already in English, keep it exactly.
+LANGUAGE RULES
+- If text is already English, keep it exactly.
 - If text is Telugu, convert it into natural English transliteration.
-  Examples: వెంకటేష్ → Venkatesh, లక్ష్మి → Lakshmi, తిరుపతి → Tirupati.
-- Return English only. Never return Telugu.
+- Never return Telugu.
+- Return English only.
 
-Output Format (repeat for every beneficiary)
-Beneficiary N
-Name:
-Father/Husband:
-Gender:
-DOB:
-Age:
-Aadhaar:
-Voter ID:
-Ration Card:
-Mobile:
-Address:
-Village:
-Mandal:
-District:
-Occupation:
-Education:
-Program:
+Examples
+వెంకటేష్ → Venkatesh
+లక్ష్మి → Lakshmi
+గీత → Geetha
+తిరుపతి → Tirupati
 
-Validation
-- Aadhaar must be exactly 12 digits, or UNCLEAR if not confidently readable.
-- Mobile must be exactly 10 digits, or UNCLEAR if not confidently readable.
-- Date format: DD/MM/YYYY.
-- Blank field: N/A
-- Unreadable field: UNCLEAR
-- Never merge two beneficiaries into one record.
-- Never create a beneficiary that isn't in the image.
+VALIDATION RULES
+- Aadhaar must contain exactly 12 digits.
+- Mobile must contain exactly 10 digits.
+- Date format must be DD/MM/YYYY.
+- Never guess numbers.
+- If unsure, return UNCLEAR.
+
+FIELDS
+Name
+Father/Husband
+Gender
+DOB
+Age
+Aadhaar
+Voter ID
+Ration Card
+Mobile
+Address
+Village
+Mandal
+District
+Occupation
+Education
+Program
 ${extraNote ? `\n${extraNote}\n` : ''}
-Final Response
-- Return only the structured beneficiary records in the format above.
-- No explanations, no markdown, no extra text.`;
+OUTPUT RULES
+1. First count the total beneficiaries visible.
+2. Return exactly that many records.
+3. Return ONLY valid JSON.
+
+Use this structure exactly:
+
+{
+  "totalBeneficiaries": 0,
+  "records": [
+    {
+      "name": "",
+      "fatherName": "",
+      "gender": "",
+      "dob": "",
+      "age": "",
+      "aadhaar": "",
+      "voterId": "",
+      "rationCard": "",
+      "mobile": "",
+      "address": "",
+      "village": "",
+      "mandal": "",
+      "district": "",
+      "occupation": "",
+      "education": "",
+      "program": ""
+    }
+  ]
+}
+
+FINAL RULES
+- No markdown.
+- No explanations.
+- No notes.
+- No comments.
+- No code blocks.
+- Return JSON only.`;
 }
 
 export default generatePrompt;
-
