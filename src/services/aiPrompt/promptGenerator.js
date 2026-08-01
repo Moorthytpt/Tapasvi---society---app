@@ -1,4 +1,4 @@
- /**
+/**
  * src/services/aiPrompt/promptGenerator.js
  * -----------------------------------------------------------------------
  * Builds the fixed, professional prompt text that a field worker copies
@@ -6,12 +6,11 @@
  * alongside their photographed register image. Pure string generation —
  * no network calls, no AI SDK, nothing here talks to any provider.
  *
- * v2: the prompt now asks the AI to return machine-readable JSON
- * (instead of the earlier "Beneficiary 1 / Name: ..." plain-text
- * format), so a future parser can consume it directly. This file is
- * the only thing that changed — the rest of the Bulk AI Import
- * workflow (Section 2 paste box, parser, preview, import) is untouched
- * and still accepts whatever text is pasted there.
+ * v3: added remarks handling (life-status annotations like "Death" /
+ * "Deceased" / "Expired" written in a register must go to a separate
+ * `remarks` field, never into an ID/name field) and automatic Age
+ * calculation from DOB. Still returns the same JSON envelope from v2,
+ * just with one more field per record. Only this file changed.
  * -----------------------------------------------------------------------
  */
 
@@ -49,6 +48,16 @@ Examples
 గీత → Geetha
 తిరుపతి → Tirupati
 
+REMARKS RULE
+- If a value like "Death", "Deceased", "Expired", or similar appears anywhere in the row, do NOT put it in Voter ID, Aadhaar, Mobile, or Name.
+- Store it in the "remarks" field instead.
+- Never place remarks text inside any ID field, under any circumstance.
+- If there is no such note for a beneficiary, return "N/A" for remarks.
+
+AGE RULE
+- If DOB is available, automatically calculate Age from it.
+- If Age cannot be calculated (DOB missing or UNCLEAR), return "UNCLEAR" for age.
+
 VALIDATION RULES
 - Aadhaar must contain exactly 12 digits.
 - Mobile must contain exactly 10 digits.
@@ -73,6 +82,7 @@ District
 Occupation
 Education
 Program
+Remarks
 ${extraNote ? `\n${extraNote}\n` : ''}
 OUTPUT RULES
 1. First count the total beneficiaries visible.
@@ -100,7 +110,8 @@ Use this structure exactly:
       "district": "",
       "occupation": "",
       "education": "",
-      "program": ""
+      "program": "",
+      "remarks": ""
     }
   ]
 }
