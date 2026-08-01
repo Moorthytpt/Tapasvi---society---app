@@ -303,6 +303,13 @@ export function autoDetectAndStraighten(canvas) {
   let outW = Math.round(corners.topRight.x - corners.topLeft.x);
   let outH = Math.round(corners.bottomLeft.y - corners.topLeft.y);
 
+  // A confident-looking quad can still be degenerate (near-zero width
+  // or height) on noisy photos. Bail out to the un-warped canvas rather
+  // than risk creating a zero/negative-size canvas downstream.
+  if (!(outW > 20) || !(outH > 20)) {
+    return { canvas, corners, method: 'none' };
+  }
+
   // Cap the long edge so the pixel-by-pixel warp below never has to
   // process an unbounded number of pixels, no matter how high-res the
   // source photo is (modern phone cameras easily exceed 4000px).
@@ -315,5 +322,8 @@ export function autoDetectAndStraighten(canvas) {
   }
 
   const straightened = correctPerspective(canvas, corners, outW, outH);
+  if (!straightened || !(straightened.width > 0) || !(straightened.height > 0)) {
+    return { canvas, corners, method: 'none' };
+  }
   return { canvas: straightened, corners, method: 'perspective' };
 }
