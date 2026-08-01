@@ -4,7 +4,7 @@
    ============================================================ */
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { scanDocument, checkOcrEligibility, tesseractOcr } from "./services/ocr";
+import { scanDocument, checkOcrEligibility, tesseractOcr, enhanceImageForOcr, cropTableRows } from "./services/ocr";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
@@ -701,6 +701,35 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
   const [expandedRawText, setExpandedRawText] = useState({}); // { [recId]: true } — debug view of what OCR actually read
   const toggleRawText = (id) => setExpandedRawText(prev => ({ ...prev, [id]: !prev[id] }));
 
+  // --- Phase 3A: Row Detection Only (no OCR) — fully separate from the
+  // existing OCR flow above/below. Detects the table + its rows and crops
+  // each one into its own image, for a field worker to reference while
+  // typing values by hand. Never calls any OCR engine.
+  const [rowDetectLoading, setRowDetectLoading] = useState(false);
+  const [rowDetectResult, setRowDetectResult] = useState(null); // { count, thumbnails: string[] } | null
+  const [rowDetectError, setRowDetectError] = useState("");
+  const detectRowsOnly = async () => {
+    if (pages.length === 0) { showToast("Upload a register page first.", "error"); return; }
+    const firstImage = pages.find(p => p.kind === "image");
+    if (!firstImage) { showToast("Row detection needs an image page (not a PDF).", "error"); return; }
+    setRowDetectLoading(true);
+    setRowDetectError("");
+    setRowDetectResult(null);
+    try {
+      const enhanced = await enhanceImageForOcr(firstImage.file);
+      const result = cropTableRows(enhanced);
+      if (!result || result.count === 0) {
+        setRowDetectError("Couldn't confidently detect a ruled table on this page — try a page with clearer grid lines.");
+      } else {
+        setRowDetectResult({ count: result.count, thumbnails: result.rowImages.map(c => c.toDataURL("image/jpeg", 0.85)) });
+      }
+    } catch (e) {
+      setRowDetectError(e.message || "Row detection failed.");
+    } finally {
+      setRowDetectLoading(false);
+    }
+  };
+
   const selectedDocType = OCR_DOC_TYPES.find(d => d.key === docType);
 
   // Adds files to the unified preview grid, and also feeds the existing
@@ -935,6 +964,30 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
             <p className="text-[12.5px] font-bold text-[#111827] mb-3">{pages.length} page{pages.length > 1 ? "s" : ""} uploaded</p>
             <OcrPreviewGrid pages={pages} onZoom={setZoomPage} onRotate={rotatePage} onDelete={deletePage} onAddMore={addPages} />
+          </div>
+        )}
+
+        {pages.length > 0 && (
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+            <p className="text-[12.5px] font-bold text-[#111827] mb-1">Detect Rows Only (no OCR)</p>
+            <p className="text-[10.5px] text-[#6B7280] mb-3">Splits the first page into one image per beneficiary row — no text reading, just for a field worker to reference while typing values by hand.</p>
+            <button onClick={detectRowsOnly} disabled={rowDetectLoading} className="rounded-xl border border-[#1E3A8A] px-4 py-2 text-[12.5px] font-bold text-[#1E3A8A] disabled:opacity-50">
+              {rowDetectLoading ? "Detecting rows…" : "Detect Rows"}
+            </button>
+            {rowDetectError && <p className="text-[11px] text-[#DC2626] mt-2">⚠ {rowDetectError}</p>}
+            {rowDetectResult && (
+              <div className="mt-3">
+                <p className="text-[12.5px] font-bold text-[#16A34A] mb-2">{rowDetectResult.count} Beneficiary Row{rowDetectResult.count === 1 ? "" : "s"} Found</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {rowDetectResult.thumbnails.map((src, i) => (
+                    <div key={i} className="rounded-lg border border-[#E5E7EB] overflow-hidden">
+                      <p className="text-[9.5px] font-semibold text-[#6B7280] px-2 pt-1">Row {i + 1}</p>
+                      <img src={src} alt={`Row ${i + 1}`} className="w-full" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
