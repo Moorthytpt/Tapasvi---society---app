@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { generatePrompt, copyToClipboard, AI_APP_LINKS } from '../../services/aiPrompt';
+import { generatePrompt, copyToClipboard, shareOrDownloadImage, AI_APP_LINKS } from '../../services/aiPrompt';
 
 /**
  * PromptGenerator
@@ -10,13 +10,22 @@ import { generatePrompt, copyToClipboard, AI_APP_LINKS } from '../../services/ai
  * only open the provider's website; the field worker does the upload
  * and copy/paste themselves, same as they already do today.
  *
+ * Before opening the app, the first optimized image (if any were
+ * passed in via `images`) is handed to the OS share sheet (or, if that
+ * isn't supported, downloaded) so it's already saved/ready to attach —
+ * no digging through the gallery for it.
+ *
  * Standalone component: does not touch AI Review, the Image Optimizer,
  * the existing Paste AI Output textarea, or the Preview Records screen.
+ *
+ * Usage: <PromptGenerator images={capturedImages} />
  * -----------------------------------------------------------------------
  */
-export default function PromptGenerator() {
+export default function PromptGenerator({ images }) {
   const [prompt, setPrompt] = useState('');
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareNote, setShareNote] = useState('');
 
   const handleGenerate = () => {
     setPrompt(generatePrompt());
@@ -29,7 +38,25 @@ export default function PromptGenerator() {
     if (ok) window.setTimeout(() => setCopied(false), 2500);
   };
 
-  const openApp = (key) => {
+  const openApp = async (key) => {
+    const firstImage = images && images[0];
+    if (firstImage) {
+      setSharing(true);
+      setShareNote('');
+      const result = await shareOrDownloadImage(firstImage);
+      setSharing(false);
+      if (result.cancelled) {
+        // User backed out of the share sheet on purpose — don't open the AI app or show a note.
+        return;
+      }
+      if (result.method === 'share') {
+        setShareNote('Image shared. If you picked "Save" or a Files app, it\'s ready to attach.');
+      } else if (result.method === 'download') {
+        setShareNote('Image saved to your device — attach it once the AI app opens.');
+      } else {
+        setShareNote("Couldn't prepare the image automatically — please attach it manually.");
+      }
+    }
     window.open(AI_APP_LINKS[key], '_blank', 'noopener,noreferrer');
   };
 
@@ -72,29 +99,42 @@ export default function PromptGenerator() {
           <div className="flex gap-2 mb-2">
             <button
               type="button"
+              disabled={sharing}
               onClick={() => openApp('chatgpt')}
-              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold"
+              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold disabled:opacity-40"
               style={{ borderColor: '#7C3AED', color: '#7C3AED', minHeight: 40 }}
             >
-              Open ChatGPT
+              {sharing ? 'Preparing...' : 'Open ChatGPT'}
             </button>
             <button
               type="button"
+              disabled={sharing}
               onClick={() => openApp('gemini')}
-              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold"
+              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold disabled:opacity-40"
               style={{ borderColor: '#7C3AED', color: '#7C3AED', minHeight: 40 }}
             >
-              Open Gemini
+              {sharing ? 'Preparing...' : 'Open Gemini'}
             </button>
             <button
               type="button"
+              disabled={sharing}
               onClick={() => openApp('claude')}
-              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold"
+              className="flex-1 rounded-xl border-2 py-2.5 text-[11px] font-bold disabled:opacity-40"
               style={{ borderColor: '#7C3AED', color: '#7C3AED', minHeight: 40 }}
             >
-              Open Claude
+              {sharing ? 'Preparing...' : 'Open Claude'}
             </button>
           </div>
+
+          {shareNote && (
+            <p className="text-[10px] font-semibold text-[#6D28D9] mb-2">{shareNote}</p>
+          )}
+
+          {images && images.length > 1 && (
+            <p className="text-[9.5px] text-[#9CA3AF] mb-2">
+              Only the first image is auto-attached — share the rest from Section 1 above if needed.
+            </p>
+          )}
 
           <button
             type="button"
