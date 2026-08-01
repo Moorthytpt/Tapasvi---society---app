@@ -1,0 +1,74 @@
+import React from 'react';
+import { getHistory } from '../../services/aiPrompt';
+
+/**
+ * HistoryView
+ * -----------------------------------------------------------------------
+ * Read-only Import History list. Purely displays what history.js has
+ * recorded — no editing, no re-import. Standalone: does not touch any
+ * existing screen.
+ * -----------------------------------------------------------------------
+ */
+export default function HistoryView({ onBack }) {
+  const entries = getHistory();
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+      <p className="text-[12.5px] font-bold text-[#111827] mb-1">Import History</p>
+      <p className="text-[10.5px] text-[#6B7280] mb-3">
+        A local log of past Bulk AI Import runs on this device.
+      </p>
+
+      {entries.length === 0 ? (
+        <div className="text-center text-[11.5px] text-[#9CA3AF] rounded-xl border border-dashed border-[#E5E7EB] py-6 px-3 mb-3">
+          No imports recorded yet.
+        </div>
+      ) : (
+        entries.map((entry, i) => (
+          <div key={i} className="rounded-xl border border-[#E5E7EB] p-3 mb-2">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11.5px] font-bold text-[#111827]">
+                {entry.date} · {entry.time}
+              </span>
+              <span
+                className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: '#EDE9FE', color: '#6D28D9' }}
+              >
+                {entry.providerUsed}
+              </span>
+            </div>
+            <p className="text-[10.5px] text-[#6B7280] mb-1.5">Field Worker: {entry.fieldWorker}</p>
+            <div className="grid grid-cols-4 gap-1 text-center">
+              <div>
+                <p className="text-[13px] font-bold text-[#111827]">{entry.imagesCount}</p>
+                <p className="text-[8.5px] text-[#9CA3AF]">Images</p>
+              </div>
+              <div>
+                <p className="text-[13px] font-bold text-[#16A34A]">{entry.importedCount}</p>
+                <p className="text-[8.5px] text-[#9CA3AF]">Imported</p>
+              </div>
+              <div>
+                <p className="text-[13px] font-bold text-[#D97706]">{entry.duplicates}</p>
+                <p className="text-[8.5px] text-[#9CA3AF]">Duplicates</p>
+              </div>
+              <div>
+                <p className="text-[13px] font-bold text-[#DC2626]">{entry.errors}</p>
+                <p className="text-[8.5px] text-[#9CA3AF]">Errors</p>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+
+      <button
+        type="button"
+        onClick={onBack}
+        className="w-full rounded-xl border-2 py-3 text-[12.5px] font-bold mt-1"
+        style={{ borderColor: '#7C3AED', color: '#7C3AED', minHeight: 44 }}
+      >
+        Back
+      </button>
+    </div>
+  );
+}
+
