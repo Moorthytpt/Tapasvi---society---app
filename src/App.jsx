@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { scanDocument, checkOcrEligibility, tesseractOcr, enhanceImageForOcr, cropTableRows } from "./services/ocr";
 import { parseAIText, validateBatch } from "./services/bulkImport";
 import ImageCaptureOptimizer from "./components/bulkImport/ImageCaptureOptimizer";
+import AIReview from "./components/bulkImport/AIReview";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
