@@ -8,6 +8,7 @@ import { scanDocument, checkOcrEligibility, tesseractOcr, enhanceImageForOcr, cr
 import { parseAIText, validateBatch } from "./services/bulkImport";
 import ImageCaptureOptimizer from "./components/bulkImport/ImageCaptureOptimizer";
 import AIReview from "./components/bulkImport/AIReview";
+import PromptGenerator from "./components/bulkImport/PromptGenerator";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
@@ -1365,6 +1366,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
           <p className="text-[11px] font-semibold text-[#16A34A] mt-3">✓ {capturedImages.length} image(s) optimized and ready — use Section 2 below to get them into records for now.</p>
         )}
       </div>
+        <PromptGenerator />
 
       <div className="text-center text-[11px] font-bold text-[#9CA3AF] my-2">— OR —</div>
 
