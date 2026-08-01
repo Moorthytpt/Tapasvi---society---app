@@ -169,13 +169,42 @@ export async function processDocumentImage(file) {
   // future AI model to read handwriting from.
   const working = capWorkingSize(originalCanvas, 1800);
 
-  const { canvas: straightened, method } = autoDetectAndStraighten(working);
-  const enhanced = enhanceDocumentImage(straightened);
-  const quality = analyzeImageQuality(enhanced);
+  // Corner detection is a heuristic — on some photos (unusual lighting,
+  // a background too close in tone to the page, etc.) it can produce a
+  // degenerate quad that would crash the perspective warp or the
+  // enhancement filters. Rather than letting one bad photo fail with
+  // "Couldn't process image", fall back step by step to a safe result.
+  let optimized = working;
+  let method = 'none';
+  try {
+    const straightenResult = autoDetectAndStraighten(working);
+    if (straightenResult?.canvas?.width > 0 && straightenResult?.canvas?.height > 0) {
+      optimized = straightenResult.canvas;
+      method = straightenResult.method;
+    }
+  } catch (e) {
+    // Keep `optimized` as the un-straightened working canvas.
+  }
+
+  try {
+    const enhanced = enhanceDocumentImage(optimized);
+    if (enhanced?.width > 0 && enhanced?.height > 0) {
+      optimized = enhanced;
+    }
+  } catch (e) {
+    // Keep whatever `optimized` was before enhancement.
+  }
+
+  let quality;
+  try {
+    quality = analyzeImageQuality(optimized);
+  } catch (e) {
+    quality = { stars: 0, overallScore: 0, verdict: 'usable', message: 'Could not analyze image quality.' };
+  }
 
   return {
     originalCanvas,
-    optimizedCanvas: enhanced,
+    optimizedCanvas: optimized,
     method, // 'perspective' | 'none'
     quality,
   };
