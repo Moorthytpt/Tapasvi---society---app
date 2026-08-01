@@ -372,6 +372,30 @@ export function cropCell(canvas, x0, y0, x1, y1, pad = 4) {
 }
 
 /**
+ * PHASE 3A — ROW DETECTION ONLY. No OCR, no field extraction, no mapping.
+ * Reuses the existing TableDetector (detectTableGrid) to find the table
+ * and its row boundaries, then crops each data row (skipping the header
+ * band) into its own full-width image. That's the entire job — this
+ * function never calls any OCR engine.
+ * @param {HTMLCanvasElement} canvas - an already-enhanced page image
+ * @returns {{ rowImages: HTMLCanvasElement[], count: number } | null}
+ *   null if no table/rows could be confidently detected on this page.
+ */
+export function cropTableRows(canvas) {
+  const grid = detectTableGrid(canvas);
+  if (!grid || grid.rows.length < 3) return null; // need at least a header band + 1 data row
+
+  const rowImages = [];
+  // grid.rows[0]..grid.rows[1] is the header band — skipped, rows[1] onward are data rows.
+  for (let r = 1; r < grid.rows.length - 1; r++) {
+    const y0 = grid.rows[r], y1 = grid.rows[r + 1];
+    if (y1 - y0 < 8) continue; // skip degenerate/near-zero-height bands
+    rowImages.push(cropCell(grid.canvas, 0, y0, grid.canvas.width, y1, 2));
+  }
+  return { rowImages, count: rowImages.length };
+}
+
+/**
  * Convenience pipeline: resize -> contrast (kept from Phase 1 for callers
  * that just want a generic preprocess without the OCR-specific tuning of
  * enhanceImageForOcr above).
