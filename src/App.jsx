@@ -1158,6 +1158,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
   const [editingId, setEditingId] = useState(null);
   const [summary, setSummary] = useState(null);
   const [capturedImages, setCapturedImages] = useState([]);
+   const [screen, setScreen] = useState("capture");
   const addImages = (fileList) => {
     const arr = Array.from(fileList).filter(f => f.type.startsWith("image/")).map((f, i) => ({
       id: `bulkimg-${Date.now()}-${i}`, file: f, previewUrl: URL.createObjectURL(f),
@@ -1355,11 +1356,11 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
     <div className="max-w-[560px] mx-auto pb-6">
       <h2 className="text-[17px] font-bold text-[#111827] mb-1">🤖 Bulk AI Import</h2>
       <p className="text-[12px] text-[#6B7280] mb-4">Photograph a beneficiary register, ask an AI app (ChatGPT, Gemini, Claude, etc.) to transcribe it, then paste the result below. This is independent from Smart Import (OCR) — nothing here touches that module.</p>
-
+     {screen === "capture" && (
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
         <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 1 — Camera / Gallery Capture</p>
         <p className="text-[10.5px] text-[#6B7280] mb-3">Take a photo or pick register pages from your gallery. Each image is auto-cropped, straightened and enhanced. AI analysis isn't connected yet — this prepares images for that future step.</p>
-        <ImageCaptureOptimizer onContinue={setCapturedImages} />
+        <ImageCaptureOptimizer onContinue={(images) => { setCapturedImages(images); setScreen("aiReview"); }} />
         {capturedImages.length > 0 && (
           <p className="text-[11px] font-semibold text-[#16A34A] mt-3">✓ {capturedImages.length} image(s) optimized and ready — use Section 2 below to get them into records for now.</p>
         )}
@@ -1394,6 +1395,9 @@ Program: RYDEAP`}
       <button onClick={analyze} className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white" style={{ background: "#7C3AED", minHeight: 48 }}>
         Analyze AI Data
       </button>
+           )}
+
+      {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} />}
     </div>
   );
 }
