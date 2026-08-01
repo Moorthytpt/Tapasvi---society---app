@@ -6,6 +6,7 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { scanDocument, checkOcrEligibility, tesseractOcr, enhanceImageForOcr, cropTableRows } from "./services/ocr";
 import { parseAIText, validateBatch } from "./services/bulkImport";
+import ImageCaptureOptimizer from "./components/bulkImport/ImageCaptureOptimizer";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
@@ -1155,7 +1156,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
   const [records, setRecords] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [summary, setSummary] = useState(null);
-
+  const [capturedImages, setCapturedImages] = useState([]);
   const addImages = (fileList) => {
     const arr = Array.from(fileList).filter(f => f.type.startsWith("image/")).map((f, i) => ({
       id: `bulkimg-${Date.now()}-${i}`, file: f, previewUrl: URL.createObjectURL(f),
@@ -1177,7 +1178,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
 
   const analyze = () => {
     if (!pastedText.trim()) {
-      if (images.length > 0) {
+      if (capturedImages.length > 0) {
         showToast('Automatic image analysis isn\'t connected yet. Photograph the register, ask your AI app (ChatGPT/Gemini/Claude/etc.) to transcribe it using the format shown below, then paste the result into the text box.', "error");
       } else {
         showToast("Paste AI-transcribed text first, or upload reference images.", "error");
@@ -1355,21 +1356,11 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
       <p className="text-[12px] text-[#6B7280] mb-4">Photograph a beneficiary register, ask an AI app (ChatGPT, Gemini, Claude, etc.) to transcribe it, then paste the result below. This is independent from Smart Import (OCR) — nothing here touches that module.</p>
 
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
-        <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 1 — Image Upload (reference only)</p>
-        <p className="text-[10.5px] text-[#6B7280] mb-3">Keep the register photo handy while you paste the AI's text below. Automatic image analysis isn't wired up in this module yet — that's what Section 2 is for.</p>
-        <label className="rounded-xl border-2 border-dashed border-[#7C3AED] px-4 py-3 inline-flex items-center gap-2 cursor-pointer">
-          <span className="text-[12.5px] font-bold text-[#7C3AED]">＋ Upload Images</span>
-          <input type="file" accept="image/*" multiple className="hidden" onChange={e => { if (e.target.files?.length) addImages(e.target.files); e.target.value = ""; }} />
-        </label>
-        {images.length > 0 && (
-          <div className="grid grid-cols-4 gap-2 mt-3">
-            {images.map(img => (
-              <div key={img.id} className="relative rounded-lg overflow-hidden border border-[#E5E7EB]" style={{ aspectRatio: "3/4" }}>
-                <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
-                <button onClick={() => removeImage(img.id)} className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-[#DC2626]" style={{ background: "rgba(255,255,255,0.9)" }}>✕</button>
-              </div>
-            ))}
-          </div>
+        <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 1 — Camera / Gallery Capture</p>
+        <p className="text-[10.5px] text-[#6B7280] mb-3">Take a photo or pick register pages from your gallery. Each image is auto-cropped, straightened and enhanced. AI analysis isn't connected yet — this prepares images for that future step.</p>
+        <ImageCaptureOptimizer onContinue={setCapturedImages} />
+        {capturedImages.length > 0 && (
+          <p className="text-[11px] font-semibold text-[#16A34A] mt-3">✓ {capturedImages.length} image(s) optimized and ready — use Section 2 below to get them into records for now.</p>
         )}
       </div>
 
