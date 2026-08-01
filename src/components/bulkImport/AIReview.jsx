@@ -175,9 +175,6 @@ export default function AIReview({ images: initialImages, onBack }) {
   };
 
   const isConfigured = providerManager.isAnyProviderConfigured();
-
-  const isConfigured = providerManager.isAnyProviderConfigured();
-
   if (localScreen === 'config') {
     return <ProviderConfig onBack={() => setLocalScreen('review')} />;
   }
