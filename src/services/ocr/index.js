@@ -32,6 +32,7 @@ export {
   enhanceImageForOcr,
   detectTableGrid,
   cropCell,
+  cropTableRows,
   buildTemplateFromGrid,
   applyTemplateToImage,
   binarizeCanvas,
