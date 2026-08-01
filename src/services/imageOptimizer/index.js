@@ -21,20 +21,92 @@ import { enhanceDocumentImage, removeShadows, adjustBrightnessContrast, sharpen,
 
 import { analyzeImageQuality } from './qualityChecker';
 
-/** Loads a File/Blob into a canvas at its natural resolution. */
+/**
+ * Reads the EXIF "Orientation" tag (1-8) directly from JPEG bytes.
+ * Phone cameras often store photos in sensor orientation and rely on
+ * this tag to say "display rotated N degrees" — <canvas> ignores that
+ * tag when drawing, which is why photos can come out sideways even
+ * when the phone was held correctly. Returns 1 (normal) if no tag is
+ * found or the file isn't a JPEG with EXIF data.
+ */
+function readExifOrientation(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const view = new DataView(e.target.result);
+      if (view.getUint16(0, false) !== 0xffd8) return resolve(1); // not a JPEG
+      const length = view.byteLength;
+      let offset = 2;
+      while (offset < length - 1) {
+        const marker = view.getUint16(offset, false);
+        offset += 2;
+        if (marker === 0xffe1) {
+          // APP1 (EXIF) segment
+          if (view.getUint32(offset + 2, false) !== 0x45786966) return resolve(1); // "Exif"
+          const little = view.getUint16(offset + 8, false) === 0x4949;
+          const tiffOffset = offset + 6;
+          const firstIfdOffset = view.getUint32(tiffOffset + 4, little);
+          const dirStart = tiffOffset + firstIfdOffset;
+          const entries = view.getUint16(dirStart, little);
+          for (let i = 0; i < entries; i++) {
+            const entryOffset = dirStart + 2 + i * 12;
+            if (view.getUint16(entryOffset, little) === 0x0112) {
+              return resolve(view.getUint16(entryOffset + 8, little));
+            }
+          }
+          return resolve(1);
+        } else if ((marker & 0xff00) !== 0xff00) {
+          break;
+        } else {
+          offset += view.getUint16(offset, false);
+        }
+      }
+      resolve(1);
+    };
+    reader.onerror = () => resolve(1);
+    // Only need the first ~128KB — EXIF header is always near the start.
+    reader.readAsArrayBuffer(file.slice(0, 131072));
+  });
+}
+
+/** Loads a File/Blob into a canvas at its natural resolution, corrected for EXIF orientation so the image is always upright. */
 export function fileToCanvas(file) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      URL.revokeObjectURL(img.src);
-      resolve(canvas);
-    };
-    img.onerror = (e) => reject(e);
-    img.src = URL.createObjectURL(file);
+    readExifOrientation(file).then((orientation) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+
+        // Orientations 5-8 involve a 90/270 degree rotation, so width/height swap.
+        if (orientation >= 5 && orientation <= 8) {
+          canvas.width = h;
+          canvas.height = w;
+        } else {
+          canvas.width = w;
+          canvas.height = h;
+        }
+
+        switch (orientation) {
+          case 2: ctx.transform(-1, 0, 0, 1, w, 0); break;
+          case 3: ctx.transform(-1, 0, 0, -1, w, h); break;
+          case 4: ctx.transform(1, 0, 0, -1, 0, h); break;
+          case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+          case 6: ctx.transform(0, 1, -1, 0, h, 0); break;
+          case 7: ctx.transform(0, -1, -1, 0, h, w); break;
+          case 8: ctx.transform(0, -1, 1, 0, 0, w); break;
+          default: break; // orientation 1 (or unknown) needs no transform
+        }
+
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(img.src);
+        resolve(canvas);
+      };
+      img.onerror = (e) => reject(e);
+      img.src = URL.createObjectURL(file);
+    });
   });
 }
 
