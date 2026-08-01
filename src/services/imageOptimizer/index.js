@@ -1,3 +1,4 @@
+
 /**
  * src/services/imageOptimizer/index.js
  * -----------------------------------------------------------------------
@@ -118,6 +119,18 @@ export function canvasToBlob(canvas, quality = 0.9) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
 }
 
+/** Returns a canvas scaled down so its longer edge is at most maxDim (returns the same canvas untouched if already smaller). */
+function capWorkingSize(canvas, maxDim = 1800) {
+  const longEdge = Math.max(canvas.width, canvas.height);
+  if (longEdge <= maxDim) return canvas;
+  const scale = maxDim / longEdge;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(canvas.width * scale));
+  out.height = Math.max(1, Math.round(canvas.height * scale));
+  out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
+  return out;
+}
+
 /**
  * Full pipeline for one captured/uploaded image:
  * detect document -> straighten -> enhance -> quality-check.
@@ -126,7 +139,15 @@ export function canvasToBlob(canvas, quality = 0.9) {
 export async function processDocumentImage(file) {
   const originalCanvas = await fileToCanvas(file);
 
-  const { canvas: straightened, method } = autoDetectAndStraighten(originalCanvas);
+  // Phone cameras commonly produce 3000-4000px+ photos. Every step below
+  // (corner scan, perspective warp, enhancement filters) is a per-pixel
+  // loop, so working at full resolution made the whole pipeline take a
+  // very long time on-device — this is what "stuck on Optimizing..."
+  // actually was. 1800px is plenty for both on-screen preview and for a
+  // future AI model to read handwriting from.
+  const working = capWorkingSize(originalCanvas, 1800);
+
+  const { canvas: straightened, method } = autoDetectAndStraighten(working);
   const enhanced = enhanceDocumentImage(straightened);
   const quality = analyzeImageQuality(enhanced);
 
