@@ -242,10 +242,7 @@ export function correctPerspective(canvas, corners, outW, outH) {
 
       const outIdx = (y * outW + x) * 4;
       if (sx >= 0 && sx < canvas.width - 1 && sy >= 0 && sy < canvas.height - 1) {
-        const px = bilinearSample(srcData, canvas.width, canvas.height, sx, sy);
-        outData.data[outIdx] = px[0];
-        outData.data[outIdx + 1] = px[1];
-        outData.data[outIdx + 2] = px[2];
+        bilinearSampleInto(srcData, canvas.width, canvas.height, sx, sy, outData.data, outIdx);
         outData.data[outIdx + 3] = 255;
       } else {
         outData.data[outIdx] = 255;
@@ -260,27 +257,36 @@ export function correctPerspective(canvas, corners, outW, outH) {
   return out;
 }
 
-function bilinearSample(imageData, w, h, x, y) {
-  const x0 = Math.floor(x),
-    y0 = Math.floor(y);
-  const x1 = Math.min(w - 1, x0 + 1),
-    y1 = Math.min(h - 1, y0 + 1);
-  const fx = x - x0,
-    fy = y - y0;
+/**
+ * Samples imageData at (x,y) with bilinear interpolation and writes the
+ * RGB result directly into dst at dstIdx — no temporary arrays, so this
+ * stays fast even at several million pixels (a full-resolution phone
+ * photo). The previous version allocated 4 new arrays per pixel via
+ * .slice(), which was fast enough to test but froze real phone photos
+ * for a very long time — that was the "stuck on Optimizing..." bug.
+ */
+function bilinearSampleInto(imageData, w, h, x, y, dst, dstIdx) {
+  const data = imageData.data;
+  const x0 = x | 0;
+  const y0 = y | 0;
+  const x1 = x0 + 1 < w ? x0 + 1 : x0;
+  const y1 = y0 + 1 < h ? y0 + 1 : y0;
+  const fx = x - x0;
+  const fy = y - y0;
 
-  const idx = (xx, yy) => (yy * w + xx) * 4;
-  const c00 = imageData.data.slice(idx(x0, y0), idx(x0, y0) + 3);
-  const c10 = imageData.data.slice(idx(x1, y0), idx(x1, y0) + 3);
-  const c01 = imageData.data.slice(idx(x0, y1), idx(x0, y1) + 3);
-  const c11 = imageData.data.slice(idx(x1, y1), idx(x1, y1) + 3);
+  const i00 = (y0 * w + x0) * 4;
+  const i10 = (y0 * w + x1) * 4;
+  const i01 = (y1 * w + x0) * 4;
+  const i11 = (y1 * w + x1) * 4;
 
-  const result = [0, 0, 0];
-  for (let c = 0; c < 3; c++) {
-    const top = c00[c] * (1 - fx) + c10[c] * fx;
-    const bottom = c01[c] * (1 - fx) + c11[c] * fx;
-    result[c] = top * (1 - fy) + bottom * fy;
-  }
-  return result;
+  const w00 = (1 - fx) * (1 - fy);
+  const w10 = fx * (1 - fy);
+  const w01 = (1 - fx) * fy;
+  const w11 = fx * fy;
+
+  dst[dstIdx] = data[i00] * w00 + data[i10] * w10 + data[i01] * w01 + data[i11] * w11;
+  dst[dstIdx + 1] = data[i00 + 1] * w00 + data[i10 + 1] * w10 + data[i01 + 1] * w01 + data[i11 + 1] * w11;
+  dst[dstIdx + 2] = data[i00 + 2] * w00 + data[i10 + 2] * w10 + data[i01 + 2] * w01 + data[i11 + 2] * w11;
 }
 
 /**
@@ -294,9 +300,20 @@ export function autoDetectAndStraighten(canvas) {
     return { canvas, corners, method: 'none' };
   }
 
-  const outW = Math.round(corners.topRight.x - corners.topLeft.x);
-  const outH = Math.round(corners.bottomLeft.y - corners.topLeft.y);
+  let outW = Math.round(corners.topRight.x - corners.topLeft.x);
+  let outH = Math.round(corners.bottomLeft.y - corners.topLeft.y);
+
+  // Cap the long edge so the pixel-by-pixel warp below never has to
+  // process an unbounded number of pixels, no matter how high-res the
+  // source photo is (modern phone cameras easily exceed 4000px).
+  const MAX_DIM = 1400;
+  const longEdge = Math.max(outW, outH);
+  if (longEdge > MAX_DIM) {
+    const scale = MAX_DIM / longEdge;
+    outW = Math.max(1, Math.round(outW * scale));
+    outH = Math.max(1, Math.round(outH * scale));
+  }
+
   const straightened = correctPerspective(canvas, corners, outW, outH);
   return { canvas: straightened, corners, method: 'perspective' };
 }
-
