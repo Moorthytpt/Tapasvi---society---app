@@ -301,7 +301,7 @@ function parseTableFormat(rawText) {
   const records = [];
   while (i < lines.length) {
     // An optional row-index line ("1", "1.", "1)") before each record's values.
-    if (/^\d+[.)]?$/.test(lines[i])) i++;
+    if (/^\d{1,3}[.)]?$/.test(lines[i])) i++;
 
     const rec = emptyRecord();
     for (let h = 0; h < headers.length && i < lines.length; h++, i++) {
@@ -310,6 +310,58 @@ function parseTableFormat(rawText) {
     if (Object.keys(rec).some(k => !k.startsWith("_") && rec[k])) records.push(rec);
   }
 
+  records.forEach(fillAgeFromDob);
+  return records;
+}
+
+// ===========================================================================
+// FORMAT 4 — Value-only plain text: no header row at all, just a row-index
+// line followed by N raw values, repeating. Since there's no header to
+// read column names from, a fixed default column order is assumed (the
+// same order the AI Prompt Generator's fields start with). The number of
+// values per record is inferred from the gap between the first two row
+// numbers, so it adapts to however many columns this particular response
+// actually has — but which field is which is necessarily a best-effort
+// guess without headers, which is the inherent limitation of this format.
+// Example:
+//   1
+//   A. Geetha
+//   UNCLEAR
+//   Female
+//   11/07/1996
+//   599232884282
+// ===========================================================================
+const VALUE_ONLY_DEFAULT_ORDER = ["name", "father_husband_name", "gender", "_dobRaw", "aadhaar_number"];
+
+function looksLikeValueOnlyFormat(rawText) {
+  const lines = (rawText || "").split("\n").map(l => l.trim()).filter(Boolean);
+  return lines.length >= 2 && /^\d{1,3}[.)]?$/.test(lines[0]);
+}
+
+function parseValueOnlyFormat(rawText) {
+  const lines = (rawText || "").split("\n").map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0 || !/^\d{1,3}[.)]?$/.test(lines[0])) return [];
+
+  const indexPositions = [];
+  lines.forEach((l, idx) => { if (/^\d{1,3}[.)]?$/.test(l)) indexPositions.push(idx); });
+
+  let blockSize = VALUE_ONLY_DEFAULT_ORDER.length;
+  if (indexPositions.length >= 2) blockSize = indexPositions[1] - indexPositions[0] - 1;
+  if (blockSize <= 0) return [];
+
+  const order = VALUE_ONLY_DEFAULT_ORDER.slice(0, blockSize);
+
+  const records = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (/^\d{1,3}[.)]?$/.test(lines[i])) i++;
+    const rec = emptyRecord();
+    for (let f = 0; f < blockSize && i < lines.length; f++, i++) {
+      const field = order[f];
+      if (field) applyFieldValue(rec, field, lines[i]);
+    }
+    if (Object.keys(rec).some(k => !k.startsWith("_") && rec[k])) records.push(rec);
+  }
   records.forEach(fillAgeFromDob);
   return records;
 }
@@ -335,15 +387,21 @@ registerFormatParser({
 });
 
 registerFormatParser({
+  id: "label-text",
+  detect: (text) => /(^|\n)\s*name\s*:/i.test(text || ""),
+  parse: parseLabelTextFormat,
+});
+
+registerFormatParser({
   id: "table-text",
   detect: looksLikeTableFormat,
   parse: parseTableFormat,
 });
 
 registerFormatParser({
-  id: "label-text",
-  detect: (text) => /(^|\n)\s*name\s*:/i.test(text || ""),
-  parse: parseLabelTextFormat,
+  id: "value-only-text",
+  detect: looksLikeValueOnlyFormat,
+  parse: parseValueOnlyFormat,
 });
 
 /**
@@ -388,7 +446,13 @@ export function parseAIText(rawText) {
     return out;
   }
 
-  // Nothing matched at all — most permissive fallback, same behavior as
-  // the original parser had before multi-format support existed.
+  // Nothing registered matched — most permissive fallback, tried in the
+  // same "otherwise" spirit as the registry: value-only last, since it's
+  // the least specific format (a bare index number is the only signal it
+  // needs). If even that finds nothing, fall back to the original
+  // label-text behavior so old pasted text with no recognizable structure
+  // still gets a best-effort attempt rather than nothing at all.
+  const valueOnlyResult = parseValueOnlyFormat(rawText);
+  if (valueOnlyResult.length > 0) return valueOnlyResult;
   return parseLabelTextFormat(rawText);
 }
