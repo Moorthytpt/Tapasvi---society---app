@@ -41,6 +41,7 @@ LANGUAGE RULES
 - If text is Telugu, convert it into natural English transliteration.
 - Never return Telugu.
 - Return English only.
+- This applies to EVERY part of your response, including field labels/names — not just the data values. Never write field names in Telugu (e.g. never write "పేరు" instead of "Name", never write "ఆధార్" instead of "Aadhaar"). Field names must always be the exact English words listed under FIELDS below, and the JSON keys must always be the exact English keys shown in the structure below.
 
 Examples
 వెంకటేష్ → Venkatesh
@@ -65,7 +66,7 @@ VALIDATION RULES
 - Never guess numbers.
 - If unsure, return UNCLEAR.
 
-FIELDS
+FIELDS (use these exact English names — never Telugu)
 Name
 Father/Husband
 Gender
@@ -88,6 +89,7 @@ OUTPUT RULES
 1. First count the total beneficiaries visible.
 2. Return exactly that many records.
 3. Return ONLY valid JSON.
+4. The JSON keys must be in English exactly as shown below — never translated, never renamed.
 
 Use this structure exactly:
 
