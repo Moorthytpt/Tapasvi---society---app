@@ -28,22 +28,22 @@
 // by both the label-text parser (as "Label: value") and the table-text
 // parser (as a bare column header).
 const LABEL_MAP = [
-  { field: "name", labels: ["name"] },
-  { field: "father_husband_name", labels: ["father/husband", "father husband", "father", "husband", "guardian"] },
-  { field: "gender", labels: ["gender", "sex"] },
-  { field: "_dobRaw", labels: ["dob", "date of birth", "birth date"] },
-  { field: "age", labels: ["age"] },
-  { field: "aadhaar_number", labels: ["aadhaar", "aadhar"] },
-  { field: "voter_id", labels: ["voter id", "voter", "epic"] },
-  { field: "phone", labels: ["mobile", "phone", "contact number", "contact"] },
-  { field: "village", labels: ["village"] },
-  { field: "mandal", labels: ["mandal"] },
-  { field: "district", labels: ["district"] },
-  { field: "state", labels: ["state"] },
-  { field: "program", labels: ["program"] },
-  { field: "category", labels: ["category", "caste"] },
-  { field: "house_no", labels: ["house no", "house number", "address"] },
-  { field: "extra_notes", labels: ["occupation", "education", "remarks", "notes", "ration card", "voter"] },
+  { field: "name", labels: ["name", "పేరు"] },
+  { field: "father_husband_name", labels: ["father/husband", "father husband", "father", "husband", "guardian", "తండ్రి/భర్త", "తండ్రి", "భర్త", "సంరక్షకుడు"] },
+  { field: "gender", labels: ["gender", "sex", "లింగం", "జెండర్"] },
+  { field: "_dobRaw", labels: ["dob", "date of birth", "birth date", "పుట్టిన తేదీ", "జననతేదీ"] },
+  { field: "age", labels: ["age", "వయస్సు"] },
+  { field: "aadhaar_number", labels: ["aadhaar", "aadhar", "ఆధార్", "ఆధార్ నెంబరు", "ఆధార్ నెంబర్"] },
+  { field: "voter_id", labels: ["voter id", "voter", "epic", "ఓటర్ ఐడి", "ఓటరు గుర్తింపు"] },
+  { field: "phone", labels: ["mobile", "phone", "contact number", "contact", "మొబైల్", "ఫోన్", "సంప్రదింపు నెంబర్"] },
+  { field: "village", labels: ["village", "గ్రామం"] },
+  { field: "mandal", labels: ["mandal", "మండలం"] },
+  { field: "district", labels: ["district", "జిల్లా"] },
+  { field: "state", labels: ["state", "రాష్ట్రం"] },
+  { field: "program", labels: ["program", "కార్యక్రమం", "ప్రోగ్రామ్"] },
+  { field: "category", labels: ["category", "caste", "కులం", "వర్గం"] },
+  { field: "house_no", labels: ["house no", "house number", "address", "ఇంటి నెంబరు", "చిరునామా"] },
+  { field: "extra_notes", labels: ["occupation", "education", "remarks", "notes", "ration card", "voter", "వృత్తి", "విద్య", "గమనికలు", "రేషన్ కార్డు"] },
 ];
 
 function matchLabel(rawLabel) {
