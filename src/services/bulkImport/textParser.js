@@ -1,16 +1,18 @@
 // src/services/bulkImport/textParser.js
 //
-// Converts labeled "Name: X / Father/Husband: Y / ..." text — the kind of
-// output a phone AI app (ChatGPT, Gemini, Claude, etc.) produces when a
-// field worker photographs a register and asks it to transcribe the page —
-// into the same canonical beneficiary-record shape the rest of the app
-// uses. This sidesteps in-browser OCR accuracy entirely: the AI app does
-// the reading (off-device, using a far more capable model), and this
-// module just parses its structured text output.
+// Converts an AI app's transcription of a photographed register page into
+// the same canonical beneficiary-record shape the rest of the app uses.
+// This sidesteps in-browser OCR accuracy entirely: the AI app does the
+// reading (off-device, using a far more capable model), and this module
+// just parses its output.
 //
-// A new record starts at every "Name:" line — this is more robust than
-// requiring blank-line separators, since pasted text from a phone
-// clipboard doesn't always preserve blank lines between records.
+// Two input formats are supported, auto-detected:
+//   1. JSON — what the current AI Prompt Generator asks for:
+//        { "totalBeneficiaries": N, "records": [ { "name": "...", ... } ] }
+//   2. The older labeled text format — "Name: X / Father/Husband: Y / ..."
+//      A new record starts at every "Name:" line.
+// Whichever format is pasted, parseAIText() returns the same array shape,
+// so nothing downstream (Preview, validation, import) needed to change.
 
 // Label variations (lowercase, no punctuation) -> canonical field key.
 // Matched by substring, same style as the OCR module's header-keyword
@@ -85,13 +87,122 @@ function emptyRecord() {
   };
 }
 
+// --- JSON format support --------------------------------------------------
+// "UNCLEAR" and "N/A" are meaningful values the AI is instructed to return
+// (per promptGenerator.js) — they must survive into the record untouched,
+// never get treated as garbage or get digit-stripped into "".
+function isPlaceholder(v) {
+  const t = (v == null ? "" : String(v)).trim().toUpperCase();
+  return t === "UNCLEAR" || t === "N/A" || t === "";
+}
+function cleanText(v) {
+  return v == null ? "" : String(v).trim();
+}
+// Strips everything but digits — unless the value is a placeholder like
+// "UNCLEAR", in which case it's kept as-is rather than collapsed to "".
+function cleanDigits(v) {
+  if (isPlaceholder(v)) return cleanText(v);
+  return String(v).replace(/\D/g, "");
+}
+
+// Detects whether pasted text is the JSON format the AI Prompt Generator
+// asks for. Returns:
+//   null                        - doesn't look like JSON at all (old text format)
+//   { __invalidJson: true }     - looked like JSON but JSON.parse failed
+//   <parsed object>             - valid JSON
+function tryParseAIJson(rawText) {
+  const trimmed = (rawText || "").trim();
+  if (!trimmed) return null;
+  // Some AI apps add a code fence even when told not to — strip it before
+  // deciding whether this is JSON at all.
+  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (!unfenced.startsWith("{")) return null; // not JSON-shaped — treat as old text format
+  try {
+    return JSON.parse(unfenced);
+  } catch (e) {
+    return { __invalidJson: true };
+  }
+}
+
+// Maps one JSON record (the AI Prompt Generator's field names) into the
+// same canonical shape emptyRecord() produces, so nothing downstream can
+// tell the difference between a JSON-sourced and text-sourced record.
+function mapJsonRecord(rec) {
+  const r = emptyRecord();
+  rec = rec || {};
+
+  r.name = cleanText(rec.name);
+  r.father_husband_name = cleanText(rec.fatherName);
+  r.gender = normalizeGender(rec.gender);
+  r._dobRaw = isPlaceholder(rec.dob) ? "" : cleanText(rec.dob);
+  r.aadhaar_number = cleanDigits(rec.aadhaar);
+  r.voter_id = cleanText(rec.voterId);
+  r.phone = cleanDigits(rec.mobile);
+  r.village = cleanText(rec.village);
+  r.mandal = cleanText(rec.mandal);
+  r.district = cleanText(rec.district);
+  r.program = cleanText(rec.program);
+  r.house_no = cleanText(rec.address);
+
+  // No canonical top-level field exists for ration card / occupation /
+  // education / remarks (the old text format doesn't have one either —
+  // LABEL_MAP already funnels occupation/education/remarks/notes into
+  // extra_notes). Ration card joins that same sink for consistency.
+  const notes = [];
+  if (!isPlaceholder(rec.rationCard)) notes.push(`Ration Card: ${cleanText(rec.rationCard)}`);
+  if (!isPlaceholder(rec.occupation)) notes.push(`Occupation: ${cleanText(rec.occupation)}`);
+  if (!isPlaceholder(rec.education)) notes.push(`Education: ${cleanText(rec.education)}`);
+  if (!isPlaceholder(rec.remarks)) notes.push(`Remarks: ${cleanText(rec.remarks)}`);
+  r.extra_notes = notes.join(" | ");
+
+  // Age: recalculate from DOB whenever DOB is present and parseable
+  // (source of truth), otherwise fall back to whatever age the AI gave
+  // (preserving "UNCLEAR" rather than losing it).
+  const computedAge = r._dobRaw ? ageFromDob(r._dobRaw) : "";
+  r.age = computedAge || cleanText(rec.age);
+
+  return r;
+}
+
 /**
- * Parses pasted "Label: value" text (possibly many beneficiaries back to
- * back) into an array of canonical beneficiary record objects.
+ * Parses an AI app's transcription of a register page into an array of
+ * canonical beneficiary record objects. Auto-detects JSON (the current
+ * AI Prompt Generator format) vs. the older "Label: value" text format —
+ * either way, the returned array shape is identical.
+ *
+ * On a JSON structural problem (invalid JSON, missing "records" array),
+ * returns an empty array with a `.parseError` string attached — existing
+ * callers that only check `.length` (e.g. "no records found") keep
+ * working unchanged; a caller that wants the specific reason can read
+ * `result.parseError`.
+ *
  * @param {string} rawText
- * @returns {Array<object>}
+ * @returns {Array<object> & { parseError?: string }}
  */
 export function parseAIText(rawText) {
+  const maybeJson = tryParseAIJson(rawText);
+
+  if (maybeJson) {
+    if (maybeJson.__invalidJson) {
+      const out = [];
+      out.parseError = "This looks like JSON but couldn't be read — check that nothing was cut off when copying the AI's response.";
+      return out;
+    }
+    if (!Array.isArray(maybeJson.records)) {
+      const out = [];
+      out.parseError = "The AI's JSON response is missing a \"records\" array.";
+      return out;
+    }
+    if (typeof maybeJson.totalBeneficiaries !== "number") {
+      // Not fatal — proceed with whatever records are present, matching
+      // the "warnings only, never blocks" approach used everywhere else
+      // in Bulk AI Import.
+      console.warn("AI JSON response is missing \"totalBeneficiaries\" — continuing with the records array only.");
+    }
+    return maybeJson.records.map(mapJsonRecord);
+  }
+
+  // --- Old "Label: value" text format (unchanged) -------------------------
   const lines = (rawText || "").split("\n").map(l => l.trim()).filter(Boolean);
   const records = [];
   let current = null;
