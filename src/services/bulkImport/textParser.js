@@ -214,36 +214,57 @@ function parseJsonFormat(rawText) {
 
 // ===========================================================================
 // FORMAT 2 — Label-based plain text ("Name: X / Father/Husband: Y / ...")
-// A new record starts at every "Name:" line — more robust than requiring
-// blank-line separators, since pasted clipboard text doesn't always keep them.
+// A new record starts at every recognized "Name" line (in English OR
+// Telugu — "Name:" or "పేరు:") — more robust than requiring blank-line
+// separators, since pasted clipboard text doesn't always keep them.
 // ===========================================================================
+
+// Matches "Label:" boundaries anywhere in a line — includes the Telugu
+// Unicode block (\u0C00-\u0C7F) alongside A-Za-z, since AI apps sometimes
+// answer with Telugu field names even when the prompt asked for English.
+// Used globally (not just at line-start) so a line packing two labels
+// together, e.g. "పుట్టిన తేదీ: 1-1-1950, వయస్సు: 70", still yields both.
+const LABEL_BOUNDARY_RE = /([A-Za-z\u0C00-\u0C7F][A-Za-z\u0C00-\u0C7F\s/]*?)\s*:\s*/g;
+
+function extractLabelValuePairs(line) {
+  const pairs = [];
+  const matches = [...line.matchAll(LABEL_BOUNDARY_RE)];
+  for (let i = 0; i < matches.length; i++) {
+    const label = matches[i][1];
+    const valueStart = matches[i].index + matches[i][0].length;
+    const valueEnd = i + 1 < matches.length ? matches[i + 1].index : line.length;
+    const value = line.slice(valueStart, valueEnd).trim().replace(/,\s*$/, "");
+    pairs.push([label, value]);
+  }
+  return pairs;
+}
+
 function parseLabelTextFormat(rawText) {
   const lines = (rawText || "").split("\n").map(l => l.trim()).filter(Boolean);
   const records = [];
   let current = null;
 
   for (const line of lines) {
-    const m = line.match(/^([A-Za-z][A-Za-z\s/]*?)\s*:\s*(.*)$/);
-    if (!m) continue; // not a "Label: value" line — ignore (e.g. stray AI commentary)
-    const field = matchLabel(m[1]);
-    if (!field) continue; // unrecognized label — skip rather than guess
-    const value = m[2].trim();
+    for (const [rawLabel, value] of extractLabelValuePairs(line)) {
+      const field = matchLabel(rawLabel);
+      if (!field) continue; // unrecognized label — skip rather than guess
 
-    if (field === "name") {
-      // A new "Name:" line always starts a new record, even if the
-      // previous one is incomplete — that's still one AI-transcribed
-      // beneficiary, just with some fields it couldn't read.
-      current = emptyRecord();
-      records.push(current);
-    }
-    if (!current) {
-      // Text before the first "Name:" line — start a record anyway so
-      // nothing pasted gets silently dropped.
-      current = emptyRecord();
-      records.push(current);
-    }
+      if (field === "name") {
+        // A new "Name" line always starts a new record, even if the
+        // previous one is incomplete — that's still one AI-transcribed
+        // beneficiary, just with some fields it couldn't read.
+        current = emptyRecord();
+        records.push(current);
+      }
+      if (!current) {
+        // Text before the first "Name" line — start a record anyway so
+        // nothing pasted gets silently dropped.
+        current = emptyRecord();
+        records.push(current);
+      }
 
-    applyFieldValue(current, field, value);
+      applyFieldValue(current, field, value);
+    }
   }
 
   records.forEach(fillAgeFromDob);
@@ -388,7 +409,9 @@ registerFormatParser({
 
 registerFormatParser({
   id: "label-text",
-  detect: (text) => /(^|\n)\s*name\s*:/i.test(text || ""),
+  detect: (text) => (text || "").split("\n").some((line) =>
+    extractLabelValuePairs(line).some(([label]) => matchLabel(label) === "name")
+  ),
   parse: parseLabelTextFormat,
 });
 
