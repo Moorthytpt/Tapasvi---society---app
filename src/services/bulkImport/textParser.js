@@ -35,7 +35,7 @@ const LABEL_MAP = [
   { field: "age", labels: ["age", "వయస్సు"] },
   { field: "aadhaar_number", labels: ["aadhaar", "aadhar", "ఆధార్", "ఆధార్ నెంబరు", "ఆధార్ నెంబర్"] },
   { field: "voter_id", labels: ["voter id", "voter", "epic", "ఓటర్ ఐడి", "ఓటరు గుర్తింపు"] },
-  { field: "phone", labels: ["mobile", "phone", "contact number", "contact", "మొబైల్", "ఫోన్", "సంప్రదింపు నెంబర్"] },
+  { field: "phone", labels: ["mobile", "phone", "contact number", "contact", "cell no", "cell number", "cell", "మొబైల్", "ఫోన్", "సంప్రదింపు నెంబర్"] },
   { field: "village", labels: ["village", "గ్రామం"] },
   { field: "mandal", labels: ["mandal", "మండలం"] },
   { field: "district", labels: ["district", "జిల్లా"] },
@@ -43,7 +43,7 @@ const LABEL_MAP = [
   { field: "program", labels: ["program", "కార్యక్రమం", "ప్రోగ్రామ్"] },
   { field: "category", labels: ["category", "caste", "కులం", "వర్గం"] },
   { field: "house_no", labels: ["house no", "house number", "address", "ఇంటి నెంబరు", "చిరునామా"] },
-  { field: "extra_notes", labels: ["occupation", "education", "remarks", "notes", "ration card", "voter", "వృత్తి", "విద్య", "గమనికలు", "రేషన్ కార్డు"] },
+  { field: "extra_notes", labels: ["occupation", "education", "remarks", "notes", "ration card", "voter", "relation", "relationship", "bank a/c", "bank account", "bank ac", "వృత్తి", "విద్య", "గమనికలు", "రేషన్ కార్డు"] },
 ];
 
 function matchLabel(rawLabel) {
@@ -118,7 +118,7 @@ function canonicalizeValue(raw) {
   const upper = t.toUpperCase();
   if (upper === "UNCLEAR") return "UNCLEAR";
   if (upper === "N/A" || upper === "NA" || upper === "NOT AVAILABLE" || upper === "NOT APPLICABLE") return "N/A";
-  if (upper === "NULL" || upper === "NIL" || upper === "NONE" || upper === "-") return "";
+  if (upper === "NULL" || upper === "NIL" || upper === "NONE" || upper === "-" || t === "—" || t === "–" || t === "--") return "";
   return t;
 }
 function cleanText(raw) {
@@ -133,12 +133,19 @@ function cleanDigits(raw) {
   return v.replace(/\D/g, "");
 }
 
-/** Applies one field's raw value onto a record, using the same normalization rules regardless of which format parser is calling it. */
-function applyFieldValue(rec, field, rawValue) {
+/** Applies one field's raw value onto a record, using the same normalization rules regardless of which format parser is calling it. `rawLabel` (the original column/field name as written) is used to prefix extra_notes entries, since several different source labels (Relation, Ration Card, Bank A/c, ...) all share that one sink field and must accumulate rather than overwrite each other. */
+function applyFieldValue(rec, field, rawValue, rawLabel) {
   if (!field) return;
   if (field === "gender") rec.gender = normalizeGender(canonicalizeValue(rawValue));
   else if (field === "aadhaar_number") rec.aadhaar_number = cleanDigits(rawValue);
   else if (field === "phone") rec.phone = cleanDigits(rawValue);
+  else if (field === "extra_notes") {
+    const v = cleanText(rawValue);
+    if (v && v !== "N/A") {
+      const prefix = rawLabel ? `${cleanText(rawLabel).replace(/\s+/g, " ")}: ` : "";
+      rec.extra_notes = rec.extra_notes ? `${rec.extra_notes} | ${prefix}${v}` : `${prefix}${v}`;
+    }
+  }
   else rec[field] = cleanText(rawValue);
 }
 
@@ -263,7 +270,7 @@ function parseLabelTextFormat(rawText) {
         records.push(current);
       }
 
-      applyFieldValue(current, field, value);
+      applyFieldValue(current, field, value, rawLabel);
     }
   }
 
@@ -314,7 +321,7 @@ function parseTableFormat(rawText) {
     if (line.includes(":")) break;
     const field = matchLabel(line);
     if (!field) break;
-    headers.push(field);
+    headers.push({ field, label: line });
     i++;
   }
   if (headers.length === 0) return [];
@@ -326,7 +333,7 @@ function parseTableFormat(rawText) {
 
     const rec = emptyRecord();
     for (let h = 0; h < headers.length && i < lines.length; h++, i++) {
-      applyFieldValue(rec, headers[h], lines[i]);
+      applyFieldValue(rec, headers[h].field, lines[i], headers[h].label);
     }
     if (Object.keys(rec).some(k => !k.startsWith("_") && rec[k])) records.push(rec);
   }
