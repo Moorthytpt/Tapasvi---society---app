@@ -102,7 +102,12 @@ function emptyRecord() {
   return {
     name: "", father_husband_name: "", gender: "", age: "", _dobRaw: "",
     aadhaar_number: "", voter_id: "", phone: "", village: "", mandal: "",
-    district: "", state: "", program: "", category: "", house_no: "", extra_notes: "",
+    // Defaults for TAPASVI's operating area — overwritten automatically
+    // whenever the AI response (or table) actually specifies a state/
+    // district, since applyFieldValue only touches a field when that
+    // column is present in the source.
+    district: "Tirupati", state: "Andhra Pradesh",
+    program: "", category: "", house_no: "", extra_notes: "",
   };
 }
 
@@ -173,42 +178,72 @@ function tryParseAIJson(rawText) {
   }
 }
 
+// Accepts the current field name first, falling back to the older
+// schema's name for the same concept — so a response using either the
+// v4 prompt or an older v1-v3 prompt (or a provider that just doesn't
+// follow the exact prompt) parses the same way. Unknown/extra fields on
+// `rec` are simply never read, so they're harmlessly ignored.
+function pick(rec, ...keys) {
+  for (const k of keys) {
+    if (rec[k] != null && rec[k] !== "") return rec[k];
+  }
+  return null;
+}
+
 function mapJsonRecord(rec) {
   const r = emptyRecord();
   rec = rec || {};
 
-  applyFieldValue(r, "name", rec.name);
-  applyFieldValue(r, "father_husband_name", rec.fatherName);
-  applyFieldValue(r, "gender", rec.gender);
-  applyFieldValue(r, "_dobRaw", rec.dob);
-  applyFieldValue(r, "aadhaar_number", rec.aadhaar);
-  applyFieldValue(r, "voter_id", rec.voterId);
-  applyFieldValue(r, "phone", rec.mobile);
-  applyFieldValue(r, "village", rec.village);
-  applyFieldValue(r, "mandal", rec.mandal);
-  applyFieldValue(r, "district", rec.district);
-  applyFieldValue(r, "program", rec.program);
-  applyFieldValue(r, "house_no", rec.address);
+  applyFieldValue(r, "name", pick(rec, "name"));
+  applyFieldValue(r, "father_husband_name", pick(rec, "fatherOrHusband", "fatherName"));
+  applyFieldValue(r, "gender", pick(rec, "gender"));
+  applyFieldValue(r, "_dobRaw", pick(rec, "dateOfBirth", "dob"));
+  applyFieldValue(r, "aadhaar_number", pick(rec, "aadhaar"));
+  applyFieldValue(r, "voter_id", pick(rec, "voterId"));
+  applyFieldValue(r, "phone", pick(rec, "mobile"));
+  applyFieldValue(r, "village", pick(rec, "village"));
+  applyFieldValue(r, "mandal", pick(rec, "mandal"));
+  // district/state default to Tirupati/Andhra Pradesh via emptyRecord() —
+  // only overwrite that default when the AI actually returned a value,
+  // so a null/missing field doesn't wipe the default back to "".
+  const districtVal = pick(rec, "district");
+  if (districtVal != null) applyFieldValue(r, "district", districtVal);
+  const stateVal = pick(rec, "state");
+  if (stateVal != null) applyFieldValue(r, "state", stateVal);
+  applyFieldValue(r, "program", pick(rec, "program"));
+  applyFieldValue(r, "category", pick(rec, "category"));
+  // "houseNumber" (v4) and "address" (v1-v3) both land in the same
+  // canonical house_no field — they were never two different concepts.
+  applyFieldValue(r, "house_no", pick(rec, "houseNumber", "address"));
 
-  // No canonical top-level field exists for ration card / occupation /
-  // education / remarks (the label-text format doesn't have one either —
-  // LABEL_MAP already funnels those into extra_notes). Same sink here.
-  const notes = [];
-  const rc = cleanText(rec.rationCard);
-  const occ = cleanText(rec.occupation);
-  const edu = cleanText(rec.education);
-  const rem = cleanText(rec.remarks);
-  if (rc && rc !== "N/A") notes.push(`Ration Card: ${rc}`);
-  if (occ && occ !== "N/A") notes.push(`Occupation: ${occ}`);
-  if (edu && edu !== "N/A") notes.push(`Education: ${edu}`);
-  if (rem && rem !== "N/A") notes.push(`Remarks: ${rem}`);
+  // Fields with no canonical top-level slot in the beneficiary record
+  // (accountNumber/ifsc are new in v4; rationCard/occupation/education/
+  // remarks never had one, even in v1-v3) all accumulate into
+  // extra_notes with a readable label, same sink as the text-format
+  // parsers use for the same kind of "extra" data.
+  const extras = [
+    ["Ration Card", pick(rec, "rationCard")],
+    ["Occupation", pick(rec, "occupation")],
+    ["Education", pick(rec, "education")],
+    ["Account Number", pick(rec, "accountNumber")],
+    ["IFSC", pick(rec, "ifsc")],
+    ["Remarks", pick(rec, "remarks")],
+  ];
+  const notes = extras
+    .map(([label, value]) => [label, cleanText(value)])
+    .filter(([, value]) => value && value !== "N/A")
+    .map(([label, value]) => `${label}: ${value}`);
+  // Low/medium AI self-reported confidence is worth surfacing for
+  // review; "High" (the default/expected case) isn't, to avoid noise.
+  const confidence = cleanText(pick(rec, "confidence"));
+  if (confidence && confidence.toUpperCase() !== "HIGH") notes.push(`AI Confidence: ${confidence}`);
   r.extra_notes = notes.join(" | ");
 
   // Age: recalculate from DOB whenever DOB is present and parseable
   // (source of truth), otherwise fall back to whatever age the AI gave
   // (preserving "UNCLEAR" rather than losing it).
   const computedAge = r._dobRaw && r._dobRaw !== "UNCLEAR" && r._dobRaw !== "N/A" ? ageFromDob(r._dobRaw) : "";
-  r.age = computedAge || cleanText(rec.age);
+  r.age = computedAge || cleanText(pick(rec, "age"));
 
   return r;
 }
