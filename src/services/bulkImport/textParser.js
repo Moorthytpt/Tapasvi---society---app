@@ -170,9 +170,15 @@ function tryParseAIJson(rawText) {
   // Some AI apps add a code fence even when told not to — strip it before
   // deciding whether this is JSON at all.
   const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  if (!unfenced.startsWith("{")) return null; // not JSON-shaped
+  if (!unfenced.startsWith("{") && !unfenced.startsWith("[")) return null; // not JSON-shaped
   try {
-    return JSON.parse(unfenced);
+    const parsed = JSON.parse(unfenced);
+    // Some AI apps (Gemini in particular) return a bare array of records
+    // instead of the {totalBeneficiaries, records:[...]} envelope the
+    // prompt asks for. Normalize it into the same shape so every
+    // downstream check only has one shape to deal with.
+    if (Array.isArray(parsed)) return { records: parsed };
+    return parsed;
   } catch (e) {
     return { __invalidJson: true };
   }
@@ -195,12 +201,12 @@ function mapJsonRecord(rec) {
   rec = rec || {};
 
   applyFieldValue(r, "name", pick(rec, "name"));
-  applyFieldValue(r, "father_husband_name", pick(rec, "fatherOrHusband", "fatherName"));
+  applyFieldValue(r, "father_husband_name", pick(rec, "fatherOrHusband", "fatherName", "father_or_husband_name"));
   applyFieldValue(r, "gender", pick(rec, "gender"));
   applyFieldValue(r, "_dobRaw", pick(rec, "dateOfBirth", "dob"));
-  applyFieldValue(r, "aadhaar_number", pick(rec, "aadhaar"));
-  applyFieldValue(r, "voter_id", pick(rec, "voterId"));
-  applyFieldValue(r, "phone", pick(rec, "mobile"));
+  applyFieldValue(r, "aadhaar_number", pick(rec, "aadhaar", "aadhaar_number"));
+  applyFieldValue(r, "voter_id", pick(rec, "voterId", "voter_id"));
+  applyFieldValue(r, "phone", pick(rec, "mobile", "phone_number", "phone"));
   applyFieldValue(r, "village", pick(rec, "village"));
   applyFieldValue(r, "mandal", pick(rec, "mandal"));
   // district/state default to Tirupati/Andhra Pradesh via emptyRecord() —
@@ -211,22 +217,24 @@ function mapJsonRecord(rec) {
   const stateVal = pick(rec, "state");
   if (stateVal != null) applyFieldValue(r, "state", stateVal);
   applyFieldValue(r, "program", pick(rec, "program"));
-  applyFieldValue(r, "category", pick(rec, "category"));
-  // "houseNumber" (v4) and "address" (v1-v3) both land in the same
-  // canonical house_no field — they were never two different concepts.
-  applyFieldValue(r, "house_no", pick(rec, "houseNumber", "address"));
+  applyFieldValue(r, "category", pick(rec, "category", "caste"));
+  // "houseNumber" (v4), "address" (v1-v3), and "house_no" (Gemini's own
+  // schema) all land in the same canonical house_no field.
+  applyFieldValue(r, "house_no", pick(rec, "houseNumber", "address", "house_no"));
 
   // Fields with no canonical top-level slot in the beneficiary record
   // (accountNumber/ifsc are new in v4; rationCard/occupation/education/
-  // remarks never had one, even in v1-v3) all accumulate into
-  // extra_notes with a readable label, same sink as the text-format
-  // parsers use for the same kind of "extra" data.
+  // remarks never had one, even in v1-v3; relationship/house_address are
+  // Gemini-specific) all accumulate into extra_notes with a readable
+  // label, same sink as the text-format parsers use for "extra" data.
   const extras = [
-    ["Ration Card", pick(rec, "rationCard")],
+    ["Ration Card", pick(rec, "rationCard", "ration_card_no")],
     ["Occupation", pick(rec, "occupation")],
     ["Education", pick(rec, "education")],
-    ["Account Number", pick(rec, "accountNumber")],
+    ["Account Number", pick(rec, "accountNumber", "account_no")],
     ["IFSC", pick(rec, "ifsc")],
+    ["Relationship", pick(rec, "relationship")],
+    ["Address", pick(rec, "house_address")],
     ["Remarks", pick(rec, "remarks")],
   ];
   const notes = extras
