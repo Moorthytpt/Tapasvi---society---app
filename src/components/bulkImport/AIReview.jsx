@@ -115,7 +115,7 @@ function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze,
   );
 }
 
-export default function AIReview({ images: initialImages, onBack }) {
+export default function AIReview({ images: initialImages, onBack, currentUser, showToast }) {
   const [images, setImages] = useState(initialImages || []);
   const [selectedIds, setSelectedIds] = useState(() => new Set((initialImages || []).map((it) => it.id)));
   const [localScreen, setLocalScreen] = useState('review'); // 'review' | 'config'
@@ -175,8 +175,9 @@ export default function AIReview({ images: initialImages, onBack }) {
   };
 
   const isConfigured = providerManager.isAnyProviderConfigured();
+
   if (localScreen === 'config') {
-    return <ProviderConfig onBack={() => setLocalScreen('review')} />;
+    return <ProviderConfig currentUser={currentUser} onBack={() => setLocalScreen('review')} showToast={showToast} />;
   }
 
   return (
