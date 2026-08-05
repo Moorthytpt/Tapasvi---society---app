@@ -65,6 +65,17 @@ export function disconnectProvider(userId, provider) {
 }
 
 /**
+ * Sends one optimized register image to the user's connected provider for
+ * transcription. The Edge Function looks up and decrypts the user's saved
+ * key server-side — the key is never sent from or held in the browser
+ * for this call. Always resolves (never throws) with either
+ * { success: true, text } or { success: false, message }.
+ */
+export function analyzeImage(userId, provider, imageBase64, mimeType, prompt) {
+  return callEdgeFunction({ action: 'analyze', userId, provider, imageBase64, mimeType, prompt });
+}
+
+/**
  * Reads connection status (never the key itself) for every provider this
  * user has touched. Filtering by user_id happens here, in app code — see
  * the Phase 1 note on why this is an app-level, not database-level,
