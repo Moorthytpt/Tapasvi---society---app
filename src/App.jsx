@@ -1325,7 +1325,8 @@ const applyParsedRecords = (parsed) => {
                     <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
                     <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} /></Field>
                     <Field label="District"><Select value={rec.district} onChange={e => updateRecord(rec._id, "district", e.target.value)} options={DISTRICTS_AP} /></Field>
-                    <Field label="Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} placeholder="Select" /></Field>
+                    <Field label="Program"><Select value={rec.program} onChange={e => updateRecord(rec._id, "program", e.target.value)} options={PROGRAMS.map(p => ({ value: p.key, label: p.label }))} placeholder="Select" /></Field><Field label="Category"><Select value={rec.category || ""} onChange={e => updateRecord(rec._id, "category", e.target.value)} options={CATEGORY_OPTIONS} placeholder="Select" /></Field>
+<Field label="Education / Notes"><Input value={rec.extra_notes || ""} onChange={e => updateRecord(rec._id, "extra_notes", e.target.value)} /></Field>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-2 border-t border-[#F3F4F6] text-[11.5px]">
@@ -1337,7 +1338,8 @@ const applyParsedRecords = (parsed) => {
                     <InfoRow label="Village" value={rec.village || "—"} />
                     <InfoRow label="Mandal" value={rec.mandal || "—"} />
                     <InfoRow label="District" value={rec.district || "—"} />
-                    <InfoRow label="Program" value={PROGRAM_MAP[rec.program]?.label || rec.program || "—"} />
+                    <InfoRow label="Program" value={PROGRAM_MAP[rec.program]?.label || rec.program || "—"} /><InfoRow label="Category" value={rec.category || "—"} />
+<InfoRow label="Education/Notes" value={rec.extra_notes || "—"} />
                   </div>
                 )}
               </div>
