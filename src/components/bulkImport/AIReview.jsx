@@ -4,6 +4,77 @@ import { parseAIText } from '../../services/bulkImport';
 import ProviderConfig from './ProviderConfig';
 
 /**
+ * Resizes/recompresses an image data URL so the payload sent to the AI
+ * provider stays under maxBytes, while keeping enough resolution for
+ * handwriting to stay legible. Runs entirely client-side (canvas), before
+ * the base64 string is ever built — never touches OCR/parser logic.
+ * Returns { dataUrl, bytes } where bytes is the size of the base64
+ * payload that will actually be sent.
+ */
+async function compressImageForAnalysis(dataUrl, maxBytes = 1_000_000) {
+  const img = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load image for compression'));
+    image.src = dataUrl;
+  });
+
+  const estimateBytes = (url) => {
+    const commaIndex = url.indexOf(',');
+    const base64 = commaIndex >= 0 ? url.slice(commaIndex + 1) : url;
+    return Math.ceil((base64.length * 3) / 4);
+  };
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Handwriting needs real resolution — start large, only shrink as far
+  // as actually needed to hit maxBytes.
+  const MAX_DIMENSION = 2000;
+  let width = img.naturalWidth || img.width;
+  let height = img.naturalHeight || img.height;
+  if (Math.max(width, height) > MAX_DIMENSION) {
+    const scale = MAX_DIMENSION / Math.max(width, height);
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+
+  const render = (w, h) => {
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(img, 0, 0, w, h);
+  };
+
+  render(width, height);
+
+  let quality = 0.9;
+  let outUrl = canvas.toDataURL('image/jpeg', quality);
+  let bytes = estimateBytes(outUrl);
+
+  // First, back off JPEG quality — cheaper than shrinking dimensions and
+  // preserves detail better.
+  while (bytes > maxBytes && quality > 0.4) {
+    quality -= 0.1;
+    outUrl = canvas.toDataURL('image/jpeg', quality);
+    bytes = estimateBytes(outUrl);
+  }
+
+  // Still too big at the quality floor — shrink dimensions and try again
+  // once, never going below a size where handwriting would become unreadable.
+  if (bytes > maxBytes) {
+    const scale = Math.sqrt(maxBytes / bytes);
+    const w2 = Math.max(900, Math.round(width * scale));
+    const h2 = Math.max(900, Math.round(height * scale));
+    render(w2, h2);
+    outUrl = canvas.toDataURL('image/jpeg', 0.7);
+    bytes = estimateBytes(outUrl);
+  }
+
+  return { dataUrl: outUrl, bytes };
+}
+
+
+/**
  * AIReview
  * -----------------------------------------------------------------------
  * Phase 3 of Bulk AI Import: the screen shown after "Continue with
@@ -197,14 +268,39 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
       'Leave a field blank after the colon if you cannot read it. Do not invent data.';
 
     const results = [];
-    for (const item of targets) {
-      const match = /^data:([^;]+);base64,(.*)$/s.exec(item.dataUrl || '');
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
+      const label = targets.length > 1 ? `image ${i + 1} of ${targets.length}` : 'image';
+
+      setAnalysis({ status: 'loading', stageLabel: `Compressing ${label}...`, message: '' });
+      let compressed;
+      try {
+        compressed = await compressImageForAnalysis(item.dataUrl);
+      } catch (e) {
+        results.push({ success: false, message: 'Could not read this image.' });
+        continue;
+      }
+      const sizeKb = (compressed.bytes / 1024).toFixed(0);
+      console.log(`[AIReview] ${label}: compressed payload ${sizeKb} KB`);
+
+      const match = /^data:([^;]+);base64,(.*)$/s.exec(compressed.dataUrl || '');
       if (!match) {
         results.push({ success: false, message: 'Could not read this image.' });
         continue;
       }
       const [, mimeType, imageBase64] = match;
+
+      setAnalysis({ status: 'loading', stageLabel: `Analyzing ${label} (${sizeKb} KB)...`, message: '' });
+      const startedAt = Date.now();
       const result = await analyzeImage(userId, connectedProviderId, imageBase64, mimeType, prompt);
+      const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+      console.log(`[AIReview] ${label}: ${connectedProviderId} responded in ${elapsedSec}s (success: ${!!(result && result.success)})`);
+      setAnalysis({
+        status: 'loading',
+        stageLabel: `${label}: ${sizeKb} KB, ${connectedProviderId} responded in ${elapsedSec}s`,
+        message: '',
+      });
+
       results.push(result);
     }
 
