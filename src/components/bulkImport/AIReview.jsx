@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { providerManager, AI_ERROR_TYPES } from '../../services/ai/providerManager';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getProviderStatuses, analyzeImage } from '../../services/ai/providerConnection';
 import ProviderConfig from './ProviderConfig';
 
 /**
@@ -12,12 +12,11 @@ import ProviderConfig from './ProviderConfig';
  *
  * This screen's layout (summary, cards, Back) is unchanged from the
  * previous phase. What changed: "Analyze with AI" / "Analyze Selected
- * Images" now go through providerManager instead of a static message.
- * Since every provider is currently unconfigured, every analysis
- * attempt resolves to a standardized "No AI provider connected." error
- * — never fake/mock records, and Preview Records is never opened
- * automatically (it will only ever open once a real provider call
- * actually succeeds, in a future phase).
+ * Images" now call the real "ai-provider" Edge Function for whichever
+ * provider this user has connected (via providerConnection.js), and
+ * show the raw transcription text on success. Parsing that into actual
+ * beneficiary records and opening a Preview Records screen is a later
+ * phase — this phase only proves the real provider call end-to-end.
  *
  * Standalone component: does not touch Paste AI Text, OCR, Beneficiary
  * Management, or the database. Parent (BulkAIImportModule) only needs
@@ -30,14 +29,6 @@ import ProviderConfig from './ProviderConfig';
  * ImageCaptureOptimizer's onContinue: { id, canvas, dataUrl, quality }
  * -----------------------------------------------------------------------
  */
-
-const ERROR_MESSAGES = {
-  [AI_ERROR_TYPES.PROVIDER_UNAVAILABLE]: 'No AI provider connected.',
-  [AI_ERROR_TYPES.CONNECTION_FAILED]: 'Could not connect to the AI provider.',
-  [AI_ERROR_TYPES.TIMEOUT]: 'The AI provider took too long to respond.',
-  [AI_ERROR_TYPES.INVALID_RESPONSE]: 'The AI provider returned an unexpected response.',
-  [AI_ERROR_TYPES.CANCELLED]: 'Analysis was cancelled.',
-};
 
 function StarRating({ stars }) {
   return (
@@ -116,11 +107,34 @@ function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze,
 }
 
 export default function AIReview({ images: initialImages, onBack, currentUser, showToast }) {
+  const userId = currentUser?.userId || currentUser?.supabaseUser?.id || null;
+
   const [images, setImages] = useState(initialImages || []);
   const [selectedIds, setSelectedIds] = useState(() => new Set((initialImages || []).map((it) => it.id)));
   const [localScreen, setLocalScreen] = useState('review'); // 'review' | 'config'
-  // analysis: { status: 'idle'|'loading'|'error', stageLabel, message }
+  // analysis: { status: 'idle'|'loading'|'success'|'error', stageLabel, message }
   const [analysis, setAnalysis] = useState({ status: 'idle', stageLabel: '', message: '' });
+  // Which provider (if any) this user has actually connected — read once
+  // on mount from the safe status view, same source ProviderConfig uses.
+  const [connectedProviderId, setConnectedProviderId] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) {
+      setStatusLoading(false);
+      return;
+    }
+    let cancelled = false;
+    getProviderStatuses(userId).then((statuses) => {
+      if (cancelled) return;
+      const connected = Object.values(statuses).find((s) => s.is_connected);
+      setConnectedProviderId(connected ? connected.provider : null);
+      setStatusLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const stats = useMemo(() => {
     const ready = images.length; // every image reaching this screen already passed the optimizer
@@ -156,25 +170,48 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
     const targets = images.filter((it) => imageIds.includes(it.id));
     if (targets.length === 0) return;
 
-    setAnalysis({ status: 'loading', stageLabel: 'Preparing images...', message: '' });
-
-    const response = await providerManager.analyzeBatch(targets, {
-      onStageChange: (_key, label) => setAnalysis((prev) => ({ ...prev, status: 'loading', stageLabel: label })),
-    });
-
-    if (response.success) {
-      // Only a real, successful provider response reaches here — and
-      // only then would Preview Records ever open. No provider can
-      // succeed yet, so this branch is architecture-only for now.
-      setAnalysis({ status: 'idle', stageLabel: '', message: '' });
+    if (!userId) {
+      setAnalysis({ status: 'error', stageLabel: '', message: "Couldn't identify your account — please log out and back in." });
+      return;
+    }
+    if (!connectedProviderId) {
+      setAnalysis({ status: 'error', stageLabel: '', message: 'No AI provider connected.' });
       return;
     }
 
-    const message = response.error?.message || ERROR_MESSAGES[response.error?.type] || 'Analysis failed.';
-    setAnalysis({ status: 'error', stageLabel: '', message, errorType: response.error?.type });
+    setAnalysis({ status: 'loading', stageLabel: 'Analyzing with AI...', message: '' });
+
+    const prompt =
+      'Transcribe this handwritten beneficiary register into JSON. Return an object with a "records" array; ' +
+      'each record should have name, fatherOrHusband, gender, dateOfBirth, aadhaar (use null for anything unclear).';
+
+    const results = [];
+    for (const item of targets) {
+      const match = /^data:([^;]+);base64,(.*)$/s.exec(item.dataUrl || '');
+      if (!match) {
+        results.push({ success: false, message: 'Could not read this image.' });
+        continue;
+      }
+      const [, mimeType, imageBase64] = match;
+      const result = await analyzeImage(userId, connectedProviderId, imageBase64, mimeType, prompt);
+      results.push(result);
+    }
+
+    const succeeded = results.filter((r) => r && r.success);
+    if (succeeded.length === 0) {
+      const message = (results[0] && results[0].message) || 'Analysis failed.';
+      setAnalysis({ status: 'error', stageLabel: '', message });
+      return;
+    }
+
+    // Real provider text is in hand — parsing it into beneficiary records
+    // and opening Preview Records is a later phase. For now, surface the
+    // raw response so a real success can be confirmed end-to-end.
+    const preview = String(succeeded[0].text || '').slice(0, 500);
+    setAnalysis({ status: 'success', stageLabel: '', message: preview });
   };
 
-  const isConfigured = providerManager.isAnyProviderConfigured();
+  const isConfigured = !statusLoading && !!connectedProviderId;
 
   if (localScreen === 'config') {
     return <ProviderConfig currentUser={currentUser} onBack={() => setLocalScreen('review')} showToast={showToast} />;
@@ -228,6 +265,16 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
           className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3"
           style={{ background: '#FEF2F2', color: '#B91C1C' }}
         >
+          {analysis.message}
+        </div>
+      )}
+
+      {analysis.status === 'success' && (
+        <div
+          className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap"
+          style={{ background: '#DCFCE7', color: '#16A34A' }}
+        >
+          ✓ AI response received:{'\n'}
           {analysis.message}
         </div>
       )}
