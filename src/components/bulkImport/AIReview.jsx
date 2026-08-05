@@ -191,8 +191,9 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
       'this format — one field per line, a blank line between people, no markdown, no code fences, no ' +
       'extra commentary:\n\n' +
       'Name: <value>\nFather/Husband: <value>\nGender: <Male or Female>\nDOB: <DD/MM/YYYY if visible>\n' +
-      'Aadhaar: <number if visible>\nMobile: <number if visible>\nVillage: <value>\nMandal: <value>\n' +
-      'District: <value>\nProgram: <value if visible>\n\n' +
+      'Aadhaar: <number if visible>\nMobile: <number if visible>\nHouse No: <value if visible>\n' +
+      'Village: <value>\nMandal: <value>\nDistrict: <value>\nCategory: <BC/SC/ST/OC if visible>\n' +
+      'Education: <value if visible>\nProgram: <value if visible>\n\n' +
       'Leave a field blank after the colon if you cannot read it. Do not invent data.';
 
     const results = [];
