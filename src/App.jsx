@@ -1400,7 +1400,7 @@ Program: RYDEAP`}
         </>
       )}
 
-      {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} />}
+       {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} currentUser={currentUser} showToast={showToast} />}
     </div>
   );
 }
