@@ -1178,7 +1178,16 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
     const warningsMap = validateBatch(recs, beneficiaries);
     return recs.map((r, i) => ({ ...r, _warnings: warningsMap[i] || [] }));
   };
-
+const applyParsedRecords = (parsed) => {
+    const withMeta = parsed.map((r, i) => ({
+      ...r,
+      program: normalizeProgram(r.program),
+      _id: `bulk-${Date.now()}-${i}`,
+      _selected: true,
+    }));
+    setRecords(revalidate(withMeta));
+    setStage("preview");
+  };
   const analyze = () => {
     if (!pastedText.trim()) {
       if (capturedImages.length > 0) {
@@ -1193,14 +1202,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
       showToast("Couldn't find any \"Name: ...\" records in the pasted text — check the format matches the example.", "error");
       return;
     }
-    const withMeta = parsed.map((r, i) => ({
-      ...r,
-      program: normalizeProgram(r.program),
-      _id: `bulk-${Date.now()}-${i}`,
-      _selected: true,
-    }));
-    setRecords(revalidate(withMeta));
-    setStage("preview");
+    applyParsedRecords(parsed);
   };
 
   const updateRecord = (id, key, val) => setRecords(rs => revalidate(rs.map(r => r._id === id ? { ...r, [key]: val } : r)));
@@ -1400,7 +1402,7 @@ Program: RYDEAP`}
         </>
       )}
 
-       {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} currentUser={currentUser} showToast={showToast} />}
+       {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} currentUser={currentUser} showToast={showToast} onRecordsReady={applyParsedRecords} />}
     </div>
   );
 }
