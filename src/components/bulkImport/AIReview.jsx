@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getProviderStatuses, analyzeImage } from '../../services/ai/providerConnection';
+import { parseAIText } from '../../services/bulkImport';
 import ProviderConfig from './ProviderConfig';
 
 /**
@@ -8,22 +9,26 @@ import ProviderConfig from './ProviderConfig';
  * Phase 3 of Bulk AI Import: the screen shown after "Continue with
  * Images" on the Camera/Gallery capture screen.
  *
- * Navigation: Camera -> Optimizer -> AI Review -> Preview Records (future)
+ * Navigation: Camera -> Optimizer -> AI Review -> Preview Records (shared
+ * with the manual "Paste AI Output" path)
  *
- * This screen's layout (summary, cards, Back) is unchanged from the
- * previous phase. What changed: "Analyze with AI" / "Analyze Selected
- * Images" now call the real "ai-provider" Edge Function for whichever
- * provider this user has connected (via providerConnection.js), and
- * show the raw transcription text on success. Parsing that into actual
- * beneficiary records and opening a Preview Records screen is a later
- * phase — this phase only proves the real provider call end-to-end.
+ * "Analyze with AI" / "Analyze Selected Images" call the real
+ * "ai-provider" Edge Function for whichever provider this user has
+ * connected (via providerConnection.js), asking for the same
+ * "Label: value" text format the manual Paste AI Output box expects.
+ * On success that text is parsed with the same parseAIText() used there,
+ * and the resulting records are handed to the parent via
+ * onRecordsReady() — landing on the exact same Preview Records screen
+ * either way, with editing/import unchanged.
  *
- * Standalone component: does not touch Paste AI Text, OCR, Beneficiary
- * Management, or the database. Parent (BulkAIImportModule) only needs
- * to pass the optimized images and a way to go back.
+ * This component still doesn't touch OCR or the database directly —
+ * the parent (BulkAIImportModule) owns records/import, this screen just
+ * hands it parsed records the same way the paste box does.
  *
  * Usage:
- *   <AIReview images={capturedImages} onBack={() => setScreen('capture')} />
+ *   <AIReview images={capturedImages} onBack={() => setScreen('capture')}
+ *             currentUser={currentUser} showToast={showToast}
+ *             onRecordsReady={(records) => ...} />
  *
  * `images` items are expected in the shape produced by
  * ImageCaptureOptimizer's onContinue: { id, canvas, dataUrl, quality }
@@ -106,7 +111,7 @@ function ImageCard({ item, index, selected, onToggleSelect, onRemove, onAnalyze,
   );
 }
 
-export default function AIReview({ images: initialImages, onBack, currentUser, showToast }) {
+export default function AIReview({ images: initialImages, onBack, currentUser, showToast, onRecordsReady }) {
   const userId = currentUser?.userId || currentUser?.supabaseUser?.id || null;
 
   const [images, setImages] = useState(initialImages || []);
@@ -182,8 +187,13 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
     setAnalysis({ status: 'loading', stageLabel: 'Analyzing with AI...', message: '' });
 
     const prompt =
-      'Transcribe this handwritten beneficiary register into JSON. Return an object with a "records" array; ' +
-      'each record should have name, fatherOrHusband, gender, dateOfBirth, aadhaar (use null for anything unclear).';
+      'Transcribe this handwritten beneficiary register. For each person, output plain text in exactly ' +
+      'this format — one field per line, a blank line between people, no markdown, no code fences, no ' +
+      'extra commentary:\n\n' +
+      'Name: <value>\nFather/Husband: <value>\nGender: <Male or Female>\nDOB: <DD/MM/YYYY if visible>\n' +
+      'Aadhaar: <number if visible>\nMobile: <number if visible>\nVillage: <value>\nMandal: <value>\n' +
+      'District: <value>\nProgram: <value if visible>\n\n' +
+      'Leave a field blank after the colon if you cannot read it. Do not invent data.';
 
     const results = [];
     for (const item of targets) {
@@ -204,11 +214,22 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
       return;
     }
 
-    // Real provider text is in hand — parsing it into beneficiary records
-    // and opening Preview Records is a later phase. For now, surface the
-    // raw response so a real success can be confirmed end-to-end.
-    const preview = String(succeeded[0].text || '').slice(0, 500);
-    setAnalysis({ status: 'success', stageLabel: '', message: preview });
+    // Same parser the manual "Paste AI Output" path uses — the AI's
+    // response goes straight into the same canonical-record pipeline,
+    // so it lands on the exact same Preview Records screen either way.
+    const combinedText = succeeded.map((r) => r.text || '').join('\n\n');
+    const parsed = parseAIText(combinedText);
+    if (parsed.length === 0) {
+      setAnalysis({
+        status: 'error',
+        stageLabel: '',
+        message: "Got a response from AI, but couldn't find any usable records in it. Try again, or use Paste AI Output instead.",
+      });
+      return;
+    }
+
+    setAnalysis({ status: 'idle', stageLabel: '', message: '' });
+    onRecordsReady(parsed);
   };
 
   const isConfigured = !statusLoading && !!connectedProviderId;
@@ -221,8 +242,8 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
       <p className="text-[12.5px] font-bold text-[#111827] mb-1">AI Review</p>
       <p className="text-[10.5px] text-[#6B7280] mb-3">
-        Review your optimized images before analysis. AI analysis isn't connected yet — this screen only
-        prepares the images and selection for that future step.
+        Review your optimized images, then analyze with your connected AI provider — or go back and use
+        Paste AI Output instead.
       </p>
 
       {/* Top Summary */}
@@ -265,16 +286,6 @@ export default function AIReview({ images: initialImages, onBack, currentUser, s
           className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3"
           style={{ background: '#FEF2F2', color: '#B91C1C' }}
         >
-          {analysis.message}
-        </div>
-      )}
-
-      {analysis.status === 'success' && (
-        <div
-          className="text-[11px] font-semibold rounded-lg px-3 py-2 mb-3 whitespace-pre-wrap"
-          style={{ background: '#DCFCE7', color: '#16A34A' }}
-        >
-          ✓ AI response received:{'\n'}
           {analysis.message}
         </div>
       )}
