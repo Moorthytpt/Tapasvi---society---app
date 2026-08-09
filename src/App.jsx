@@ -1181,10 +1181,6 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
     };
   }, [bulkImportUserId, showProviderConfig]);
 
-  if (showProviderConfig) {
-    return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
-  }
-
   const [images, setImages] = useState([]); // { id, file, previewUrl } — reference only for now, see note above
   const [pastedText, setPastedText] = useState("");
   const [stage, setStage] = useState("input"); // input | preview | summary
@@ -1193,6 +1189,11 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
   const [summary, setSummary] = useState(null);
   const [capturedImages, setCapturedImages] = useState([]);
    const [screen, setScreen] = useState("capture");
+
+  if (showProviderConfig) {
+    return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
+  }
+
   const addImages = (fileList) => {
     const arr = Array.from(fileList).filter(f => f.type.startsWith("image/")).map((f, i) => ({
       id: `bulkimg-${Date.now()}-${i}`, file: f, previewUrl: URL.createObjectURL(f),
