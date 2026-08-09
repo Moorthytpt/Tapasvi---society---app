@@ -9,6 +9,8 @@ import { parseAIText, validateBatch } from "./services/bulkImport";
 import ImageCaptureOptimizer from "./components/bulkImport/ImageCaptureOptimizer";
 import AIReview from "./components/bulkImport/AIReview";
 import PromptGenerator from "./components/bulkImport/PromptGenerator";
+import ProviderConfig from "./components/bulkImport/ProviderConfig";
+import { getProviderStatuses } from "./services/ai/providerConnection";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
@@ -1152,6 +1154,37 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
    and SmartBeneficiaryImportModule — neither of those is touched.
    ============================================================ */
 function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
+  // --- AI provider connection status, checked up front so the user can
+  // connect a key before taking any photos, not only after landing on
+  // AI Review. Reuses the same providerConnection.js status check and
+  // ProviderConfig screen AIReview already uses. ---
+  const [showProviderConfig, setShowProviderConfig] = useState(false);
+  const [connectedProviderId, setConnectedProviderId] = useState(null);
+  const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const bulkImportUserId = currentUser?.userId || currentUser?.supabaseUser?.id || null;
+
+  useEffect(() => {
+    if (!bulkImportUserId) {
+      setProviderStatusLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setProviderStatusLoading(true);
+    getProviderStatuses(bulkImportUserId).then((statuses) => {
+      if (cancelled) return;
+      const connected = Object.values(statuses).find((s) => s.is_connected);
+      setConnectedProviderId(connected ? connected.provider : null);
+      setProviderStatusLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bulkImportUserId, showProviderConfig]);
+
+  if (showProviderConfig) {
+    return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
+  }
+
   const [images, setImages] = useState([]); // { id, file, previewUrl } — reference only for now, see note above
   const [pastedText, setPastedText] = useState("");
   const [stage, setStage] = useState("input"); // input | preview | summary
@@ -1365,6 +1398,21 @@ const applyParsedRecords = (parsed) => {
     <div className="max-w-[560px] mx-auto pb-6">
       <h2 className="text-[17px] font-bold text-[#111827] mb-1">🤖 Bulk AI Import</h2>
       <p className="text-[12px] text-[#6B7280] mb-4">Photograph a beneficiary register, ask an AI app (ChatGPT, Gemini, Claude, etc.) to transcribe it, then paste the result below. This is independent from Smart Import (OCR) — nothing here touches that module.</p>
+
+      {!providerStatusLoading && (
+        connectedProviderId ? (
+          <div className="flex items-center justify-between rounded-xl px-3 py-2 mb-4" style={{ background: "#DCFCE7" }}>
+            <span className="text-[11px] font-semibold text-[#16A34A]">✓ AI provider connected ({connectedProviderId})</span>
+            <button onClick={() => setShowProviderConfig(true)} className="text-[11px] font-semibold text-[#1E3A8A] underline">Manage</button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-xl px-3 py-2 mb-4" style={{ background: "#FEF2F2" }}>
+            <span className="text-[11px] font-semibold text-[#B91C1C]">No AI provider connected yet</span>
+            <button onClick={() => setShowProviderConfig(true)} className="rounded-lg px-3 py-1.5 text-[11px] font-bold text-white shrink-0" style={{ background: "#7C3AED" }}>Connect Provider</button>
+          </div>
+        )
+      )}
+
      {screen === "capture" && (<>
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
         <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 1 — Camera / Gallery Capture</p>
