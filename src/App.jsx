@@ -1244,6 +1244,25 @@ const applyParsedRecords = (parsed) => {
   const toggleSelect = (id) => setRecords(rs => rs.map(r => r._id === id ? { ...r, _selected: !r._selected } : r));
   const toggleSelectAll = () => setRecords(rs => { const allSelected = rs.every(r => r._selected); return rs.map(r => ({ ...r, _selected: !allSelected })); });
 
+  // ---- Add-eligible-program-from-review: tapping "+" next to an Eligible badge
+  // clones the current record into a new preview card registered under that
+  // program, instead of writing to Supabase immediately — it just becomes
+  // another selected record, so it goes through the same review/edit/import
+  // flow (and duplicate checks) as everything else on this screen. ----
+  const isProgramAdded = (rec, key) => records.some(r => r.program === key && (
+    (rec.aadhaar_number && r.aadhaar_number === rec.aadhaar_number) ||
+    (!rec.aadhaar_number && rec.name && r.name === rec.name && r.father_husband_name === rec.father_husband_name)
+  ));
+  const addAdditionalProgramRecord = (rec, programLabel) => {
+    const prog = PROGRAMS.find(p => p.label === programLabel);
+    if (!prog) return;
+    if (rec.program === prog.key) { showToast(`Already registering under ${prog.short}.`, "error"); return; }
+    if (isProgramAdded(rec, prog.key)) { showToast(`${rec.name || "This record"} is already added for ${prog.short}.`, "error"); return; }
+    const newRec = { ...rec, program: prog.key, _id: `bulk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, _selected: true };
+    setRecords(rs => revalidate([...rs, newRec]));
+    showToast(`Added ${rec.name || "record"} for ${prog.short} — review it below, then Import Selected to save.`);
+  };
+
   const doImport = async () => {
     const toImport = records.filter(r => r._selected);
     if (toImport.length === 0) { showToast("Select at least one record first.", "error"); return; }
@@ -1376,7 +1395,23 @@ const applyParsedRecords = (parsed) => {
 <InfoRow label="Education/Notes" value={rec.extra_notes || "—"} />
                  <div className="col-span-2 flex items-center gap-1.5 flex-wrap mt-1 pt-2 border-t border-[#F3F4F6]">
   <span className="text-[10px] text-[#9CA3AF]">Eligible:</span>
-  {checkOcrEligibility(rec).map(p => <span key={p} className="text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">{p}</span>)}
+  {checkOcrEligibility(rec).map(p => {
+    const prog = PROGRAMS.find(pr => pr.label === p);
+    const already = prog ? isProgramAdded(rec, prog.key) : false;
+    return (
+      <span key={p} className="flex items-center gap-1 text-[9.5px] font-medium pl-2 pr-1.5 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">
+        {p}
+        {prog && (already ? (
+          <CheckCircle size={11} className="text-[#16A34A]" />
+        ) : (
+          <button type="button" onClick={() => addAdditionalProgramRecord(rec, p)} title={`Add as a ${prog.short} record`}
+            className="flex items-center justify-center rounded-full text-white font-bold" style={{ width: 14, height: 14, fontSize: 11, lineHeight: 1, background: "#1E3A8A" }}>
+            +
+          </button>
+        ))}
+      </span>
+    );
+  })}
 </div>
                   </div>
                 )}
