@@ -1341,6 +1341,10 @@ const applyParsedRecords = (parsed) => {
                     <InfoRow label="Program" value={PROGRAM_MAP[rec.program]?.label || rec.program || "—"} /><InfoRow label="Category" value={rec.category || "—"} />
 <InfoRow label="Education/Notes" value={rec.extra_notes || "—"} />
                   </div>
+                 <div className="col-span-2 flex items-center gap-1.5 flex-wrap mt-1 pt-2 border-t border-[#F3F4F6]">
+  <span className="text-[10px] text-[#9CA3AF]">Eligible:</span>
+  {checkOcrEligibility(rec).map(p => <span key={p} className="text-[9.5px] font-medium px-2 py-0.5 rounded-full bg-[#EFF6FF] text-[#1E3A8A]">{p}</span>)}
+</div>
                 )}
               </div>
             );
