@@ -1212,6 +1212,37 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
     const warningsMap = validateBatch(recs, beneficiaries);
     return recs.map((r, i) => ({ ...r, _warnings: warningsMap[i] || [] }));
   };
+
+  // ---- In-batch duplicate detection: the AI transcription (Gemini/ChatGPT/etc.)
+  // sometimes repeats the same person when it re-reads a page or overlaps
+  // between pages — e.g. 5 pages x 3 people should paste as 15 records, but
+  // the AI's output text itself contains the same person 2-3 times, so
+  // parseAIText() correctly turns everything it's given into 20-30 records.
+  // This can only be caught here, after parsing, by comparing records to each
+  // other (Aadhaar first, else name+father+village) — repeats are flagged and
+  // auto-deselected so "Import Selected" only saves the first copy of each
+  // person, but stay visible/re-selectable in case two different people
+  // genuinely share those details. ----
+  const dupKey = (r) => {
+    const aad = (r.aadhaar_number || "").trim();
+    if (aad) return `A:${aad}`;
+    const n = (r.name || "").trim().toLowerCase();
+    const f = (r.father_husband_name || "").trim().toLowerCase();
+    const v = (r.village || "").trim().toLowerCase();
+    if (!n) return null; // nothing usable to key on
+    return `N:${n}|${f}|${v}`;
+  };
+  const flagInBatchDuplicates = (recs) => {
+    const seen = new Map();
+    return recs.map(r => {
+      const key = dupKey(r);
+      if (!key) return { ...r, _batchDuplicate: false };
+      const count = seen.get(key) || 0;
+      seen.set(key, count + 1);
+      return count === 0 ? { ...r, _batchDuplicate: false } : { ...r, _selected: false, _batchDuplicate: true };
+    });
+  };
+
 const applyParsedRecords = (parsed) => {
     const withMeta = parsed.map((r, i) => ({
       ...r,
@@ -1219,7 +1250,12 @@ const applyParsedRecords = (parsed) => {
       _id: `bulk-${Date.now()}-${i}`,
       _selected: true,
     }));
-    setRecords(revalidate(withMeta));
+    const deduped = flagInBatchDuplicates(withMeta);
+    const dupCount = deduped.filter(r => r._batchDuplicate).length;
+    if (dupCount > 0) {
+      showToast(`Found ${dupCount} repeat ${dupCount === 1 ? "entry" : "entries"} in the AI output (same person listed more than once) — deselected, review before importing.`, "error");
+    }
+    setRecords(revalidate(deduped));
     setStage("preview");
   };
   const analyze = () => {
@@ -1331,12 +1367,16 @@ const applyParsedRecords = (parsed) => {
 
   if (stage === "preview") {
     const selectedCount = records.filter(r => r._selected).length;
+    const batchDupCount = records.filter(r => r._batchDuplicate).length;
     return (
       <div>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div>
             <h2 className="text-[17px] font-bold text-[#111827]">{records.length} Beneficiaries Found</h2>
-            <p className="text-[12px] text-[#6B7280]">{selectedCount} selected · edit or delete any record before importing</p>
+            <p className="text-[12px] text-[#6B7280]">
+              {selectedCount} selected · edit or delete any record before importing
+              {batchDupCount > 0 && <span style={{ color: "#C2410C" }}> · {batchDupCount} repeated {batchDupCount === 1 ? "entry" : "entries"} from the AI output auto-deselected</span>}
+            </p>
           </div>
           <div className="flex gap-2">
             <button onClick={toggleSelectAll} className="text-[12px] font-semibold text-[#7C3AED]">{records.every(r => r._selected) ? "Deselect All" : "Select All"}</button>
@@ -1356,6 +1396,9 @@ const applyParsedRecords = (parsed) => {
                     <p className="text-[14px] font-bold text-[#111827] truncate">{rec.name || <span className="text-[#DC2626]">(no name)</span>}</p>
                     <div className="flex items-center gap-1.5 flex-wrap mt-1">
                       <Badge label="Text Import" color="#7C3AED" tint="#F5F3FF" />
+                      {rec._batchDuplicate && (
+                        <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FFF7ED", color: "#C2410C" }}>⚠ Repeated in AI output — deselected</span>
+                      )}
                       {rec._warnings.length === 0
                         ? <Badge label="Looks good" color="#16A34A" tint="#DCFCE7" />
                         : rec._warnings.map((w, i) => <span key={i} className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "#FEF2F2", color: "#DC2626" }}>⚠ {w}</span>)}
