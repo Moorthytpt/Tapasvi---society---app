@@ -1101,7 +1101,7 @@ function SmartBeneficiaryImportModule({ beneficiaries, currentUser, showToast, l
               <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <Field label={fieldLabel(rec, "name", "Name")}><Input value={rec.name} onChange={e => updateRecord(rec._id, "name", e.target.value)} /></Field>
                 <Field label={fieldLabel(rec, "voter_id", "Voter ID")}><Input value={rec.voter_id} onChange={e => updateRecord(rec._id, "voter_id", e.target.value.toUpperCase())} /></Field>
-                <Field label={fieldLabel(rec, "aadhaar_number", "Aadhaar Number")}><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
+                <Field label={fieldLabel(rec, "aadhaar_number", "Aadhaar Number")}><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} inputMode="numeric" /></Field>
                 <Field label={fieldLabel(rec, "age", "Age")}><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
                 <Field label={fieldLabel(rec, "gender", "Gender")}><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
                 <Field label={fieldLabel(rec, "house_no", "House No")}><Input value={rec.house_no} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
@@ -1417,7 +1417,8 @@ const applyParsedRecords = (parsed) => {
                     <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
                     <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
                     <Field label="Mobile"><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
-                    <Field label="Aadhaar"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} /></Field>
+                    <Field label="Aadhaar"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} inputMode="numeric" /></Field>
+                    <Field label="Door No"><Input value={rec.house_no || ""} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
                     <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
                     <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} /></Field>
                     <Field label="District"><Select value={rec.district} onChange={e => updateRecord(rec._id, "district", e.target.value)} options={DISTRICTS_AP} /></Field>
@@ -1431,6 +1432,7 @@ const applyParsedRecords = (parsed) => {
                     <InfoRow label="Age" value={rec.age || "—"} />
                     <InfoRow label="Mobile" value={rec.phone || "—"} />
                     <InfoRow label="Aadhaar" value={rec.aadhaar_number || "—"} />
+                    <InfoRow label="Door No" value={rec.house_no || "—"} />
                     <InfoRow label="Village" value={rec.village || "—"} />
                     <InfoRow label="Mandal" value={rec.mandal || "—"} />
                     <InfoRow label="District" value={rec.district || "—"} />
