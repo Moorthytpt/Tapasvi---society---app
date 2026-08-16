@@ -1645,22 +1645,21 @@ function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
     return "<tr>" + cells.map(function(c){ return "<td>" + c + "</td>"; }).join("") + "</tr>";
   }).join("");
 
-  var css = "@page{margin:150px 20px 50px 20px;} body{font-family:Arial,sans-serif;padding:0;font-size:10.5px;color:#111827;} " +
-    ".print-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:16px 20px 10px 20px;border-bottom:3px solid #1E3A8A;} " +
-    ".ph-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;} " +
+  var css = "@page{margin:20px;} body{font-family:Arial,sans-serif;padding:0;font-size:10.5px;color:#111827;} " +
+    ".ph-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:6px 0 10px 0;} " +
     ".ph-left{display:flex;gap:12px;align-items:center;} .ph-left img{width:50px;height:50px;object-fit:contain;} " +
     ".org-name{font-size:15px;font-weight:bold;color:#1E3A8A;line-height:1.25;max-width:420px;} " +
     ".org-sub{font-size:10px;color:#6B7280;margin-top:3px;} " +
     ".ph-right{text-align:right;} .report-title{font-size:15px;font-weight:bold;color:#1E3A8A;} " +
     ".report-meta{font-size:9.5px;color:#6B7280;margin-top:2px;} " +
-    ".stats-bar{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:10.5px;color:#374151;font-weight:600;} " +
-    "table{width:100%;border-collapse:collapse;margin-top:4px;} th{background:#1E3A8A;color:#fff;padding:5px 6px;text-align:left;font-size:9px;white-space:nowrap;} " +
-    "td{border:1px solid #ddd;padding:4px 6px;font-size:9.5px;} tr:nth-child(even){background:#f9f9f9;} " +
-    "thead{display:table-header-group;} " +
-    ".print-footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#999;padding:6px 20px;border-top:1px solid #ddd;background:#fff;}";
+    ".stats-bar{display:flex;gap:18px;flex-wrap:wrap;padding-bottom:10px;border-bottom:3px solid #1E3A8A;font-size:10.5px;color:#374151;font-weight:600;} " +
+    "table{width:100%;border-collapse:collapse;} .hdrcell,.ftrcell{border:none !important;padding:0 !important;background:#fff !important;} " +
+    "th{background:#1E3A8A;color:#fff;padding:5px 6px;text-align:left;font-size:9px;white-space:nowrap;} " +
+    "td{border:1px solid #ddd;padding:4px 6px;font-size:9.5px;} tbody tr:nth-child(even){background:#f9f9f9;} " +
+    "thead{display:table-header-group;} tfoot{display:table-footer-group;} " +
+    ".print-footer{font-size:9px;color:#999;padding:6px 0;border-top:1px solid #ddd;text-align:center;}";
 
-  var headerHtml =
-    "<div class='print-header'>" +
+  var orgHeaderHtml =
       "<div class='ph-row'>" +
         "<div class='ph-left'><img src='" + logoUrl + "'/><div><div class='org-name'>TAPASVI Society for Rural Development, Social Issues &amp; Health Organization</div>" +
         "<div class='org-sub'>Andhra Pradesh, India | " + siteHost + "</div></div></div>" +
@@ -1678,29 +1677,24 @@ function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
         "<span>❌ Dropped: " + dropped + "</span>" +
         "<span>👩 Women: " + women + "</span>" +
         "<span>👨 Men: " + men + "</span>" +
-      "</div>" +
-    "</div>";
+      "</div>";
   var footerHtml = "<div class='print-footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + total + "</div>";
 
+  // The org/logo header used to be a position:fixed element with a hand-guessed @page top
+  // margin to reserve space for it — when the header rendered taller than the guess (long
+  // program name, stats bar wrapping), it overlapped and hid the table's own column-header
+  // row underneath it, and this was unreliable across print/PDF engines in general. Putting
+  // both the org header AND the column-header row inside the table's own <thead> instead
+  // means the browser's native "repeat header on every printed page" behaviour handles it —
+  // no manual margin math, and it can't overlap anything. Same idea for the footer via <tfoot>.
+  var orgHeaderRow = "<tr><td class='hdrcell' colspan='" + headers.length + "'>" + orgHeaderHtml + "</td></tr>";
+  var footerRow = "<tr><td class='ftrcell' colspan='" + headers.length + "'>" + footerHtml + "</td></tr>";
+
   w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - Beneficiary Report</title><style>" + css + "</style></head><body>" +
-    headerHtml + "<table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table>" + footerHtml + "</body></html>");
+    "<table><thead>" + orgHeaderRow + thead + "</thead><tbody>" + tbody + "</tbody><tfoot>" + footerRow + "</tfoot></table>" + "</body></html>");
   w.document.close();
   w.focus();
-  // The fixed header's real height varies (long program name, stats bar wrapping to 2 lines,
-  // etc.) but @page above only reserves a fixed guess (150px) for it — when the header
-  // renders taller than that guess, it overlaps the first table row underneath it, which is
-  // what made the column-header row disappear on some reports. Measure the header after it
-  // lays out and reserve exactly that much (+buffer) before printing.
-  setTimeout(function(){
-    var headerEl = w.document.querySelector(".print-header");
-    if (headerEl) {
-      var neededMargin = headerEl.offsetHeight + 24;
-      var styleEl = w.document.createElement("style");
-      styleEl.textContent = "@page{margin-top:" + neededMargin + "px !important;}";
-      w.document.head.appendChild(styleEl);
-    }
-    w.print();
-  }, 600);
+  setTimeout(function(){ w.print(); }, 600);
 }
 
 function printTable(rows, title, cols) {
@@ -1708,31 +1702,24 @@ function printTable(rows, title, cols) {
   if (!w) return;
   var headers = cols || (rows.length ? Object.keys(rows[0]) : []);
   var logoUrl = window.location.origin + "/icon-512-transparent.png";
-  var css = "@page{margin:90px 16px 50px 16px;} body{font-family:Arial,sans-serif;padding:0;font-size:11px;} " +
-    ".print-header{position:fixed;top:0;left:0;right:0;min-height:70px;display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:10px 16px;background:#fff;} " +
+  var css = "@page{margin:20px 16px;} body{font-family:Arial,sans-serif;padding:0;font-size:11px;} " +
+    ".print-header{display:flex;align-items:center;gap:10px;border-bottom:2px solid #1E3A8A;padding:6px 0 10px 0;} " +
     ".print-header img{width:38px;height:38px;object-fit:contain;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} .print-header .sub{font-size:9.5px;color:#6B7280;} " +
-    ".print-footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#999;padding:6px 16px;border-top:1px solid #ddd;background:#fff;} " +
-    "h2{color:#374151;font-size:13px;margin:0 0 6px 0;} table{width:100%;border-collapse:collapse;} th{background:#1E3A8A;color:white;padding:5px 7px;text-align:left;font-size:10px;} " +
-    "td{border:1px solid #ddd;padding:4px 7px;} tr:nth-child(even){background:#f9f9f9;} thead{display:table-header-group;}";
+    ".print-footer{font-size:9px;color:#999;padding:6px 0;border-top:1px solid #ddd;text-align:center;} " +
+    "h2{color:#374151;font-size:13px;margin:6px 0;} table{width:100%;border-collapse:collapse;} .hdrcell,.ftrcell{border:none !important;padding:0 !important;background:#fff !important;} " +
+    "th{background:#1E3A8A;color:white;padding:5px 7px;text-align:left;font-size:10px;} " +
+    "td{border:1px solid #ddd;padding:4px 7px;} tbody tr:nth-child(even){background:#f9f9f9;} thead{display:table-header-group;} tfoot{display:table-footer-group;}";
   var thead = "<tr>" + headers.map(function(h){ return "<th>" + h + "</th>"; }).join("") + "</tr>";
   var tbody = rows.map(function(r){ return "<tr>" + headers.map(function(h){ return "<td>" + (r[h] || "") + "</td>"; }).join("") + "</tr>"; }).join("");
-  var headerHtml = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div class='sub'>" + title + "</div></div></div>";
+  var headerHtml = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div class='sub'>" + title + "</div></div></div><h2>" + title + "</h2>";
   var footerHtml = "<div class='print-footer'>TAPASVI Society | Generated: " + new Date().toLocaleString("en-IN") + " | Total: " + rows.length + "</div>";
-  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body>" + headerHtml + "<div style='margin-top:8px;'><h2>" + title + "</h2><table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table></div>" + footerHtml + "</body></html>");
+  var orgHeaderRow = "<tr><td class='hdrcell' colspan='" + headers.length + "'>" + headerHtml + "</td></tr>";
+  var footerRow = "<tr><td class='ftrcell' colspan='" + headers.length + "'>" + footerHtml + "</td></tr>";
+  w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body>" +
+    "<table><thead>" + orgHeaderRow + thead + "</thead><tbody>" + tbody + "</tbody><tfoot>" + footerRow + "</tfoot></table>" + "</body></html>");
   w.document.close();
   w.focus();
-  // See printBeneficiaryReport above — reserve the header's real height instead of the
-  // fixed 90px guess, so a long title/sub-line can't overlap the table's header row.
-  setTimeout(function(){
-    var headerEl = w.document.querySelector(".print-header");
-    if (headerEl) {
-      var neededMargin = headerEl.offsetHeight + 24;
-      var styleEl = w.document.createElement("style");
-      styleEl.textContent = "@page{margin-top:" + neededMargin + "px !important;}";
-      w.document.head.appendChild(styleEl);
-    }
-    w.print();
-  }, 600);
+  setTimeout(function(){ w.print(); }, 600);
 }
 
 
@@ -7298,28 +7285,21 @@ function printAssessmentResultSheet(assessment, rows) {
     (r.is_absent ? "-" : r.viva_marks ?? 0) + "</td><td>" + r.total_marks + "</td><td>" + r.percentage + "%</td><td>" +
     r.grade + "</td><td>" + r.result + "</td></tr>"
   )).join("");
-  const css = "@page{margin:110px 20px 40px 20px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
-    ".print-header{position:fixed;top:0;left:0;right:0;background:#fff;padding:14px 20px;border-bottom:2px solid #1E3A8A;display:flex;gap:10px;align-items:center;} " +
+  const css = "@page{margin:20px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".print-header{display:flex;gap:10px;align-items:center;border-bottom:2px solid #1E3A8A;padding:6px 0 10px 0;} " +
     ".print-header img{width:38px;height:38px;} .print-header .org{font-weight:bold;color:#1E3A8A;font-size:15px;} " +
-    "table{width:100%;border-collapse:collapse;margin-top:8px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;} thead{display:table-header-group;}";
+    "table{width:100%;border-collapse:collapse;} .hdrcell{border:none !important;padding:0 !important;background:#fff !important;} " +
+    "th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;} thead{display:table-header-group;}";
   const header = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org'>TAPASVI Society</div><div style='font-size:10px;color:#666;'>Assessment Result Sheet</div></div></div>";
   const meta = "<p><b>Batch:</b> " + (assessment.batch_label || "") + " &nbsp; <b>Course:</b> " + (assessment.course || "") +
     " &nbsp; <b>Trainer:</b> " + (assessment.trainer || "") + "</p><p><b>Date:</b> " + (assessment.assessment_date || "") +
     " &nbsp; <b>Type:</b> " + (assessment.assessment_type || "") + " &nbsp; <b>Max Marks:</b> " + assessment.max_marks +
     " &nbsp; <b>Pass Marks:</b> " + assessment.pass_marks + "</p>";
+  const orgHeaderRow = "<tr><td class='hdrcell' colspan='9'>" + header + meta + "</td></tr>";
   w.document.write("<!DOCTYPE html><html><head><title>Assessment Result Sheet</title><style>" + css + "</style></head><body>" +
-    header + "<div style='margin-top:6px;'>" + meta + "<table>" + thead + tbody + "</table></div></body></html>");
+    "<table><thead>" + orgHeaderRow + thead + "</thead><tbody>" + tbody + "</tbody></table></body></html>");
   w.document.close(); w.focus();
-  setTimeout(() => {
-    const headerEl = w.document.querySelector(".print-header");
-    if (headerEl) {
-      const neededMargin = headerEl.offsetHeight + 24;
-      const styleEl = w.document.createElement("style");
-      styleEl.textContent = "@page{margin-top:" + neededMargin + "px !important;}";
-      w.document.head.appendChild(styleEl);
-    }
-    w.print();
-  }, 600);
+  setTimeout(() => { w.print(); }, 600);
 }
 
 function AssessmentManagement({ batches, beneficiaries, enrollments, currentUser, isAdmin, showToast, logAppAudit, onClose }) {
@@ -8533,23 +8513,15 @@ function printSimpleTable(title, columns, rows) {
   if (!w) return;
   const thead = "<tr>" + columns.map(c => "<th>" + c.label + "</th>").join("") + "</tr>";
   const tbody = rows.map(r => "<tr>" + columns.map(c => "<td>" + (r[c.key] ?? "") + "</td>").join("") + "</tr>").join("");
-  const css = "@page{margin:80px 20px 30px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
-    ".hdr{position:fixed;top:0;left:0;right:0;padding:12px 20px;border-bottom:2px solid #1E3A8A;background:#fff;} .hdr b{color:#1E3A8A;font-size:15px;}" +
-    "table{width:100%;border-collapse:collapse;margin-top:6px;} th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;} thead{display:table-header-group;}";
+  const css = "@page{margin:20px;} body{font-family:Arial,sans-serif;font-size:11px;color:#111827;} " +
+    ".hdr{padding:6px 0 10px 0;border-bottom:2px solid #1E3A8A;} .hdr b{color:#1E3A8A;font-size:15px;}" +
+    "table{width:100%;border-collapse:collapse;} .hdrcell{border:none !important;padding:0 !important;background:#fff !important;} " +
+    "th,td{border:1px solid #ddd;padding:5px 7px;text-align:left;} th{background:#F3F4F6;} thead{display:table-header-group;}";
+  const orgHeaderRow = "<tr><td class='hdrcell' colspan='" + columns.length + "'><div class='hdr'><b>TAPASVI Society</b><div style='font-size:11px;color:#666;'>" + title + "</div></div></td></tr>";
   w.document.write("<!DOCTYPE html><html><head><title>" + title + "</title><style>" + css + "</style></head><body>" +
-    "<div class='hdr'><b>TAPASVI Society</b><div style='font-size:11px;color:#666;'>" + title + "</div></div>" +
-    "<table><thead>" + thead + "</thead><tbody>" + tbody + "</tbody></table></body></html>");
+    "<table><thead>" + orgHeaderRow + thead + "</thead><tbody>" + tbody + "</tbody></table></body></html>");
   w.document.close(); w.focus();
-  setTimeout(() => {
-    const headerEl = w.document.querySelector(".hdr");
-    if (headerEl) {
-      const neededMargin = headerEl.offsetHeight + 24;
-      const styleEl = w.document.createElement("style");
-      styleEl.textContent = "@page{margin-top:" + neededMargin + "px !important;}";
-      w.document.head.appendChild(styleEl);
-    }
-    w.print();
-  }, 600);
+  setTimeout(() => { w.print(); }, 600);
 }
 
 function MiniBarChart({ data, color }) {
