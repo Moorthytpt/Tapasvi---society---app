@@ -1189,6 +1189,7 @@ function BulkAIImportModule({ beneficiaries, currentUser, showToast, logAppAudit
   const [summary, setSummary] = useState(null);
   const [capturedImages, setCapturedImages] = useState([]);
    const [screen, setScreen] = useState("capture");
+  const [excelImporting, setExcelImporting] = useState(false);
 
   if (showProviderConfig) {
     return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
@@ -1258,6 +1259,92 @@ const applyParsedRecords = (parsed) => {
     setRecords(revalidate(deduped));
     setStage("preview");
   };
+
+  // ---- Excel/CSV Import: for data that's already structured in a spreadsheet
+  // (e.g. a government/partner scheme's master list) — no AI transcription
+  // needed, just parse the file directly and map its columns onto our
+  // beneficiary fields. Uses SheetJS, loaded from a CDN at runtime instead of
+  // an npm dependency so no package.json/build changes are needed. Column
+  // matching is header-name based (case/space/punctuation-insensitive) so it
+  // tolerates real-world header variations without being hand-coded per file. ----
+  const loadSheetJS = () => {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (window.__xlsxLoadingPromise) return window.__xlsxLoadingPromise;
+    window.__xlsxLoadingPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.onload = () => resolve(window.XLSX);
+      script.onerror = () => reject(new Error("Couldn't load the Excel reader library — check your internet connection and try again."));
+      document.head.appendChild(script);
+    });
+    return window.__xlsxLoadingPromise;
+  };
+
+  const normalizeHeader = (h) => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const EXCEL_COLUMN_MAP = [
+    { keys: ["nameofthebeneficiary", "beneficiaryname", "name"], field: "name" },
+    { keys: ["fatherhusbandname", "fatherorhusband", "fathername", "husbandname"], field: "father_husband_name" },
+    { keys: ["gender", "sex"], field: "gender" },
+    { keys: ["age"], field: "age" },
+    { keys: ["cellno", "mobileno", "mobile", "phoneno", "phone"], field: "phone" },
+    { keys: ["village"], field: "village" },
+    { keys: ["mandal"], field: "mandal" },
+    { keys: ["district"], field: "district" },
+    { keys: ["state"], field: "state" },
+    { keys: ["uidnumber", "uid"], field: "_uid" },
+    { keys: ["typeofservice", "servicefacilitated", "service"], field: "_service" },
+    { keys: ["ssrname"], field: "_ssr" },
+    { keys: ["cfname"], field: "_cf" },
+  ];
+  const mapExcelRow = (row) => {
+    const rec = { name: "", father_husband_name: "", gender: "", age: "", phone: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", program: "womens" };
+    const notesParts = [];
+    Object.keys(row).forEach(header => {
+      const norm = normalizeHeader(header);
+      const match = EXCEL_COLUMN_MAP.find(m => m.keys.some(k => norm === k || norm.includes(k)));
+      if (!match) return;
+      const val = (row[header] ?? "").toString().trim();
+      if (!val) return;
+      if (match.field === "_uid") notesParts.push(`PSMM ID: ${val}`);
+      else if (match.field === "_service") notesParts.push(`Service: ${val}`);
+      else if (match.field === "_ssr" || match.field === "_cf") notesParts.push(`${match.field === "_ssr" ? "SSR" : "CF"}: ${val}`);
+      else if (match.field === "gender") rec.gender = /^f/i.test(val) ? "Female" : /^m/i.test(val) ? "Male" : val;
+      else if (match.field === "district" || match.field === "state") { /* keep spreadsheet's own value */ rec[match.field] = val; }
+      else rec[match.field] = val;
+    });
+    rec.extra_notes = notesParts.join(" | ");
+    return rec;
+  };
+
+  const handleExcelFile = async (file) => {
+    if (!file) return;
+    setExcelImporting(true);
+    try {
+      const XLSX = await loadSheetJS();
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const withNames = rows.filter(r => {
+        const mapped = mapExcelRow(r);
+        return mapped.name && mapped.name.trim();
+      });
+      if (withNames.length === 0) {
+        showToast("Couldn't find a beneficiary name column in this file — check the file has a 'Name of the Beneficiary' (or similar) column.", "error");
+        setExcelImporting(false);
+        return;
+      }
+      const mapped = withNames.map(r => mapExcelRow(r));
+      applyParsedRecords(mapped);
+      showToast(`Imported ${mapped.length} row(s) from the Excel file for review — set to Women's Empowerment. Check each record before importing.`);
+    } catch (err) {
+      showToast("Couldn't read that file — make sure it's a valid .xlsx/.xls/.csv file. " + (err?.message || ""), "error");
+    } finally {
+      setExcelImporting(false);
+    }
+  };
+
   const analyze = () => {
     if (!pastedText.trim()) {
       if (capturedImages.length > 0) {
@@ -1534,6 +1621,18 @@ Program: RYDEAP`}
       <button onClick={analyze} className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white" style={{ background: "#7C3AED", minHeight: 48 }}>
         Analyze AI data 
       </button>
+
+      <div className="text-center text-[11px] font-bold text-[#9CA3AF] my-2">— OR —</div>
+
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 mb-4">
+        <p className="text-[12.5px] font-bold text-[#111827] mb-1">Section 3 — Excel/CSV Import</p>
+        <p className="text-[10.5px] text-[#6B7280] mb-3">Already have a spreadsheet (e.g. a partner scheme's master list)? Upload it directly — no AI transcription needed. Records are set to Women's Empowerment and land on the review screen for you to check before importing.</p>
+        <label className="flex items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed border-[#E5E7EB] py-3.5 text-[13px] font-semibold text-[#374151] cursor-pointer" style={{ minHeight: 48 }}>
+          {excelImporting ? "Reading file…" : "📊 Choose Excel/CSV File"}
+          <input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={excelImporting}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleExcelFile(f); e.target.value = ""; }} />
+        </label>
+      </div>
         </>
       )}
 
