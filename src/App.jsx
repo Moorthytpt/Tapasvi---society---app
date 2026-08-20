@@ -1324,9 +1324,38 @@ const applyParsedRecords = (parsed) => {
       const XLSX = await loadSheetJS();
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
+      // Pick the first sheet that actually has data (some exports include a
+      // trailing blank "Sheet1"), instead of blindly using SheetNames[0].
+      const firstSheetName = workbook.SheetNames.find(name => {
+        const s = workbook.Sheets[name];
+        const raw = XLSX.utils.sheet_to_json(s, { header: 1, defval: "", blankrows: false });
+        return raw.length > 0;
+      }) || workbook.SheetNames[0];
       const sheet = workbook.Sheets[firstSheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      // Some real-world exports (e.g. this PSMM-AP master list) have one or
+      // more title/grouping rows above the real column headers, so we can't
+      // assume row 1 is the header row. Scan the first several rows and use
+      // the first one that contains a recognizable "name" header as the
+      // actual header row, then build row objects from there ourselves —
+      // everything downstream (mapExcelRow, EXCEL_COLUMN_MAP) is unchanged.
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", blankrows: false });
+      const nameKeys = EXCEL_COLUMN_MAP.find(m => m.field === "name").keys;
+      let headerRowIdx = 0;
+      for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+        const candidate = rawRows[i].map(h => normalizeHeader(h));
+        if (candidate.some(norm => nameKeys.some(k => norm === k || norm.includes(k)))) {
+          headerRowIdx = i;
+          break;
+        }
+      }
+      const headerRow = rawRows[headerRowIdx];
+      const rows = rawRows.slice(headerRowIdx + 1).map(r => {
+        const obj = {};
+        headerRow.forEach((h, i) => {
+          if (h) obj[h] = r[i] ?? "";
+        });
+        return obj;
+      });
       const withNames = rows.filter(r => {
         const mapped = mapExcelRow(r);
         return mapped.name && mapped.name.trim();
