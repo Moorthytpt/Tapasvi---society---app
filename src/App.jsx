@@ -1307,7 +1307,8 @@ const applyParsedRecords = (parsed) => {
       if (!val) return;
       if (match.field === "_uid") notesParts.push(`PSMM ID: ${val}`);
       else if (match.field === "_service") notesParts.push(`Service: ${val}`);
-      else if (match.field === "_ssr" || match.field === "_cf") notesParts.push(`${match.field === "_ssr" ? "SSR" : "CF"}: ${val}`);
+      else if (match.field === "_ssr") notesParts.push(`SSR: ${val}`);
+      else if (match.field === "_cf") rec.field_worker_name = `${val} (PSMM)`;
       else if (match.field === "gender") rec.gender = /^f/i.test(val) ? "Female" : /^m/i.test(val) ? "Male" : val;
       else if (match.field === "district" || match.field === "state") { /* keep spreadsheet's own value */ rec[match.field] = val; }
       else rec[match.field] = val;
@@ -1410,7 +1411,7 @@ const applyParsedRecords = (parsed) => {
             district: rec.district || "Tirupati", state: rec.state || "Andhra Pradesh",
             category: rec.category || null, program: rec.program || null, status: "Registered",
             registration_date: new Date().toISOString().slice(0, 10),
-            field_worker_name: currentUser?.role === "fieldworker" ? currentUser.username : "",
+            field_worker_name: rec.field_worker_name || (currentUser?.role === "fieldworker" ? currentUser.username : ""),
             notes: [rec.father_husband_name ? `Father/Husband: ${rec.father_husband_name}` : "", rec._dobRaw ? `DOB: ${rec._dobRaw}` : "", rec.extra_notes ? `Notes: ${rec.extra_notes}` : ""].filter(Boolean).join(" · "),
             created_at: new Date().toISOString(),
           };
