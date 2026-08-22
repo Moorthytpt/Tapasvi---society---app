@@ -1709,7 +1709,7 @@ District: <district from the printed address, or null>
 State: <state from the printed address, or null>
 If this image is not an Aadhaar card, write null for every field.`;
 
-function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
+function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit, onImported, onBack }) {
   const [showProviderConfig, setShowProviderConfig] = useState(false);
   const [connectedProviderId, setConnectedProviderId] = useState(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -1738,6 +1738,30 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
   const [saving, setSaving] = useState(false);
   const [savedDoc, setSavedDoc] = useState(null); // the permanent copy, saved immediately on capture — kept even if no match is found or the process is cancelled
   const [savingCopy, setSavingCopy] = useState(false);
+  const [unlinkedDocs, setUnlinkedDocs] = useState([]);
+  const [showUnlinked, setShowUnlinked] = useState(false);
+
+  // Every photo saved on capture starts as an unlinked "general" document —
+  // this is where those live until (or unless) they get matched to a
+  // beneficiary. Reloaded after every save/link so the list stays current.
+  const loadUnlinked = async () => {
+    const { data } = await supabase.from("documents").select("*")
+      .eq("entity_type", "general").is("entity_id", null).eq("document_type", "Identity Proof").eq("status", "Active")
+      .order("uploaded_at", { ascending: false });
+    setUnlinkedDocs(data || []);
+  };
+  useEffect(() => { loadUnlinked(); }, []);
+
+  const viewSavedDoc = async (doc) => {
+    const { data, error } = await supabase.storage.from("beneficiary-documents").createSignedUrl(doc.file_path, 3600);
+    if (error || !data?.signedUrl) { showToast("Could not open this photo.", "error"); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const linkExistingDoc = (doc) => {
+    setSavedDoc(doc); setPhotoFile(null); setPreviewUrl(null); setExtracted({});
+    setStage("manualSearch"); setShowUnlinked(false);
+  };
 
   if (showProviderConfig) {
     return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
@@ -1768,6 +1792,7 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
           documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
         });
         setSavedDoc(doc);
+        loadUnlinked();
       } catch (e) {
         showToast("Photo captured, but saving a copy failed: " + (e.message || "unknown error"), "error");
       } finally {
@@ -1798,6 +1823,7 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
             documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
           });
           setSavedDoc(doc);
+          loadUnlinked();
         } catch (e) {
           showToast("Could not save a copy of the photo: " + (e.message || "unknown error"), "error");
         }
@@ -1834,7 +1860,8 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
   };
 
   const confirmSave = async () => {
-    if (!matched || !photoFile) return;
+    if (!matched) return;
+    if (!photoFile && !savedDoc) { showToast("No photo to save.", "error"); return; }
     setSaving(true);
     try {
       const updatePayload = {};
@@ -1862,6 +1889,7 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
       await logAppAudit("UPDATE", "Beneficiaries", `Aadhaar auto-matched & linked for ${matched.name} (${matched.beneficiary_id})`);
       showToast("Saved — Aadhaar photo linked and address filled.", "success");
       if (onImported) onImported();
+      loadUnlinked();
       resetAll();
     } catch (e) {
       showToast(e.message || "Save failed", "error");
@@ -1887,8 +1915,33 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
 
   return (
     <div className="max-w-[480px] mx-auto">
-      <h2 className="text-[17px] font-bold text-[#111827] mb-1">Aadhaar Auto-Match Upload</h2>
-      <p className="text-[12px] text-[#6B7280] mb-4">Photograph an Aadhaar card / Xerox copy — matching beneficiary and address details are found automatically.</p>
+      <div className="flex items-center gap-2 mb-1">
+        {onBack && <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-[#F3F4F6]"><ChevronRight size={16} className="rotate-180" /></button>}
+        <h2 className="text-[17px] font-bold text-[#111827]">Aadhaar Auto-Match Upload</h2>
+      </div>
+      <p className="text-[12px] text-[#6B7280] mb-2">Photograph an Aadhaar card / Xerox copy — matching beneficiary and address details are found automatically.</p>
+      <button onClick={() => setShowUnlinked(s => !s)} className="text-[11px] font-semibold text-[#7C3AED] mb-3">
+        🗂 {unlinkedDocs.length} saved photo{unlinkedDocs.length === 1 ? "" : "s"} not yet linked {showUnlinked ? "▲" : "▼"}
+      </button>
+
+      {showUnlinked && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-3 mb-4 max-h-64 overflow-y-auto">
+          {unlinkedDocs.length === 0 ? (
+            <p className="text-[11.5px] text-[#9CA3AF] text-center py-3">No unlinked saved copies</p>
+          ) : unlinkedDocs.map(doc => (
+            <div key={doc.id} className="flex items-center justify-between gap-2 py-2 border-b border-[#F3F4F6] last:border-0">
+              <div>
+                <p className="text-[11.5px] font-semibold text-[#111827]">{doc.file_name}</p>
+                <p className="text-[10px] text-[#9CA3AF]">{new Date(doc.uploaded_at).toLocaleString()}</p>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button onClick={() => viewSavedDoc(doc)} className="text-[10.5px] font-semibold text-[#374151] px-2.5 py-1.5 rounded-lg border border-[#E5E7EB]">View</button>
+                <button onClick={() => linkExistingDoc(doc)} className="text-[10.5px] font-semibold text-white px-2.5 py-1.5 rounded-lg" style={{ background: "#7C3AED" }}>Link</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {stage === "capture" && (
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
@@ -1963,9 +2016,13 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
           <div className="rounded-xl mb-3 p-3" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
             <p className="text-[13px] font-bold text-[#111827]">{matched.name}</p>
-            <p className="text-[11px] text-[#16A34A]">{matched.beneficiary_id} · Aadhaar matched: {extracted?.aadhaar_number}</p>
+            <p className="text-[11px] text-[#16A34A]">{matched.beneficiary_id}{extracted?.aadhaar_number ? ` · Aadhaar matched: ${extracted.aadhaar_number}` : " · Linking saved photo to this beneficiary"}</p>
           </div>
-          {previewUrl && <img src={previewUrl} alt="Aadhaar" className="w-full rounded-xl mb-3 border border-[#E5E7EB]" />}
+          {previewUrl ? (
+            <img src={previewUrl} alt="Aadhaar" className="w-full rounded-xl mb-3 border border-[#E5E7EB]" />
+          ) : savedDoc ? (
+            <button onClick={() => viewSavedDoc(savedDoc)} className="w-full rounded-xl border border-[#E5E7EB] py-3 text-[12px] font-semibold text-[#374151] mb-3">🖼 View Saved Photo</button>
+          ) : null}
           <p className="text-[11px] font-semibold text-[#6B7280] mb-2">Confirm address details before saving:</p>
           <div className="flex flex-col gap-2 mb-4">
             {[["door_no", "Door No"], ["village", "Village"], ["mandal", "Mandal"], ["district", "District"], ["state", "State"]].map(([key, label]) => {
@@ -13741,7 +13798,7 @@ export default function App() {
             <BulkAIImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
           )}
           {!subView && view === "aadhaar-match" && (
-            <AadhaarMatchUpload beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
+            <AadhaarMatchUpload beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} onBack={() => goTo("dashboard")} />
           )}
           {!subView && !trainingSubView && view === "training" && (
             <TrainingList
