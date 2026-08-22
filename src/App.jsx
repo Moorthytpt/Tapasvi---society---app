@@ -1303,7 +1303,11 @@ const applyParsedRecords = (parsed) => {
     const notesParts = [];
     Object.keys(row).forEach(header => {
       const norm = normalizeHeader(header);
-      const match = EXCEL_COLUMN_MAP.find(m => m.keys.some(k => norm === k || norm.includes(k)));
+      // Exact match first — a loose substring match (e.g. "cfname".includes
+      // ("name")) must never win over another column's own exact key, or a
+      // column like "CF Name" ends up overwriting "Beneficiary Name".
+      const match = EXCEL_COLUMN_MAP.find(m => m.keys.some(k => norm === k))
+        || EXCEL_COLUMN_MAP.find(m => m.keys.some(k => norm.includes(k)));
       if (!match) return;
       const val = (row[header] ?? "").toString().trim();
       if (!val) return;
