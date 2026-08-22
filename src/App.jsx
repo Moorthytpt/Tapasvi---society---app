@@ -6526,6 +6526,8 @@ function UserManagement({ currentUser, showToast }) {
   const isSuperAdmin = currentUser.role === "super_admin";
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditLogLimit, setAuditLogLimit] = useState(500);
   const [loading, setLoading] = useState(true);
   const [subView, setSubView] = useState("list"); // list | form | audit
   const [editing, setEditing] = useState(null);
@@ -6545,9 +6547,9 @@ function UserManagement({ currentUser, showToast }) {
   }, []);
 
   const loadAuditLogs = useCallback(async () => {
-    const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(500);
+    const { data } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(auditLogLimit);
     setAuditLogs(data || []);
-  }, []);
+  }, [auditLogLimit]);
 
   useEffect(() => { loadUsers(); loadAuditLogs(); }, [loadUsers, loadAuditLogs]);
 
@@ -6669,14 +6671,28 @@ function UserManagement({ currentUser, showToast }) {
 
   // ── AUDIT LOG VIEW ─────────────────────────────────────────
   if (subView === "audit") {
+    const q = auditQuery.trim().toLowerCase();
+    const filteredAudit = q
+      ? auditLogs.filter(log =>
+          (log.details || "").toLowerCase().includes(q) ||
+          (log.user_email || "").toLowerCase().includes(q) ||
+          (log.module || "").toLowerCase().includes(q) ||
+          (log.action || "").toLowerCase().includes(q)
+        )
+      : auditLogs;
     return (
       <div>
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-3 mb-3">
           <button onClick={() => setSubView("list")} className="p-2 rounded-lg hover:bg-[#F3F4F6]"><X size={18} className="text-[#6B7280]" /></button>
           <div>
             <h2 className="text-[18px] font-bold text-[#111827]">Audit Logs</h2>
-            <p className="text-[12px] text-[#6B7280]">{auditLogs.length} entries</p>
+            <p className="text-[12px] text-[#6B7280]">{filteredAudit.length} of {auditLogs.length} loaded entries</p>
           </div>
+        </div>
+        <div className="flex gap-2 mb-4">
+          <input value={auditQuery} onChange={e => setAuditQuery(e.target.value)} placeholder="Search by name, user, module, action…"
+            className="flex-1 rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-[13px]" />
+          <button onClick={() => setAuditLogLimit(n => n + 1000)} className="rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-[11.5px] font-semibold text-[#374151] whitespace-nowrap">Load Older</button>
         </div>
         <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
           <table className="w-full text-[12px]">
@@ -6690,7 +6706,7 @@ function UserManagement({ currentUser, showToast }) {
               </tr>
             </thead>
             <tbody>
-              {auditLogs.map((log, i) => {
+              {filteredAudit.map((log, i) => {
                 const styles = {
                   CREATE: ["#DCFCE7", "#16A34A"], DELETE: ["#FEE2E2", "#DC2626"], STATUS: ["#FFF7ED", "#F97316"],
                   UPDATE: ["#EFF6FF", "#1E3A8A"], LOGIN: ["#F0FDF4", "#16A34A"], LOGIN_FAILED: ["#FEE2E2", "#DC2626"],
@@ -6709,8 +6725,8 @@ function UserManagement({ currentUser, showToast }) {
                   </tr>
                 );
               })}
-              {auditLogs.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-12 text-center text-[#9CA3AF]">No audit logs yet.</td></tr>
+              {filteredAudit.length === 0 && (
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-[#9CA3AF]">{q ? "No matching entries." : "No audit logs yet."}</td></tr>
               )}
             </tbody>
           </table>
