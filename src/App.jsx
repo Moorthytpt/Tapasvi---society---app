@@ -10,14 +10,14 @@ import ImageCaptureOptimizer from "./components/bulkImport/ImageCaptureOptimizer
 import AIReview from "./components/bulkImport/AIReview";
 import PromptGenerator from "./components/bulkImport/PromptGenerator";
 import ProviderConfig from "./components/bulkImport/ProviderConfig";
-import { getProviderStatuses } from "./services/ai/providerConnection";
+import { getProviderStatuses, analyzeImage } from "./services/ai/providerConnection";
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
   ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
   AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
   CheckCircle, XCircle, Clock, Award, RefreshCw, Settings as SettingsIcon,
-  Building2, Palette, Database, ShieldCheck
+  Building2, Palette, Database, ShieldCheck, CreditCard
 } from "lucide-react";
 
 /* ============================================================
@@ -1286,7 +1286,9 @@ const applyParsedRecords = (parsed) => {
     { keys: ["fatherhusbandname", "fatherorhusband", "fathername", "husbandname"], field: "father_husband_name" },
     { keys: ["gender", "sex"], field: "gender" },
     { keys: ["age"], field: "age" },
-    { keys: ["cellno", "mobileno", "mobile", "phoneno", "phone"], field: "phone" },
+    // "68il" is a corrupted header found in the PSMM-AP master list exports —
+    // that column actually holds the beneficiary's mobile number.
+    { keys: ["cellno", "mobileno", "mobile", "phoneno", "phone", "68il"], field: "phone" },
     { keys: ["village"], field: "village" },
     { keys: ["mandal"], field: "mandal" },
     { keys: ["district"], field: "district" },
@@ -1667,6 +1669,283 @@ Program: RYDEAP`}
       )}
 
        {screen === "aiReview" && <AIReview images={capturedImages} onBack={() => setScreen("capture")} currentUser={currentUser} showToast={showToast} onRecordsReady={applyParsedRecords} />}
+    </div>
+  );
+}
+
+/* ============================================================
+   AADHAAR AUTO-MATCH UPLOAD — general DMS entry point (no
+   beneficiary pre-selected). Field worker photographs an Aadhaar
+   card / Xerox copy; the connected AI provider (same per-user
+   key infra as Bulk AI Import) reads Name/Aadhaar Number/Door No/
+   Village/Mandal/District/State off it via the existing
+   parseAIText() "Label: value" parser (same reused engine as the
+   rest of Bulk AI Import, not a new parser). The Aadhaar number
+   is matched against beneficiaries_v2.identity_number; on a match
+   the field worker reviews extracted address details (only fields
+   currently empty on the record are offered, so nothing already
+   filled is ever silently overwritten) and confirms before
+   anything is saved. Saving both fills those empty fields and
+   links the photo itself as an "Identity Proof" document on that
+   beneficiary via the existing shared uploadDocument()/DMS bucket.
+   No match found -> manual name search fallback, same review step.
+   ============================================================ */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("Could not read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+const AADHAAR_EXTRACT_PROMPT = `You are reading a photo of a single Indian Aadhaar card (or its photocopy/Xerox). Extract ONLY these fields and respond in this exact "Label: value" format, one per line, nothing else — no extra text, no markdown, no numbering:
+Name: <full name printed on the card, or null>
+Aadhaar Number: <all 12 digits only, no spaces — if even one digit is unclear or unreadable, write null. Never guess a partial number.>
+Door No: <house/door number from the printed address, or null>
+Village: <village/town from the printed address, or null>
+Mandal: <mandal/taluk from the printed address, or null>
+District: <district from the printed address, or null>
+State: <state from the printed address, or null>
+If this image is not an Aadhaar card, write null for every field.`;
+
+function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit, onImported }) {
+  const [showProviderConfig, setShowProviderConfig] = useState(false);
+  const [connectedProviderId, setConnectedProviderId] = useState(null);
+  const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const aadhaarUserId = currentUser?.userId || currentUser?.supabaseUser?.id || null;
+
+  useEffect(() => {
+    if (!aadhaarUserId) { setProviderStatusLoading(false); return; }
+    let cancelled = false;
+    setProviderStatusLoading(true);
+    getProviderStatuses(aadhaarUserId).then((statuses) => {
+      if (cancelled) return;
+      const connected = Object.values(statuses).find((s) => s.is_connected);
+      setConnectedProviderId(connected ? connected.provider : null);
+      setProviderStatusLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [aadhaarUserId, showProviderConfig]);
+
+  const [stage, setStage] = useState("capture"); // capture | analyzing | review | nomatch | manualSearch
+  const [photoFile, setPhotoFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [extracted, setExtracted] = useState(null);
+  const [matched, setMatched] = useState(null);
+  const [editFields, setEditFields] = useState({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (showProviderConfig) {
+    return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
+  }
+
+  const resetAll = () => {
+    setStage("capture"); setPhotoFile(null); setPreviewUrl(null);
+    setExtracted(null); setMatched(null); setEditFields({}); setSearchQuery("");
+  };
+
+  const onPickPhoto = async (file) => {
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file, 1600, 0.85);
+      setPhotoFile(compressed);
+      setPreviewUrl(URL.createObjectURL(compressed));
+    } catch (e) {
+      showToast(e.message || "Could not read image", "error");
+    }
+  };
+
+  const seedEditFields = (foundMatch, rec) => ({
+    door_no: foundMatch.house_no || rec.house_no || "",
+    village: foundMatch.village || rec.village || "",
+    mandal: foundMatch.mandal || rec.mandal || "",
+    district: foundMatch.district || rec.district || "",
+    state: foundMatch.state || rec.state || "",
+  });
+
+  const analyze = async () => {
+    if (!photoFile) return;
+    if (!connectedProviderId) { showToast("Connect an AI provider first.", "error"); return; }
+    setStage("analyzing");
+    try {
+      const base64 = await fileToBase64(photoFile);
+      const rawText = await analyzeImage(aadhaarUserId, connectedProviderId, base64, photoFile.type || "image/jpeg", AADHAAR_EXTRACT_PROMPT);
+      const parsed = parseAIText(rawText);
+      const rec = parsed?.[0] || {};
+      setExtracted(rec);
+      const cleanAadhaar = String(rec.aadhaar_number || "").replace(/\D/g, "");
+      if (cleanAadhaar.length !== 12) {
+        setStage("nomatch");
+        showToast("Aadhaar number could not be read clearly — try a clearer photo.", "error");
+        return;
+      }
+      const foundMatch = (beneficiaries || []).find(b => String(b.identity_number || "").replace(/\D/g, "") === cleanAadhaar);
+      if (foundMatch) {
+        setMatched(foundMatch);
+        setEditFields(seedEditFields(foundMatch, rec));
+        setStage("review");
+      } else {
+        setStage("nomatch");
+      }
+    } catch (e) {
+      showToast(e.message || "Analysis failed", "error");
+      setStage("capture");
+    }
+  };
+
+  const pickManual = (b) => {
+    setMatched(b);
+    setEditFields(seedEditFields(b, extracted || {}));
+    setStage("review");
+  };
+
+  const confirmSave = async () => {
+    if (!matched || !photoFile) return;
+    setSaving(true);
+    try {
+      const updatePayload = {};
+      if (!matched.house_no && editFields.door_no) updatePayload.house_no = editFields.door_no;
+      if (!matched.village && editFields.village) updatePayload.village = editFields.village;
+      if (!matched.mandal && editFields.mandal) updatePayload.mandal = editFields.mandal;
+      if (!matched.district && editFields.district) updatePayload.district = editFields.district;
+      if (!matched.state && editFields.state) updatePayload.state = editFields.state;
+      if (Object.keys(updatePayload).length > 0) {
+        const { error } = await supabase.from("beneficiaries_v2").update(updatePayload).eq("beneficiary_id", matched.beneficiary_id);
+        if (error) throw error;
+      }
+      await uploadDocument({
+        file: photoFile, entityType: "beneficiary", entityId: matched.beneficiary_id,
+        documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
+      });
+      await logAppAudit("UPDATE", "Beneficiaries", `Aadhaar auto-matched & linked for ${matched.name} (${matched.beneficiary_id})`);
+      showToast("Saved — Aadhaar photo linked and address filled.", "success");
+      if (onImported) onImported();
+      resetAll();
+    } catch (e) {
+      showToast(e.message || "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (providerStatusLoading) {
+    return <div className="max-w-[480px] mx-auto text-center py-10 text-[13px] text-[#6B7280]">Checking AI provider…</div>;
+  }
+
+  if (!connectedProviderId) {
+    return (
+      <div className="max-w-[480px] mx-auto text-center py-10">
+        <CreditCard size={32} className="mx-auto mb-3 text-[#9CA3AF]" />
+        <p className="text-[14px] font-bold text-[#111827] mb-1">Connect an AI Provider</p>
+        <p className="text-[12px] text-[#6B7280] mb-4">Aadhaar Auto-Match needs a connected AI provider (OpenAI/Gemini/Claude) to read the card.</p>
+        <button onClick={() => setShowProviderConfig(true)} className="rounded-xl px-6 py-3 text-[13px] font-bold text-white" style={{ background: "#7C3AED" }}>Connect Provider</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-[480px] mx-auto">
+      <h2 className="text-[17px] font-bold text-[#111827] mb-1">Aadhaar Auto-Match Upload</h2>
+      <p className="text-[12px] text-[#6B7280] mb-4">Photograph an Aadhaar card / Xerox copy — matching beneficiary and address details are found automatically.</p>
+
+      {stage === "capture" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          {previewUrl ? (
+            <img src={previewUrl} alt="Aadhaar preview" className="w-full rounded-xl mb-3 border border-[#E5E7EB]" />
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-[#E5E7EB] py-10 text-center text-[12px] text-[#9CA3AF] mb-3">No photo selected</div>
+          )}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <label className="flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[12.5px] font-semibold text-[#374151] cursor-pointer" style={{ minHeight: 44 }}>
+              📷 Take Photo
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { onPickPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+            <label className="flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[12.5px] font-semibold text-[#374151] cursor-pointer" style={{ minHeight: 44 }}>
+              🖼 Gallery
+              <input type="file" accept="image/*" className="hidden" onChange={e => { onPickPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+          </div>
+          <button onClick={analyze} disabled={!photoFile} className="w-full rounded-xl py-3.5 text-[14px] font-bold text-white disabled:opacity-40" style={{ background: "#7C3AED", minHeight: 48 }}>
+            Analyze & Match
+          </button>
+        </div>
+      )}
+
+      {stage === "analyzing" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-8 text-center">
+          <RefreshCw size={26} className="mx-auto mb-3 text-[#7C3AED] animate-spin" />
+          <p className="text-[13px] text-[#374151]">Reading Aadhaar card and searching for a match…</p>
+        </div>
+      )}
+
+      {stage === "nomatch" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5">
+          <XCircle size={28} className="mx-auto mb-2 text-[#DC2626]" />
+          <p className="text-[13.5px] font-bold text-[#111827] text-center mb-1">No Matching Beneficiary Found</p>
+          {extracted?.aadhaar_number && <p className="text-[11.5px] text-[#6B7280] text-center mb-4">Read Aadhaar: {extracted.aadhaar_number} {extracted.name ? `· ${extracted.name}` : ""}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setStage("manualSearch")} className="rounded-xl border border-[#E5E7EB] py-3 text-[12.5px] font-semibold text-[#374151]" style={{ minHeight: 44 }}>Search Manually</button>
+            <button onClick={resetAll} className="rounded-xl py-3 text-[12.5px] font-bold text-white" style={{ background: "#7C3AED", minHeight: 44 }}>Retake Photo</button>
+          </div>
+        </div>
+      )}
+
+      {stage === "manualSearch" && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search beneficiary by name…"
+            className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-[13px] mb-3" />
+          <div className="max-h-72 overflow-y-auto flex flex-col gap-1.5">
+            {(beneficiaries || [])
+              .filter(b => searchQuery.trim().length > 0 && (b.name || "").toLowerCase().includes(searchQuery.trim().toLowerCase()))
+              .slice(0, 20)
+              .map(b => (
+                <button key={b.beneficiary_id} onClick={() => pickManual(b)} className="text-left rounded-xl border border-[#E5E7EB] px-3 py-2.5 hover:bg-[#F3F4F6]">
+                  <p className="text-[12.5px] font-semibold text-[#111827]">{b.name}</p>
+                  <p className="text-[10.5px] text-[#6B7280]">{b.beneficiary_id} · {b.village || "—"}</p>
+                </button>
+              ))}
+            {searchQuery.trim().length > 0 && (beneficiaries || []).filter(b => (b.name || "").toLowerCase().includes(searchQuery.trim().toLowerCase())).length === 0 && (
+              <p className="text-[11.5px] text-[#9CA3AF] text-center py-4">No matches</p>
+            )}
+          </div>
+          <button onClick={resetAll} className="w-full rounded-xl border border-[#E5E7EB] py-2.5 text-[12px] font-semibold text-[#374151] mt-3">Cancel</button>
+        </div>
+      )}
+
+      {stage === "review" && matched && (
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+          <div className="rounded-xl mb-3 p-3" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+            <p className="text-[13px] font-bold text-[#111827]">{matched.name}</p>
+            <p className="text-[11px] text-[#16A34A]">{matched.beneficiary_id} · Aadhaar matched: {extracted?.aadhaar_number}</p>
+          </div>
+          {previewUrl && <img src={previewUrl} alt="Aadhaar" className="w-full rounded-xl mb-3 border border-[#E5E7EB]" />}
+          <p className="text-[11px] font-semibold text-[#6B7280] mb-2">Confirm address details before saving:</p>
+          <div className="flex flex-col gap-2 mb-4">
+            {[["door_no", "Door No"], ["village", "Village"], ["mandal", "Mandal"], ["district", "District"], ["state", "State"]].map(([key, label]) => {
+              const alreadyOnRecord = key === "door_no" ? matched.house_no : matched[key];
+              return (
+                <div key={key}>
+                  <p className="text-[10px] text-[#9CA3AF] mb-0.5">{label}{alreadyOnRecord ? " (already on record — not changed)" : ""}</p>
+                  {alreadyOnRecord ? (
+                    <p className="text-[12.5px] text-[#111827] px-3 py-2 rounded-lg bg-[#F3F4F6]">{alreadyOnRecord}</p>
+                  ) : (
+                    <input value={editFields[key] || ""} onChange={e => setEditFields(f => ({ ...f, [key]: e.target.value }))}
+                      className="w-full rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12.5px]" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={resetAll} disabled={saving} className="rounded-xl border border-[#E5E7EB] py-3 text-[12.5px] font-semibold text-[#374151] disabled:opacity-50" style={{ minHeight: 44 }}>Cancel</button>
+            <button onClick={confirmSave} disabled={saving} className="rounded-xl py-3 text-[12.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A", minHeight: 44 }}>
+              {saving ? "Saving…" : "Confirm & Save"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -13140,6 +13419,7 @@ export default function App() {
         { key: "beneficiaries", label: "Beneficiaries", emoji: "👥", icon: Users, onClick: () => goTo("beneficiaries"), active: view === "beneficiaries" },
         { key: "ocr-import", label: "Smart Import (OCR)", emoji: "📇", icon: ClipboardList, onClick: () => goTo("ocr-import"), active: view === "ocr-import" },
         { key: "bulk-ai-import", label: "Bulk AI Import", emoji: "🤖", icon: FileSpreadsheet, onClick: () => goTo("bulk-ai-import"), active: view === "bulk-ai-import" },
+        { key: "aadhaar-match", label: "Aadhaar Auto-Match", emoji: "🪪", icon: CreditCard, onClick: () => goTo("aadhaar-match"), active: view === "aadhaar-match" },
         { key: "training", label: "Training", emoji: "🎓", icon: BookOpen, onClick: () => goTo("training"), active: view === "training" && !trainingSubView },
       ],
     },
@@ -13414,6 +13694,9 @@ export default function App() {
           )}
           {!subView && view === "bulk-ai-import" && (
             <BulkAIImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
+          )}
+          {!subView && view === "aadhaar-match" && (
+            <AadhaarMatchUpload beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
           )}
           {!subView && !trainingSubView && view === "training" && (
             <TrainingList
