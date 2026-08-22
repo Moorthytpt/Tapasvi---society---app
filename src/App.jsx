@@ -1709,7 +1709,7 @@ District: <district from the printed address, or null>
 State: <state from the printed address, or null>
 If this image is not an Aadhaar card, write null for every field.`;
 
-function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit, onImported, onBack }) {
+function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit, onImported, onBack, isAdmin }) {
   const [showProviderConfig, setShowProviderConfig] = useState(false);
   const [connectedProviderId, setConnectedProviderId] = useState(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
@@ -1761,6 +1761,22 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
   const linkExistingDoc = (doc) => {
     setSavedDoc(doc); setPhotoFile(null); setPreviewUrl(null); setExtracted({});
     setStage("manualSearch"); setShowUnlinked(false);
+  };
+
+  const [deleteDocTarget, setDeleteDocTarget] = useState(null);
+  const confirmDeleteDoc = async () => {
+    if (!deleteDocTarget) return;
+    try {
+      await supabase.storage.from("beneficiary-documents").remove([deleteDocTarget.file_path]);
+      const { error } = await supabase.from("documents").delete().eq("id", deleteDocTarget.id);
+      if (error) throw error;
+      await logAppAudit("DELETE", "Documents", `Deleted unlinked ID photo: ${deleteDocTarget.file_name}`);
+      showToast("Deleted.", "success");
+      setDeleteDocTarget(null);
+      loadUnlinked();
+    } catch (e) {
+      showToast(e.message || "Delete failed", "error");
+    }
   };
 
   if (showProviderConfig) {
@@ -1937,10 +1953,17 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
               <div className="flex gap-1.5 shrink-0">
                 <button onClick={() => viewSavedDoc(doc)} className="text-[10.5px] font-semibold text-[#374151] px-2.5 py-1.5 rounded-lg border border-[#E5E7EB]">View</button>
                 <button onClick={() => linkExistingDoc(doc)} className="text-[10.5px] font-semibold text-white px-2.5 py-1.5 rounded-lg" style={{ background: "#7C3AED" }}>Link</button>
+                {isAdmin && (
+                  <button onClick={() => setDeleteDocTarget(doc)} className="text-[10.5px] font-semibold text-[#DC2626] px-2.5 py-1.5 rounded-lg border border-[#FCA5A5]">Delete</button>
+                )}
               </div>
             </div>
           ))}
         </div>
+      )}
+      {deleteDocTarget && (
+        <ConfirmDialog title="Delete Photo?" message={`Permanently delete "${deleteDocTarget.file_name}"? This cannot be undone.`}
+          onConfirm={confirmDeleteDoc} onCancel={() => setDeleteDocTarget(null)} />
       )}
 
       {stage === "capture" && (
@@ -2413,6 +2436,7 @@ function LoginScreen({ onLogin }) {
       await supabase.from("app_users").update({ last_login: new Date().toISOString() }).eq("id", fwData.id);
       await supabase.from("audit_logs").insert({ user_email: fwData.full_name, action: "LOGIN", module: "Auth", details: "Logged in as Field Worker", created_at: new Date().toISOString() });
       setLoading(false);
+      try { localStorage.setItem("tapasvi_fw_session", JSON.stringify({ userId: fwData.id })); } catch (_) { /* non-fatal */ }
       finishLogin({ role: "fieldworker", username: fwData.full_name, mustChangePassword: !!fwData.must_change_password, userId: fwData.id });
       return;
     }
@@ -12880,6 +12904,7 @@ function ProgramForm({ editing, onSave, onCancel }) {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [view, setView] = useState("dashboard");
   const [subView, setSubView] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -12908,6 +12933,63 @@ export default function App() {
   const [activeBatch, setActiveBatch] = useState(null);
   const [employment, setEmployment] = useState([]);
   const [villages, setVillages] = useState([]);
+
+  // Restore login on page refresh instead of forcing a logout: Admin/Super
+  // Admin sessions already persist via Supabase Auth's own storage — we just
+  // never checked for one on load. Field Workers have no Supabase Auth
+  // session (custom app_users table check at login), so their login is
+  // persisted separately in localStorage and re-verified (still active)
+  // here before restoring.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: roleData } = await supabase.from("user_roles").select("role").eq("id", session.user.id).single();
+          if (roleData && (roleData.role === "admin" || roleData.role === "super_admin")) {
+            if (!cancelled) { setUser({ role: roleData.role, username: session.user.email, supabaseUser: session.user }); setAuthChecking(false); }
+            return;
+          }
+        }
+      } catch (_) { /* fall through to field worker check */ }
+      try {
+        const stored = localStorage.getItem("tapasvi_fw_session");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const { data: fwData } = await supabase.from("app_users").select("id, full_name, role, status, must_change_password").eq("id", parsed.userId).eq("role", "fieldworker").single();
+          if (fwData && fwData.status === "active") {
+            if (!cancelled) { setUser({ role: "fieldworker", username: fwData.full_name, mustChangePassword: !!fwData.must_change_password, userId: fwData.id }); setAuthChecking(false); }
+            return;
+          }
+          localStorage.removeItem("tapasvi_fw_session");
+        }
+      } catch (_) { /* non-fatal — falls through to login screen */ }
+      if (!cancelled) setAuthChecking(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Trap the hardware/gesture back button inside the app instead of exiting
+  // it: every time the user navigates one level deeper (a view change, a
+  // subview, a beneficiary profile, or the drawer opening), we push a guard
+  // history entry. Pressing back then pops that guard — we catch it via
+  // popstate and unwind one level of app state instead of letting the
+  // browser leave the page. At the true root (Dashboard, nothing open),
+  // back is left alone and behaves normally.
+  useEffect(() => {
+    if (!user || authChecking) return;
+    window.history.pushState({ tapasviGuard: true }, "", window.location.href);
+    const onPopState = () => {
+      if (subView) { setSubView(null); window.history.pushState({ tapasviGuard: true }, "", window.location.href); return; }
+      if (profileBeneficiary) { setProfileBeneficiary(null); window.history.pushState({ tapasviGuard: true }, "", window.location.href); return; }
+      if (drawerOpen) { setDrawerOpen(false); window.history.pushState({ tapasviGuard: true }, "", window.location.href); return; }
+      if (view !== "dashboard") { setView("dashboard"); window.history.pushState({ tapasviGuard: true }, "", window.location.href); return; }
+      // Already at the true root — allow the back navigation to proceed.
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [user, authChecking, subView, profileBeneficiary, drawerOpen, view]);
 
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
@@ -12938,6 +13020,7 @@ export default function App() {
         await supabase.auth.signOut();
       }
     } catch (e) { /* best-effort — proceed to log out locally regardless */ }
+    try { localStorage.removeItem("tapasvi_fw_session"); } catch (_) { /* non-fatal */ }
     setUser(null);
   };
 
@@ -13488,6 +13571,7 @@ export default function App() {
     "Role": e.job_role, "Employer": e.employer, "Income": e.monthly_income, "Status": e.status,
   })), "Employment Report"); };
 
+  if (authChecking) return <div className="min-h-screen flex items-center justify-center text-[13px] text-[#6B7280]">Loading…</div>;
   if (!user) return <LoginScreen onLogin={setUser} />;
   if (user.mustChangePassword) return <ChangePasswordScreen user={user} onDone={() => setUser(u => ({ ...u, mustChangePassword: false }))} />;
 
@@ -13798,7 +13882,7 @@ export default function App() {
             <BulkAIImportModule beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} />
           )}
           {!subView && view === "aadhaar-match" && (
-            <AadhaarMatchUpload beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} onBack={() => goTo("dashboard")} />
+            <AadhaarMatchUpload beneficiaries={visibleBeneficiaries} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} onImported={loadAll} onBack={() => goTo("dashboard")} isAdmin={isAdmin} />
           )}
           {!subView && !trainingSubView && view === "training" && (
             <TrainingList
