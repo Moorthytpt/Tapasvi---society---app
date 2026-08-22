@@ -1736,6 +1736,8 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
   const [editFields, setEditFields] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savedDoc, setSavedDoc] = useState(null); // the permanent copy, saved immediately on capture — kept even if no match is found or the process is cancelled
+  const [savingCopy, setSavingCopy] = useState(false);
 
   if (showProviderConfig) {
     return <ProviderConfig currentUser={currentUser} showToast={showToast} onBack={() => setShowProviderConfig(false)} />;
@@ -1744,14 +1746,33 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
   const resetAll = () => {
     setStage("capture"); setPhotoFile(null); setPreviewUrl(null);
     setExtracted(null); setMatched(null); setEditFields({}); setSearchQuery("");
+    setSavedDoc(null); setSavingCopy(false);
   };
 
+  // Every ID photo (Aadhaar or otherwise) is saved to the DMS the moment it's
+  // picked — as an unlinked "general" document — so a copy always exists even
+  // if no beneficiary match is found or the field worker abandons the flow.
+  // If a match is later confirmed, this same stored file is re-linked to that
+  // beneficiary (see confirmSave) instead of being uploaded a second time.
   const onPickPhoto = async (file) => {
     if (!file) return;
     try {
       const compressed = await compressImageFile(file, 1600, 0.85);
       setPhotoFile(compressed);
       setPreviewUrl(URL.createObjectURL(compressed));
+      setSavedDoc(null);
+      setSavingCopy(true);
+      try {
+        const doc = await uploadDocument({
+          file: compressed, entityType: "general", entityId: null,
+          documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
+        });
+        setSavedDoc(doc);
+      } catch (e) {
+        showToast("Photo captured, but saving a copy failed: " + (e.message || "unknown error"), "error");
+      } finally {
+        setSavingCopy(false);
+      }
     } catch (e) {
       showToast(e.message || "Could not read image", "error");
     }
@@ -1770,6 +1791,17 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
     if (!connectedProviderId) { showToast("Connect an AI provider first.", "error"); return; }
     setStage("analyzing");
     try {
+      if (!savedDoc) {
+        try {
+          const doc = await uploadDocument({
+            file: photoFile, entityType: "general", entityId: null,
+            documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
+          });
+          setSavedDoc(doc);
+        } catch (e) {
+          showToast("Could not save a copy of the photo: " + (e.message || "unknown error"), "error");
+        }
+      }
       const base64 = await fileToBase64(photoFile);
       const rawText = await analyzeImage(aadhaarUserId, connectedProviderId, base64, photoFile.type || "image/jpeg", AADHAAR_EXTRACT_PROMPT);
       const parsed = parseAIText(rawText);
@@ -1815,10 +1847,18 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
         const { error } = await supabase.from("beneficiaries_v2").update(updatePayload).eq("beneficiary_id", matched.beneficiary_id);
         if (error) throw error;
       }
-      await uploadDocument({
-        file: photoFile, entityType: "beneficiary", entityId: matched.beneficiary_id,
-        documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
-      });
+      if (savedDoc?.id) {
+        const { error: linkErr } = await supabase.from("documents").update({
+          entity_type: "beneficiary", entity_id: matched.beneficiary_id, category: DOCUMENT_CATEGORIES.beneficiary,
+        }).eq("id", savedDoc.id);
+        if (linkErr) throw linkErr;
+      } else {
+        // Fallback in case the immediate save-on-capture failed earlier.
+        await uploadDocument({
+          file: photoFile, entityType: "beneficiary", entityId: matched.beneficiary_id,
+          documentType: "Identity Proof", uploadedBy: currentUser?.username || currentUser?.full_name || "Field Worker",
+        });
+      }
       await logAppAudit("UPDATE", "Beneficiaries", `Aadhaar auto-matched & linked for ${matched.name} (${matched.beneficiary_id})`);
       showToast("Saved — Aadhaar photo linked and address filled.", "success");
       if (onImported) onImported();
@@ -1856,6 +1896,11 @@ function AadhaarMatchUpload({ beneficiaries, currentUser, showToast, logAppAudit
             <img src={previewUrl} alt="Aadhaar preview" className="w-full rounded-xl mb-3 border border-[#E5E7EB]" />
           ) : (
             <div className="rounded-xl border-2 border-dashed border-[#E5E7EB] py-10 text-center text-[12px] text-[#9CA3AF] mb-3">No photo selected</div>
+          )}
+          {photoFile && (
+            <p className="text-[10.5px] mb-3" style={{ color: savingCopy ? "#9CA3AF" : savedDoc ? "#16A34A" : "#DC2626" }}>
+              {savingCopy ? "Saving a copy…" : savedDoc ? "✓ Copy saved to DMS" : "⚠ Copy not saved — will retry when you tap Analyze"}
+            </p>
           )}
           <div className="grid grid-cols-2 gap-2 mb-3">
             <label className="flex items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] py-3 text-[12.5px] font-semibold text-[#374151] cursor-pointer" style={{ minHeight: 44 }}>
