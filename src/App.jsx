@@ -13014,9 +13014,15 @@ export default function App() {
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const isSuperAdmin = user?.role === "super_admin";
   const rbac = useRBAC(user);
-  // Field Workers only see beneficiaries they themselves registered — not other Field Workers' data
+  // Field Workers only see beneficiaries they themselves registered — not
+  // other Field Workers' data. Compared case/whitespace-insensitively: older
+  // records (e.g. from Excel imports) can carry a field_worker_name that
+  // looks identical but differs in case or a trailing space from the field
+  // worker's current login name, which would silently hide their own real
+  // data under a strict exact match.
+  const normName = (s) => (s || "").toString().trim().toLowerCase().replace(/\s+/g, " ");
   const visibleBeneficiaries = user?.role === "fieldworker"
-    ? beneficiaries.filter(b => b.field_worker_name === user.username)
+    ? beneficiaries.filter(b => normName(b.field_worker_name) === normName(user.username))
     : beneficiaries;
 
   const showToast = (message, type = "success") => setToast({ message, type });
