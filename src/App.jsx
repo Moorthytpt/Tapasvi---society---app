@@ -13050,19 +13050,38 @@ export default function App() {
     setUser(null);
   };
 
+  // Supabase/PostgREST caps a single select at ~1000 rows by default — with
+  // beneficiaries_v2 well past that, a plain .select("*") was silently
+  // truncating older records (ordered newest-first, so the oldest rows fell
+  // off the end) for every user, not just Field Workers. Paginate through
+  // in batches until a batch comes back short, so every row actually loads.
+  const fetchAllRows = async (table, orderCol, ascending = false) => {
+    const pageSize = 1000;
+    let from = 0;
+    let all = [];
+    while (true) {
+      const { data, error } = await supabase.from(table).select("*").order(orderCol, { ascending }).range(from, from + pageSize - 1);
+      if (error) throw error;
+      all = all.concat(data || []);
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+    return all;
+  };
+
   const loadAll = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
       const [ben, trn, batchT, enrl, emp, vil] = await Promise.all([
-        supabase.from("beneficiaries_v2").select("*").order("created_at", { ascending: false }),
+        fetchAllRows("beneficiaries_v2", "created_at", false),
         supabase.from("training").select("*").order("created_at", { ascending: false }),
         supabase.from("batch_trainings").select("*").order("created_at", { ascending: false }),
         supabase.from("training_enrollments").select("*").order("enrolled_at", { ascending: false }),
         supabase.from("employment").select("*").order("created_at", { ascending: false }),
         supabase.from("village_master").select("*").order("village_name"),
       ]);
-      if (ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error) throw new Error((ben.error || trn.error || batchT.error || enrl.error || emp.error || vil.error).message);
-      setBeneficiaries(ben.data || []);
+      if (trn.error || batchT.error || enrl.error || emp.error || vil.error) throw new Error((trn.error || batchT.error || enrl.error || emp.error || vil.error).message);
+      setBeneficiaries(ben || []);
       setTraining(trn.data || []);
       setEmployment(emp.data || []);
       setVillages(vil.data || []);
