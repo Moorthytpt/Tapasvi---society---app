@@ -1280,12 +1280,13 @@ const applyParsedRecords = (parsed) => {
     return window.__xlsxLoadingPromise;
   };
 
-  // Unicode-aware: keep any letter/number (Telugu script included), strip only
-  // spaces/punctuation. The old ASCII-only version silently turned any
-  // Telugu-only header (వయస్సు, లింగం, etc.) into an empty string, so it could
-  // never match anything — that's why files with Telugu column headers were
-  // coming through with Age/Gender/Village/etc. all blank.
-  const normalizeHeader = (h) => (h || "").toString().toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  // Unicode-aware: keep any letter/number (Telugu script included) AND any
+  // combining mark — Telugu vowel signs and the virama (్, ా, ి, ు, ం, etc.)
+  // are Unicode category Mark, not Letter, so a plain \p{L}\p{N} filter (the
+  // first attempt at this fix) silently strips them out and corrupts every
+  // Telugu word missing the vowel signs (e.g. "వయస్సు" -> "వయసస"), which
+  // then never matches the correctly-spelled keys below. \p{M} keeps them.
+  const normalizeHeader = (h) => (h || "").toString().toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, "");
   const EXCEL_COLUMN_MAP = [
     { keys: ["nameofthebeneficiary", "beneficiaryname", "name", "పేరు", "లబ్ధిదారుపేరు"], field: "name" },
     { keys: ["fatherhusbandname", "fatherorhusband", "fathername", "husbandname"], field: "father_husband_name" },
