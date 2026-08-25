@@ -1434,6 +1434,17 @@ const applyParsedRecords = (parsed) => {
     showToast(`Added ${rec.name || "record"} for ${prog.short} — review it below, then Import Selected to save.`);
   };
 
+  // A single "Aadhaar/Voter ID" input, auto-routed to the right underlying
+  // field by shape — 12 digits is Aadhaar, letters+digits (EPIC format) is
+  // Voter ID — since a beneficiary only ever has one of the two and the
+  // review card only has room to show one combined field (matches the
+  // "Aadhaar/Voter ID" heading already used on the printed report).
+  const updateIdentity = (id, rawVal) => {
+    const cleaned = rawVal.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    const isAadhaar = cleaned.length > 0 && /^\d+$/.test(cleaned);
+    setRecords(rs => revalidate(rs.map(r => r._id === id ? { ...r, aadhaar_number: isAadhaar ? cleaned : "", voter_id: isAadhaar ? "" : cleaned } : r)));
+  };
+
   const doImport = async () => {
     const toImport = records.filter(r => r._selected);
     if (toImport.length === 0) { showToast("Select at least one record first.", "error"); return; }
@@ -1552,7 +1563,7 @@ const applyParsedRecords = (parsed) => {
                     <Field label="Gender"><Select value={rec.gender} onChange={e => updateRecord(rec._id, "gender", e.target.value)} options={GENDER_OPTIONS} placeholder="Select" /></Field>
                     <Field label="Age"><Input type="number" value={rec.age} onChange={e => updateRecord(rec._id, "age", e.target.value)} /></Field>
                     <Field label="Mobile"><Input value={rec.phone} onChange={e => updateRecord(rec._id, "phone", e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" /></Field>
-                    <Field label="Aadhaar"><Input value={rec.aadhaar_number} onChange={e => updateRecord(rec._id, "aadhaar_number", e.target.value.replace(/\D/g, "").slice(0, 12))} inputMode="numeric" /></Field>
+                    <Field label="Aadhaar/Voter ID"><Input value={rec.aadhaar_number || rec.voter_id || ""} onChange={e => updateIdentity(rec._id, e.target.value)} /></Field>
                     <Field label="Door No"><Input value={rec.house_no || ""} onChange={e => updateRecord(rec._id, "house_no", e.target.value)} /></Field>
                     <Field label="Village"><Input value={rec.village} onChange={e => updateRecord(rec._id, "village", e.target.value)} /></Field>
                     <Field label="Mandal"><Input value={rec.mandal} onChange={e => updateRecord(rec._id, "mandal", e.target.value)} /></Field>
@@ -1566,7 +1577,7 @@ const applyParsedRecords = (parsed) => {
                     <InfoRow label="Gender" value={rec.gender || "—"} />
                     <InfoRow label="Age" value={rec.age || "—"} />
                     <InfoRow label="Mobile" value={rec.phone || "—"} />
-                    <InfoRow label="Aadhaar" value={rec.aadhaar_number || "—"} />
+                    <InfoRow label="Aadhaar/Voter ID" value={rec.aadhaar_number || rec.voter_id || "—"} />
                     <InfoRow label="Door No" value={rec.house_no || "—"} />
                     <InfoRow label="Village" value={rec.village || "—"} />
                     <InfoRow label="Mandal" value={rec.mandal || "—"} />
