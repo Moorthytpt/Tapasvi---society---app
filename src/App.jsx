@@ -1280,26 +1280,36 @@ const applyParsedRecords = (parsed) => {
     return window.__xlsxLoadingPromise;
   };
 
-  const normalizeHeader = (h) => (h || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Unicode-aware: keep any letter/number (Telugu script included), strip only
+  // spaces/punctuation. The old ASCII-only version silently turned any
+  // Telugu-only header (వయస్సు, లింగం, etc.) into an empty string, so it could
+  // never match anything — that's why files with Telugu column headers were
+  // coming through with Age/Gender/Village/etc. all blank.
+  const normalizeHeader = (h) => (h || "").toString().toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
   const EXCEL_COLUMN_MAP = [
-    { keys: ["nameofthebeneficiary", "beneficiaryname", "name"], field: "name" },
+    { keys: ["nameofthebeneficiary", "beneficiaryname", "name", "పేరు", "లబ్ధిదారుపేరు"], field: "name" },
     { keys: ["fatherhusbandname", "fatherorhusband", "fathername", "husbandname"], field: "father_husband_name" },
-    { keys: ["gender", "sex"], field: "gender" },
-    { keys: ["age"], field: "age" },
+    { keys: ["gender", "sex", "లింగం"], field: "gender" },
+    { keys: ["age", "వయస్సు"], field: "age" },
     // "68il" is a corrupted header found in the PSMM-AP master list exports —
     // that column actually holds the beneficiary's mobile number.
     { keys: ["cellno", "mobileno", "mobile", "phoneno", "phone", "68il"], field: "phone" },
-    { keys: ["village"], field: "village" },
-    { keys: ["mandal"], field: "mandal" },
-    { keys: ["district"], field: "district" },
+    { keys: ["doorno", "houseno", "housenumber", "ఇంటిసంఖ్య"], field: "house_no" },
+    { keys: ["village", "గ్రామం", "గ్రామంసెక్షన్"], field: "village" },
+    { keys: ["mandal", "మండలం"], field: "mandal" },
+    { keys: ["district", "జిల్లా"], field: "district" },
     { keys: ["state"], field: "state" },
+    // Voter ID (EPIC number) is a real, separate identity field — kept apart
+    // from Aadhaar/UID rather than dumped into notes, so it actually saves
+    // into the record's own voter_id field (see doImport below).
+    { keys: ["voterid", "voteridnumber", "epicno", "epicnumber", "epic", "ఓటర్id", "ఓటర్idనెంబర్"], field: "_voter" },
     { keys: ["uidnumber", "uid"], field: "_uid" },
     { keys: ["typeofservice", "servicefacilitated", "service"], field: "_service" },
     { keys: ["ssrname"], field: "_ssr" },
     { keys: ["cfname"], field: "_cf" },
   ];
   const mapExcelRow = (row) => {
-    const rec = { name: "", father_husband_name: "", gender: "", age: "", phone: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", program: "womens" };
+    const rec = { name: "", father_husband_name: "", gender: "", age: "", phone: "", house_no: "", voter_id: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", program: "womens" };
     const notesParts = [];
     Object.keys(row).forEach(header => {
       const norm = normalizeHeader(header);
@@ -1312,6 +1322,7 @@ const applyParsedRecords = (parsed) => {
       const val = (row[header] ?? "").toString().trim();
       if (!val) return;
       if (match.field === "_uid") notesParts.push(`PSMM ID: ${val}`);
+      else if (match.field === "_voter") rec.voter_id = val;
       else if (match.field === "_service") notesParts.push(`Service: ${val}`);
       else if (match.field === "_ssr") notesParts.push(`SSR: ${val}`);
       else if (match.field === "_cf") rec.field_worker_name = `${val} (PSMM)`;
@@ -2170,7 +2181,7 @@ function printBeneficiaryReport(rows, programLabel, generatedByEmail) {
   var men = rows.filter(function(b){ return b.gender === "Male"; }).length;
 
   var progMap = { rydeap: "RYDEAP", womens: "Women's Tailoring & Embroidery", waste: "Waste Management" };
-  var headers = ["Registration ID","Name","Program","Age","Gender","Aadhaar Number","Registration Status","Phone","Education","Status","House No","Village","Mandal","District","State","Category","Field Worker"];
+  var headers = ["Registration ID","Name","Program","Age","Gender","Aadhaar/Voter ID","Registration Status","Phone","Education","Status","House No","Village","Mandal","District","State","Category","Field Worker"];
   var thead = "<tr>" + headers.map(function(h){ return "<th>" + h + "</th>"; }).join("") + "</tr>";
   var tbody = rows.map(function(b){
     var cells = [
