@@ -1328,7 +1328,13 @@ const applyParsedRecords = (parsed) => {
       else if (match.field === "_ssr") notesParts.push(`SSR: ${val}`);
       else if (match.field === "_cf") rec.field_worker_name = `${val} (PSMM)`;
       else if (match.field === "gender") rec.gender = /^f/i.test(val) ? "Female" : /^m/i.test(val) ? "Male" : val;
-      else if (match.field === "district" || match.field === "state") { /* keep spreadsheet's own value */ rec[match.field] = val; }
+      else if (match.field === "district") {
+        const dv = val.toLowerCase();
+        if (dv.includes("చిత్తూర") || dv.includes("chittoor") || dv.includes("chittor")) rec.district = "Chittoor";
+        else if (dv.includes("తిరుపతి") || dv.includes("tirupati") || dv.includes("tirupathi")) rec.district = "Tirupati";
+        else rec.district = val;
+      }
+      else if (match.field === "state") { rec.state = val; }
       else rec[match.field] = val;
     });
     rec.extra_notes = notesParts.join(" | ");
