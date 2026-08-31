@@ -1300,6 +1300,7 @@ const applyParsedRecords = (parsed) => {
     { keys: ["mandal", "మండలం"], field: "mandal" },
     { keys: ["district", "జిల్లా"], field: "district" },
     { keys: ["state"], field: "state" },
+    { keys: ["category", "కేటగిరీ", "వర్గం"], field: "category" },
     // Voter ID (EPIC number) is a real, separate identity field — kept apart
     // from Aadhaar/UID rather than dumped into notes, so it actually saves
     // into the record's own voter_id field (see doImport below).
@@ -1310,7 +1311,7 @@ const applyParsedRecords = (parsed) => {
     { keys: ["cfname"], field: "_cf" },
   ];
   const mapExcelRow = (row) => {
-    const rec = { name: "", father_husband_name: "", gender: "", age: "", phone: "", house_no: "", voter_id: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", program: "womens" };
+    const rec = { name: "", father_husband_name: "", gender: "", age: "", phone: "", house_no: "", voter_id: "", village: "", mandal: "", district: "Tirupati", state: "Andhra Pradesh", program: "womens", category: "" };
     const notesParts = [];
     Object.keys(row).forEach(header => {
       const norm = normalizeHeader(header);
@@ -1335,6 +1336,16 @@ const applyParsedRecords = (parsed) => {
         else rec.district = val;
       }
       else if (match.field === "state") { rec.state = val; }
+      else if (match.field === "category") {
+        const cv = val.toUpperCase();
+        if (CATEGORY_OPTIONS.includes(cv)) rec.category = cv;
+        else if (cv.startsWith("SC")) rec.category = "SC";
+        else if (cv.startsWith("ST")) rec.category = "ST";
+        else if (cv.startsWith("BC")) rec.category = "BC";
+        else if (cv.startsWith("OC")) rec.category = "OC";
+        else if (cv.includes("MINOR")) rec.category = "Minority";
+        else rec.category = val;
+      }
       else rec[match.field] = val;
     });
     rec.extra_notes = notesParts.join(" | ");
