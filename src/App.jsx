@@ -14,10 +14,10 @@ import { getProviderStatuses, analyzeImage } from "./services/ai/providerConnect
 import {
   Users, Leaf, Scissors, Laptop, Search, LayoutDashboard, ClipboardList,
   Plus, Download, Printer, Edit2, Trash2, LogOut, Lock, User,
-  ChevronRight, X, Check, MapPin, BarChart3, FileSpreadsheet,
+  ChevronRight, ChevronLeft, X, Check, MapPin, BarChart3, FileSpreadsheet,
   AlertCircle, Filter, BookOpen, Briefcase, TrendingUp,
   CheckCircle, XCircle, Clock, Award, RefreshCw, Settings as SettingsIcon,
-  Building2, Palette, Database, ShieldCheck, CreditCard
+  Building2, Palette, Database, ShieldCheck, CreditCard, FileText
 } from "lucide-react";
 
 /* ============================================================
@@ -160,6 +160,18 @@ function nextPartnerCode(partners, prefix) {
   });
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
   return `${prefix}-${String(next).padStart(4, "0")}`;
+}
+
+// Letter numbers reset per calendar year: TAPASVI/LTR/<year>/<seq>
+function nextLetterNo(letters) {
+  const year = new Date().getFullYear();
+  const prefix = `TAPASVI/LTR/${year}/`;
+  const nums = letters.filter(l => l.letter_no?.startsWith(prefix)).map(l => {
+    const m = l.letter_no?.match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  });
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `${prefix}${String(next).padStart(3, "0")}`;
 }
 
 
@@ -2296,6 +2308,52 @@ function printTable(rows, title, cols) {
   var footerRow = "<tr><td class='ftrcell' colspan='" + headers.length + "'>" + footerHtml + "</td></tr>";
   w.document.write("<!DOCTYPE html><html><head><title>TAPASVI - " + title + "</title><style>" + css + "</style></head><body>" +
     "<table><thead>" + orgHeaderRow + thead + "</thead><tbody>" + tbody + "</tbody><tfoot>" + footerRow + "</tfoot></table>" + "</body></html>");
+  w.document.close();
+  w.focus();
+  setTimeout(function(){ w.print(); }, 600);
+}
+
+
+/* ── Letterhead print (logo header, tricolor footer stripe, addressed letter body) ── */
+function printLetterhead(letter) {
+  var w = window.open("", "_blank");
+  if (!w) return;
+  var logoUrl = window.location.origin + "/icon-512-transparent.png";
+  var dateStr = letter.letter_date ? new Date(letter.letter_date).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
+  // Body text may contain blank lines for paragraphs — turn those into real <p> tags,
+  // and escape user-typed text so it can't break out of the HTML we're building.
+  var esc = function(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };
+  var bodyHtml = esc(letter.body || "").split(/\n\s*\n/).map(function(para) {
+    return "<p>" + para.split("\n").join("<br/>") + "</p>";
+  }).join("");
+
+  var css = "@page{margin:110px 26px 60px 26px;} body{font-family:'Georgia',serif;padding:0;color:#111827;} " +
+    ".print-header{position:fixed;top:0;left:0;right:0;height:88px;display:flex;align-items:center;gap:12px;border-bottom:3px solid #1E3A8A;padding:10px 26px;background:#fff;} " +
+    ".print-header img{width:52px;height:52px;object-fit:contain;} " +
+    ".print-header .org-name{font-weight:bold;color:#1E3A8A;font-size:16px;font-family:Arial,sans-serif;} " +
+    ".print-header .org-sub{font-size:9.5px;color:#6B7280;font-family:Arial,sans-serif;margin-top:2px;} " +
+    ".print-footer{position:fixed;bottom:0;left:0;right:0;background:#fff;} " +
+    ".footer-stripe{height:4px;display:flex;} .footer-stripe span{flex:1;} " +
+    ".footer-text{font-size:9px;color:#999;padding:6px 26px;text-align:center;font-family:Arial,sans-serif;} " +
+    ".letter-meta{display:flex;justify-content:space-between;font-size:11.5px;color:#374151;font-family:Arial,sans-serif;margin-bottom:18px;} " +
+    ".letter-to{font-size:12.5px;margin-bottom:16px;line-height:1.5;} " +
+    ".letter-subject{font-weight:bold;text-decoration:underline;margin-bottom:14px;font-size:13px;} " +
+    "p{font-size:13px;line-height:1.7;margin:0 0 12px 0;text-align:justify;} " +
+    ".letter-sign{margin-top:46px;font-size:13px;line-height:1.6;}";
+
+  var headerHtml = "<div class='print-header'><img src='" + logoUrl + "'/><div><div class='org-name'>TAPASVI Society for Rural Development</div>" +
+    "<div class='org-sub'>Social Issues &amp; Health Organization | Tirupati, Andhra Pradesh</div></div></div>";
+  var footerHtml = "<div class='print-footer'><div class='footer-stripe'><span style='background:#F97316'></span><span style='background:#fff'></span><span style='background:#16A34A'></span></div>" +
+    "<div class='footer-text'>TAPASVI Society | " + esc(letter.letter_no || "") + " | Printed: " + new Date().toLocaleString("en-IN") + "</div></div>";
+
+  var metaHtml = "<div class='letter-meta'><span>" + esc(letter.letter_no || "") + "</span><span>Date: " + dateStr + "</span></div>";
+  var toHtml = letter.to_name ? "<div class='letter-to'>To,<br/>" + esc(letter.to_name).split("\n").join("<br/>") +
+    (letter.to_address ? "<br/>" + esc(letter.to_address).split("\n").join("<br/>") : "") + "</div>" : "";
+  var subjectHtml = letter.subject ? "<div class='letter-subject'>Sub: " + esc(letter.subject) + "</div>" : "";
+  var signHtml = "<div class='letter-sign'>Yours sincerely,<br/><br/><br/>For TAPASVI Society</div>";
+
+  w.document.write("<!DOCTYPE html><html><head><title>" + esc(letter.letter_no || "Letter") + "</title><style>" + css + "</style></head><body>" +
+    headerHtml + metaHtml + toHtml + subjectHtml + bodyHtml + signHtml + footerHtml + "</body></html>");
   w.document.close();
   w.focus();
   setTimeout(function(){ w.print(); }, 600);
@@ -12338,6 +12396,224 @@ function PartnerProfile({ partner: p, onEdit, onBack, currentUser, showToast }) 
 const PARTNER_ROLES = ["Funding Partner", "Implementation Partner", "Training Partner", "Placement Partner", "Technical Partner", "Monitoring Partner", "CSR Partner"];
 const LIVELIHOOD_LINK_TYPES = ["Employment", "Self Employment", "Entrepreneurship", "Skill Development", "Apprenticeship", "Internship", "Placement", "Other"];
 
+/* ============================================================
+   LETTERS MODULE — compose, save, and print letters on the
+   TAPASVI letterhead. Mirrors the Partners module's structure
+   (dashboard/list/form/view sub-states, Supabase-backed).
+   ============================================================ */
+function LettersModule({ isAdmin, currentUser, showToast, logAppAudit }) {
+  const [letters, setLetters] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sub, setSub] = useState("list"); // list | form | view
+  const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("letters").select("*").order("created_at", { ascending: false });
+    if (error) { showToast("Error loading letters: " + error.message, "error"); setLoading(false); return; }
+    setLetters(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveLetter = async (form) => {
+    const who = currentUser?.username || currentUser?.email || "unknown";
+    if (editing) {
+      const rec = { ...form, updated_at: new Date().toISOString(), updated_by: who };
+      const { error } = await supabase.from("letters").update(rec).eq("id", editing.id);
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      const updated = { ...editing, ...rec };
+      setLetters(ls => ls.map(l => l.id === editing.id ? updated : l));
+      await logAppAudit("UPDATE", "Letters", `Updated letter: ${form.letter_no} — ${form.subject}`);
+      showToast("Letter updated.");
+      setEditing(null); setViewing(updated); setSub("view");
+    } else {
+      const now = new Date().toISOString();
+      const rec = { ...form, letter_no: nextLetterNo(letters), created_at: now, updated_at: now, created_by: who, updated_by: who };
+      const { data, error } = await supabase.from("letters").insert(rec).select().single();
+      if (error) { showToast("Error: " + error.message, "error"); return; }
+      setLetters(ls => [data, ...ls]);
+      await logAppAudit("CREATE", "Letters", `Drafted letter: ${data.letter_no} — ${data.subject}`);
+      showToast(`Letter ${data.letter_no} saved.`);
+      setViewing(data); setSub("view");
+    }
+  };
+
+  const deleteLetter = async (l) => {
+    const { error } = await supabase.from("letters").delete().eq("id", l.id);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setLetters(ls => ls.filter(x => x.id !== l.id));
+    await logAppAudit("DELETE", "Letters", `Deleted letter: ${l.letter_no} — ${l.subject}`);
+    showToast("Letter deleted.");
+    setSub("list");
+  };
+
+  if (sub === "form") {
+    return <LetterForm editing={editing} onSave={saveLetter} onCancel={() => { setEditing(null); setSub(viewing ? "view" : "list"); }} />;
+  }
+  if (sub === "view" && viewing) {
+    return (
+      <LetterView letter={viewing} isAdmin={isAdmin}
+        onEdit={() => { setEditing(viewing); setSub("form"); }}
+        onDelete={() => deleteLetter(viewing)}
+        onPrint={() => printLetterhead(viewing)}
+        onBack={() => { setViewing(null); setSub("list"); }} />
+    );
+  }
+  return (
+    <LetterList letters={letters} isAdmin={isAdmin} loading={loading}
+      onAdd={() => { setEditing(null); setSub("form"); }}
+      onView={l => { setViewing(l); setSub("view"); }}
+      onPrint={printLetterhead}
+    />
+  );
+}
+
+function LetterList({ letters, isAdmin, loading, onAdd, onView, onPrint }) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return letters;
+    return letters.filter(l => (l.letter_no || "").toLowerCase().includes(q) || (l.subject || "").toLowerCase().includes(q) || (l.to_name || "").toLowerCase().includes(q));
+  }, [letters, query]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-[18px] font-bold text-[#111827]">Letters</h2>
+          <p className="text-[12px] text-[#6B7280]">{letters.length} saved letters</p>
+        </div>
+        {isAdmin && (
+          <button onClick={onAdd} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-bold text-white" style={{ background: "#1E3A8A" }}>
+            <Plus size={13} /> New Letter
+          </button>
+        )}
+      </div>
+
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search by letter no, subject, or recipient..." className={inputCls + " pl-9 text-[12.5px]"} />
+      </div>
+
+      {loading ? (
+        <p className="text-[12px] text-[#9CA3AF] text-center py-10">Loading...</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-[12px] text-[#9CA3AF] text-center py-10">No letters found.</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(l => (
+            <div key={l.id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition p-3.5 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "#EFF6FF" }}>
+                <FileText size={16} style={{ color: "#1E3A8A" }} />
+              </div>
+              <button onClick={() => onView(l)} className="flex-1 min-w-0 text-left">
+                <p className="text-[12.5px] font-semibold text-[#111827] truncate">{l.subject || "(No subject)"}</p>
+                <p className="text-[10.5px] text-[#6B7280] truncate">{l.letter_no} · To: {l.to_name || "—"} · {l.letter_date ? new Date(l.letter_date).toLocaleDateString("en-IN") : ""}</p>
+              </button>
+              <button onClick={() => onPrint(l)} className="rounded-lg border border-[#E5E7EB] p-2 hover:bg-[#F8FAFC] shrink-0" title="Print">
+                <Printer size={14} className="text-[#374151]" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LetterView({ letter: l, isAdmin, onEdit, onDelete, onPrint, onBack }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-[12px] font-semibold text-[#6B7280] mb-3">
+        <ChevronLeft size={14} /> Back to Letters
+      </button>
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div>
+            <p className="text-[11px] font-bold text-[#6B7280]">{l.letter_no}</p>
+            <h2 className="text-[16px] font-bold text-[#111827]">{l.subject || "(No subject)"}</h2>
+          </div>
+          <p className="text-[12px] text-[#6B7280]">{l.letter_date ? new Date(l.letter_date).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : ""}</p>
+        </div>
+        {l.to_name && (
+          <p className="text-[12.5px] text-[#374151] mb-3 whitespace-pre-line">To,{"\n"}{l.to_name}{l.to_address ? "\n" + l.to_address : ""}</p>
+        )}
+        <p className="text-[12.5px] text-[#111827] whitespace-pre-line leading-relaxed">{l.body}</p>
+      </div>
+      {isAdmin && (
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={onPrint} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-bold text-white" style={{ background: "#16A34A" }}>
+            <Printer size={13} /> Print on Letterhead
+          </button>
+          <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#111827] hover:bg-white">
+            <Edit2 size={13} /> Edit
+          </button>
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 rounded-lg border border-[#FCA5A5] px-3 py-2 text-[12px] font-medium text-[#DC2626] hover:bg-[#FEF2F2]">
+              <Trash2 size={13} /> Delete
+            </button>
+          ) : (
+            <>
+              <button onClick={onDelete} className="rounded-lg px-3 py-2 text-[12px] font-bold text-white" style={{ background: "#DC2626" }}>Confirm Delete</button>
+              <button onClick={() => setConfirmDelete(false)} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[12px] font-medium text-[#6B7280]">Cancel</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LetterForm({ editing, onSave, onCancel }) {
+  const BLANK = { to_name: "", to_address: "", subject: "", letter_date: new Date().toISOString().slice(0, 10), body: "" };
+  const [form, setForm] = useState(editing ? { to_name: editing.to_name || "", to_address: editing.to_address || "", subject: editing.subject || "", letter_date: editing.letter_date || BLANK.letter_date, body: editing.body || "" } : BLANK);
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  const canSave = form.subject.trim() && form.body.trim();
+
+  return (
+    <div>
+      <button onClick={onCancel} className="flex items-center gap-1 text-[12px] font-semibold text-[#6B7280] mb-3">
+        <ChevronLeft size={14} /> Cancel
+      </button>
+      <h2 className="text-[18px] font-bold text-[#111827] mb-4">{editing ? "Edit Letter" : "New Letter"}</h2>
+
+      <div className="space-y-3.5">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-semibold text-[#374151] block mb-1">Date</label>
+            <input type="date" value={form.letter_date} onChange={set("letter_date")} className={inputCls + " text-[12.5px]"} />
+          </div>
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold text-[#374151] block mb-1">To (Name / Designation)</label>
+          <input value={form.to_name} onChange={set("to_name")} placeholder="e.g. The District Collector" className={inputCls + " text-[12.5px]"} />
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold text-[#374151] block mb-1">Address (optional)</label>
+          <textarea value={form.to_address} onChange={set("to_address")} rows={2} placeholder="Office address..." className={inputCls + " text-[12.5px]"} />
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold text-[#374151] block mb-1">Subject *</label>
+          <input value={form.subject} onChange={set("subject")} placeholder="Subject line" className={inputCls + " text-[12.5px]"} />
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold text-[#374151] block mb-1">Letter Body *</label>
+          <textarea value={form.body} onChange={set("body")} rows={12} placeholder="Respected Sir/Madam,&#10;&#10;Write the letter content here. Leave a blank line between paragraphs."
+            className={inputCls + " text-[12.5px]"} />
+        </div>
+      </div>
+
+      <button disabled={!canSave} onClick={() => onSave(form)}
+        className="w-full mt-5 rounded-xl py-3 text-[13px] font-bold text-white disabled:opacity-50" style={{ background: "#1E3A8A" }}>
+        {editing ? "Save Changes" : "Save Letter"}
+      </button>
+    </div>
+  );
+}
+
 function LinkEmptyState({ label }) {
   return (
     <div className="text-center py-10 text-[#9CA3AF]">
@@ -13843,6 +14119,7 @@ export default function App() {
       items: [
         ...(isAdmin ? [{ key: "users", label: "Users", emoji: "👤", icon: Lock, onClick: () => goTo("users"), active: view === "users" }] : []),
         ...(isAdmin ? [{ key: "partners", label: "Partners", emoji: "🤝", icon: Building2, onClick: () => goTo("partners"), active: view === "partners" }] : []),
+        ...(isAdmin ? [{ key: "letters", label: "Letters", emoji: "✉️", icon: FileText, onClick: () => goTo("letters"), active: view === "letters" }] : []),
         ...(rbac.canView("Waste Management") ? [{ key: "waste-management", label: "Waste Management", emoji: "♻️", icon: Leaf, onClick: () => goTo("waste-management"), active: view === "waste-management" }] : []),
         ...(isAdmin ? [{ key: "waste-collection", label: "Daily Collection", emoji: "♻", icon: Leaf, onClick: () => goTo("waste-collection"), active: view === "waste-collection" }] : []),
         ...(rbac.canView("Waste Management") ? [{ key: "waste-villages", label: "Villages", emoji: "📍", icon: MapPin, onClick: () => goTo("waste-villages"), active: view === "waste-villages" }] : []),
@@ -14141,6 +14418,9 @@ export default function App() {
           )}
           {!subView && view === "partners" && isAdmin && (
             <PartnersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
+          )}
+          {!subView && view === "letters" && isAdmin && (
+            <LettersModule isAdmin={isAdmin} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
           )}
           {!subView && view === "waste-management" && rbac.canView("Waste Management") && (
             <WasteManagementModule isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} canEdit={rbac.canCreate("Waste Management") || rbac.canEdit("Waste Management")} canDelete={rbac.canDelete("Waste Management")} currentUser={user} showToast={showToast} logAppAudit={logAppAudit} />
