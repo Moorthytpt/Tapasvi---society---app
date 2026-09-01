@@ -4485,8 +4485,22 @@ function FieldWorkerDashboard({ beneficiaries, currentUser, onQuickAction, onVie
   );
 }
 
-function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms }) {
+function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelete, onExport, onPrint, onAddPrograms, onViewProfile, onPrintProfile, dynPrograms, onBulkAssignField }) {
+  // Fields the "bulk fill missing" tool can target. Add more here later by just
+  // adding an entry — the UI (select input, missing-count, apply) is generic.
+  const BULK_FIELD_DEFS = [
+    { key: "field_worker_name", label: "Field Worker", type: "text" },
+    { key: "category", label: "Category", type: "select", options: CATEGORY_OPTIONS },
+    { key: "phone", label: "Phone Number", type: "text" },
+    { key: "identity_number", label: "Aadhaar / Voter ID", type: "text" },
+    { key: "education", label: "Education", type: "text" },
+    { key: "house_no", label: "House No", type: "text" },
+  ];
   const [query, setQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkField, setBulkField] = useState("field_worker_name");
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkApplying, setBulkApplying] = useState(false);
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
@@ -4584,6 +4598,33 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
     setGenderFilter("all"); setAgeGroupFilter("all"); setCategoryFilter("all"); setRegFrom(""); setRegTo("");
   };
 
+  // Bulk field assignment — many older/imported records are missing one field or another
+  // (Field Worker, Category, Phone, Aadhaar/Voter ID, Education, House No). Admins pick which
+  // field to fill, select the records missing it (or "select all missing"), type one value,
+  // and apply it to every selected record in one action instead of editing each individually.
+  const activeBulkDef = BULK_FIELD_DEFS.find(f => f.key === bulkField) || BULK_FIELD_DEFS[0];
+  const missingFieldIds = useMemo(() => filtered.filter(b => !b[bulkField]).map(b => b.beneficiary_id), [filtered, bulkField]);
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectAllMissingField = () => setSelectedIds(new Set(missingFieldIds));
+  const clearSelection = () => setSelectedIds(new Set());
+  // Changing which field we're bulk-filling clears any in-progress selection/value —
+  // a selection made for "Category" shouldn't silently get applied as a Phone Number.
+  const onBulkFieldChange = (key) => { setBulkField(key); setBulkValue(""); clearSelection(); };
+  const applyBulkValue = async () => {
+    const value = bulkValue.trim();
+    if (!value || selectedIds.size === 0 || !onBulkAssignField) return;
+    setBulkApplying(true);
+    await onBulkAssignField([...selectedIds], bulkField, value);
+    setBulkApplying(false);
+    setBulkValue(""); clearSelection();
+  };
+
   // Dynamic summary — always reflects whatever filters are currently applied.
   const summary = useMemo(() => ({
     total: filtered.length,
@@ -4628,6 +4669,53 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
           </div>
         ))}
       </div>
+
+      {isAdmin && (
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-3 mb-3">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <span className="text-[11.5px] font-bold text-[#92400E]">Bulk fill missing field:</span>
+            <select value={bulkField} onChange={e => onBulkFieldChange(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+              {BULK_FIELD_DEFS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+            </select>
+            <span className="text-[12px] text-[#92400E]">
+              <b>{missingFieldIds.length}</b> record(s) shown missing {activeBulkDef.label}
+            </span>
+            {selectedIds.size === 0 && missingFieldIds.length > 0 && (
+              <button onClick={selectAllMissingField}
+                className="rounded-lg px-3 py-1.5 text-[11.5px] font-bold text-white" style={{ background: "#D97706" }}>
+                Select all missing {activeBulkDef.label}
+              </button>
+            )}
+          </div>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[12px] font-semibold text-[#92400E]">{selectedIds.size} selected</span>
+              {activeBulkDef.type === "select" ? (
+                <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
+                  <option value="">Select {activeBulkDef.label}</option>
+                  {activeBulkDef.options.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <>
+                  <input list={bulkField === "field_worker_name" ? "fw-name-options" : undefined}
+                    value={bulkValue} onChange={e => setBulkValue(e.target.value)}
+                    placeholder={activeBulkDef.label} className={inputCls + " w-auto text-[12px]"} style={{ minWidth: 180 }} />
+                  {bulkField === "field_worker_name" && (
+                    <datalist id="fw-name-options">
+                      {fieldWorkerOptions.map(w => <option key={w} value={w} />)}
+                    </datalist>
+                  )}
+                </>
+              )}
+              <button disabled={!bulkValue.trim() || bulkApplying} onClick={applyBulkValue}
+                className="rounded-lg px-3 py-1.5 text-[11.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A" }}>
+                {bulkApplying ? "Applying..." : "Apply to selected"}
+              </button>
+              <button onClick={clearSelection} className="text-[11.5px] font-semibold text-[#6B7280] px-2 py-1.5">Clear</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="relative mb-3">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
@@ -4714,6 +4802,10 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
             return (
               <div key={b.beneficiary_id} className="bg-white rounded-xl border border-[#E5E7EB] shadow-sm hover:shadow-md transition overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderLeft: `4px solid ${p.color}` }}>
+                  {isAdmin && (
+                    <input type="checkbox" checked={selectedIds.has(b.beneficiary_id)} onChange={() => toggleSelect(b.beneficiary_id)}
+                      className="w-4 h-4 shrink-0" />
+                  )}
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: p.tint }}>
                     <Icon size={16} style={{ color: p.color }} />
                   </div>
@@ -4741,7 +4833,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
                       )}
                       <div className="flex items-center gap-3 flex-wrap">
                         {b.phone && <span>📞 {b.phone}</span>}
-                        {b.field_worker_name && <span>👤 {b.field_worker_name}</span>}
+                        {b.field_worker_name ? <span>👤 {b.field_worker_name}</span> : <span className="text-[#DC2626] font-semibold">⚠ Field worker not set</span>}
                       </div>
                     </div>
                   </div>
@@ -13220,6 +13312,18 @@ export default function App() {
     );
   };
 
+  // Bulk-assign any one field (Field Worker, Category, Phone, Aadhaar/Voter ID, Education,
+  // House No) to many records at once — e.g. older/imported records saved with that field
+  // blank. Updates the DB in one call and mirrors the change into local state immediately.
+  const bulkAssignField = async (ids, fieldKey, value) => {
+    if (!ids || ids.length === 0 || !fieldKey || !value) return;
+    const { error } = await supabase.from("beneficiaries_v2").update({ [fieldKey]: value }).in("beneficiary_id", ids);
+    if (error) { showToast("Error: " + error.message, "error"); return; }
+    setBeneficiaries(bs => bs.map(b => ids.includes(b.beneficiary_id) ? { ...b, [fieldKey]: value } : b));
+    await logAppAudit("UPDATE", "Beneficiaries", `Bulk-set ${fieldKey} = "${value}" on ${ids.length} record(s).`);
+    showToast(`Applied to ${ids.length} record(s).`);
+  };
+
   const saveBeneficiary = async (form) => {
     if (editing) {
       const { error } = await supabase.from("beneficiaries_v2").update(form).eq("beneficiary_id", editing.beneficiary_id);
@@ -13935,6 +14039,7 @@ export default function App() {
           )}
           {!subView && view === "beneficiaries" && !profileBeneficiary && (
             <BeneficiaryList beneficiaries={visibleBeneficiaries} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} dynPrograms={dynPrograms}
+              onBulkAssignField={bulkAssignField}
               onEdit={b => { setEditing(b); setSubView("beneficiary-form"); }}
               onDelete={b => setDeleteTarget({ type: "beneficiary", record: b })}
               onExport={exportBeneficiaries} onPrint={printBeneficiaries}
