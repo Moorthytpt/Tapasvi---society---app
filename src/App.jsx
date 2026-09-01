@@ -4499,7 +4499,7 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkField, setBulkField] = useState("field_worker_name");
-  const [bulkValue, setBulkValue] = useState("");
+  const [bulkValuesText, setBulkValuesText] = useState("");
   const [bulkApplying, setBulkApplying] = useState(false);
   const [programFilter, setProgramFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -4599,11 +4599,18 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   };
 
   // Bulk field assignment — many older/imported records are missing one field or another
-  // (Field Worker, Category, Phone, Aadhaar/Voter ID, Education, House No). Admins pick which
-  // field to fill, select the records missing it (or "select all missing"), type one value,
-  // and apply it to every selected record in one action instead of editing each individually.
+  // (Field Worker, Category, Phone, Aadhaar/Voter ID, Education, House No). Admin picks which
+  // field to fill, selects the records missing it (or "select all missing"), then types one
+  // value PER record (comma or new-line separated, e.g. "Chandra, Lavanya, Kumari") — each
+  // value is applied to the matching record in the same order the records are listed below,
+  // so every selected beneficiary gets their own value in one action.
   const activeBulkDef = BULK_FIELD_DEFS.find(f => f.key === bulkField) || BULK_FIELD_DEFS[0];
   const missingFieldIds = useMemo(() => filtered.filter(b => !b[bulkField]).map(b => b.beneficiary_id), [filtered, bulkField]);
+  // Order of application always follows the order records appear in the (filtered) list —
+  // not the order they were clicked — so it lines up with the numbered preview shown to the admin.
+  const orderedSelected = useMemo(() => filtered.filter(b => selectedIds.has(b.beneficiary_id)), [filtered, selectedIds]);
+  const bulkValuesList = useMemo(() => bulkValuesText.split(/[\n,]+/).map(v => v.trim()).filter(Boolean), [bulkValuesText]);
+  const bulkCountMismatch = bulkValuesList.length > 0 && bulkValuesList.length !== orderedSelected.length;
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -4613,16 +4620,27 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
   };
   const selectAllMissingField = () => setSelectedIds(new Set(missingFieldIds));
   const clearSelection = () => setSelectedIds(new Set());
-  // Changing which field we're bulk-filling clears any in-progress selection/value —
-  // a selection made for "Category" shouldn't silently get applied as a Phone Number.
-  const onBulkFieldChange = (key) => { setBulkField(key); setBulkValue(""); clearSelection(); };
-  const applyBulkValue = async () => {
-    const value = bulkValue.trim();
-    if (!value || selectedIds.size === 0 || !onBulkAssignField) return;
+  // Changing which field we're bulk-filling clears any in-progress selection/values —
+  // values typed for "Category" shouldn't silently get applied as Phone Numbers.
+  const onBulkFieldChange = (key) => { setBulkField(key); setBulkValuesText(""); clearSelection(); };
+  const normalizeBulkValue = (raw) => {
+    if (activeBulkDef.type !== "select") return raw;
+    const cv = raw.toUpperCase();
+    if (activeBulkDef.options.includes(cv)) return cv;
+    if (cv.startsWith("SC")) return "SC";
+    if (cv.startsWith("ST")) return "ST";
+    if (cv.startsWith("BC")) return "BC";
+    if (cv.startsWith("OC")) return "OC";
+    if (cv.includes("MINOR")) return "Minority";
+    return raw;
+  };
+  const applyBulkValues = async () => {
+    if (bulkValuesList.length === 0 || bulkCountMismatch || !onBulkAssignField) return;
+    const pairs = orderedSelected.map((b, i) => ({ id: b.beneficiary_id, value: normalizeBulkValue(bulkValuesList[i]) }));
     setBulkApplying(true);
-    await onBulkAssignField([...selectedIds], bulkField, value);
+    await onBulkAssignField(pairs, bulkField);
     setBulkApplying(false);
-    setBulkValue(""); clearSelection();
+    setBulkValuesText(""); clearSelection();
   };
 
   // Dynamic summary — always reflects whatever filters are currently applied.
@@ -4688,30 +4706,34 @@ function BeneficiaryList({ beneficiaries, isAdmin, isSuperAdmin, onEdit, onDelet
             )}
           </div>
           {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[12px] font-semibold text-[#92400E]">{selectedIds.size} selected</span>
-              {activeBulkDef.type === "select" ? (
-                <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} className={selectCls + " w-auto text-[12px]"}>
-                  <option value="">Select {activeBulkDef.label}</option>
-                  {activeBulkDef.options.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-              ) : (
-                <>
-                  <input list={bulkField === "field_worker_name" ? "fw-name-options" : undefined}
-                    value={bulkValue} onChange={e => setBulkValue(e.target.value)}
-                    placeholder={activeBulkDef.label} className={inputCls + " w-auto text-[12px]"} style={{ minWidth: 180 }} />
-                  {bulkField === "field_worker_name" && (
-                    <datalist id="fw-name-options">
-                      {fieldWorkerOptions.map(w => <option key={w} value={w} />)}
-                    </datalist>
-                  )}
-                </>
+            <div>
+              <div className="flex items-center justify-between flex-wrap gap-1 mb-1.5">
+                <span className="text-[12px] font-semibold text-[#92400E]">{selectedIds.size} selected</span>
+                <button onClick={clearSelection} className="text-[11.5px] font-semibold text-[#6B7280] px-2 py-1">Clear</button>
+              </div>
+              {/* Numbered preview so the admin can see exactly which value (by position) will go to which record */}
+              <div className="max-h-28 overflow-y-auto rounded-lg border border-[#FDE68A] bg-white/60 mb-2 divide-y divide-[#FDE68A]">
+                {orderedSelected.map((b, i) => (
+                  <div key={b.beneficiary_id} className="flex items-center gap-2 px-2 py-1 text-[11px]">
+                    <span className="font-bold text-[#92400E] w-5 shrink-0">{i + 1}.</span>
+                    <span className="text-[#111827] truncate">{b.name}</span>
+                    <span className="text-[#9CA3AF] shrink-0">{b.beneficiary_id}</span>
+                    <span className="ml-auto font-mono text-[#16A34A] shrink-0">{bulkValuesList[i] ? normalizeBulkValue(bulkValuesList[i]) : "—"}</span>
+                  </div>
+                ))}
+              </div>
+              <textarea value={bulkValuesText} onChange={e => setBulkValuesText(e.target.value)} rows={2}
+                placeholder={`Enter ${orderedSelected.length} ${activeBulkDef.label} values, one per record — comma or new line separated\ne.g. Chandra, Lavanya, Kumari`}
+                className={inputCls + " text-[12px] w-full"} />
+              {bulkCountMismatch && (
+                <p className="text-[11px] text-[#DC2626] mt-1">
+                  {bulkValuesList.length} value(s) entered but {orderedSelected.length} record(s) selected — counts must match.
+                </p>
               )}
-              <button disabled={!bulkValue.trim() || bulkApplying} onClick={applyBulkValue}
-                className="rounded-lg px-3 py-1.5 text-[11.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A" }}>
-                {bulkApplying ? "Applying..." : "Apply to selected"}
+              <button disabled={bulkValuesList.length === 0 || bulkCountMismatch || bulkApplying} onClick={applyBulkValues}
+                className="mt-2 rounded-lg px-3 py-1.5 text-[11.5px] font-bold text-white disabled:opacity-50" style={{ background: "#16A34A" }}>
+                {bulkApplying ? "Applying..." : `Apply ${orderedSelected.length} value(s)`}
               </button>
-              <button onClick={clearSelection} className="text-[11.5px] font-semibold text-[#6B7280] px-2 py-1.5">Clear</button>
             </div>
           )}
         </div>
@@ -13312,16 +13334,23 @@ export default function App() {
     );
   };
 
-  // Bulk-assign any one field (Field Worker, Category, Phone, Aadhaar/Voter ID, Education,
-  // House No) to many records at once — e.g. older/imported records saved with that field
-  // blank. Updates the DB in one call and mirrors the change into local state immediately.
-  const bulkAssignField = async (ids, fieldKey, value) => {
-    if (!ids || ids.length === 0 || !fieldKey || !value) return;
-    const { error } = await supabase.from("beneficiaries_v2").update({ [fieldKey]: value }).in("beneficiary_id", ids);
-    if (error) { showToast("Error: " + error.message, "error"); return; }
-    setBeneficiaries(bs => bs.map(b => ids.includes(b.beneficiary_id) ? { ...b, [fieldKey]: value } : b));
-    await logAppAudit("UPDATE", "Beneficiaries", `Bulk-set ${fieldKey} = "${value}" on ${ids.length} record(s).`);
-    showToast(`Applied to ${ids.length} record(s).`);
+  // Bulk-assign a field (Field Worker, Category, Phone, Aadhaar/Voter ID, Education, House No)
+  // across many records at once — each record gets its OWN value (pairs = [{id, value}, ...]),
+  // not one shared value. Runs the per-record updates in parallel, then mirrors every change
+  // into local state so the list reflects it immediately.
+  const bulkAssignField = async (pairs, fieldKey) => {
+    if (!pairs || pairs.length === 0 || !fieldKey) return;
+    const results = await Promise.all(
+      pairs.map(({ id, value }) => supabase.from("beneficiaries_v2").update({ [fieldKey]: value }).eq("beneficiary_id", id))
+    );
+    const failed = results.filter(r => r.error);
+    if (failed.length > 0) showToast(`${failed.length} of ${pairs.length} update(s) failed: ${failed[0].error.message}`, "error");
+    setBeneficiaries(bs => {
+      const valueById = Object.fromEntries(pairs.map(p => [p.id, p.value]));
+      return bs.map(b => valueById[b.beneficiary_id] !== undefined ? { ...b, [fieldKey]: valueById[b.beneficiary_id] } : b);
+    });
+    await logAppAudit("UPDATE", "Beneficiaries", `Bulk-set ${fieldKey} individually on ${pairs.length} record(s).`);
+    if (failed.length === 0) showToast(`Applied to ${pairs.length} record(s).`);
   };
 
   const saveBeneficiary = async (form) => {
